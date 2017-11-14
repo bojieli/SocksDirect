@@ -1,0 +1,7 @@
+project(ipc_direct)
+add_library(ipc SHARED common/helper.c lib/attachqueue_lib.c lib/lib.c)
+target_link_libraries(ipc dl)
+target_link_libraries(ipc pthread)
+add_executable(monitor common/helper.c monitor/attachqueue_monitor.c monitor/main.c)
+target_link_libraries(monitor pthread)
+add_executable(test_attach test/test_attach.c)
