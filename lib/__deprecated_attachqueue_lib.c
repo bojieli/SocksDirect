@@ -2,8 +2,8 @@
 // Created by ctyi on 11/14/17.
 //
 #include "../common/helper.h"
-#include "../common/attachqueue.h"
-#include "attachqueue_lib.h"
+#include "../common/__deprecated_attachqueue.h"
+#include "__deprecated_attachqueue_lib.h"
 static sem_t *sem_fill_count_req=NULL,
         *sem_empty_count_req=NULL,*sem_mutex_req=NULL;
 
