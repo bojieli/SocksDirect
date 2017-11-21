@@ -1,5 +1,5 @@
 #include "../common/helper.h"
-#include "../common/attachqueue.h"
+#include "../common/__deprecated_attachqueue.h"
 static sem_t *sem_fill_count_req=NULL,
         *sem_empty_count_req=NULL,*sem_mutex_req=NULL;
 

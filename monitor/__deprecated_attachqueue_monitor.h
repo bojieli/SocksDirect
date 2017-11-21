@@ -4,7 +4,7 @@
 
 #ifndef IPC_DIRECT_ATTACHQUEUE_MONITOR_H
 #define IPC_DIRECT_ATTACHQUEUE_MONITOR_H
-#include "../common/attachqueue.h"
+#include "../common/__deprecated_attachqueue.h"
 extern void attachqueue_sysinit();
 extern int attachqueue_isempty();
 extern void attachqueue_pullreq(ctl_struc *result);

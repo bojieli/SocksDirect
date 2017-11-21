@@ -28,5 +28,4 @@ typedef struct
 #define SEM_EMPTY_COUNT_ACK "/ipcd_empty_count_ack"
 #define SEM_FILL_COUNT_ACK "/ipcd_full_count_ack"
 #define SEM_MUTEX_ACK "/ipcd_mutex_ack"
-#define SHM_NAME "/ipcd_shmem"
 #endif //IPC_DIRECT_ATTACHQUEUE_H
