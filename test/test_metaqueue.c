@@ -14,7 +14,7 @@ void* q_send(void* arg)
     q_pack.meta = &meta;
     q_pack.data = &q;
     metaqueue_init_meta(q_pack);
-    int counter = 0;
+    long counter = 0;
     metaqueue_element data;
     while (1)
     {

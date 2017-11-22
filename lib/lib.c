@@ -22,7 +22,7 @@ void connect_monitor()
         FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
     metaqueue = (metaqueue_data*) uniq_shared_base_addr;
     metaqueue_metadata[0].pointer=metaqueue_metadata[1].pointer=0;
-    
+
 }
 __attribute__((constructor))
 void after_exec()
@@ -44,7 +44,7 @@ void ipclib_sendmsg(int command, int data)
     metaqueue_element data2send;
     data2send.data.command.command=command;
     data2send.data.command.data=data;
-    data2send.data.command.pid=gettid();
+    //data2send.data.command.pid=gettid();
     metaqueue_pack q_pack;
     q_pack.data = &metaqueue[0];
     q_pack.meta = &metaqueue_metadata[0];
