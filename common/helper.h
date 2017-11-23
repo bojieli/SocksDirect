@@ -30,20 +30,10 @@
 
 enum {
     REQ_NOP,
-    REQ_FORK,
-    REQ_EXIT,
-    REQ_EXEC,
-    REQ_CLONE,
-    REQ_SETPID,
-    REQ_LOCKINIT,
-    REQ_LOCK,
-    REQ_TRYLOCK,
-    REQ_UNLOCK,
-    REQ_ECHO,
-    REQ_DEBUG,
-    REQ_ERROR,
     REQ_THRTEST,
-    REQ_THRTEST_INIT
+    REQ_THRTEST_INIT,
+    REQ_PING,
+    REQ_LISTEN
 };
 
 //configuration

@@ -61,9 +61,16 @@ static void thr_test_handler(long cnt_recv)
     }
 }
 __attribute__((always_inline))
+static void ping_handler(metaqueue_element *req_body, metaqueue_element *res_body)
+{
+    *res_body = *req_body;
+    (*res_body).data.command.data = ~req_body->data.command.data;
+}
+__attribute__((always_inline))
 static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res)
 {
     metaqueue_element req_body;
+    metaqueue_element res_body;
     metaqueue_pop(q_pack_req, &req_body);
     switch (req_body.data.command.command){
         case REQ_THRTEST:
@@ -72,6 +79,9 @@ static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res
         case REQ_THRTEST_INIT:
             thr_test_init_handler();
             break;
+        case REQ_PING:
+            ping_handler(&req_body, &res_body);
+            metaqueue_push(q_pack_res, &res_body);
         case REQ_NOP:
         default:
             break;
@@ -90,6 +100,7 @@ static void event_loop()
         //main part of the event loop
         metaqueue_pack q_pack_req, q_pack_res;
         q_pack_req = process_getrequesthandler_byqid(current_pointer);
+        q_pack_res = process_getresponsehandler_byqid(current_pointer);
         //if empty continue
         if (!metaqueue_isempty(q_pack_req))
             event_processer(q_pack_req, q_pack_res);
