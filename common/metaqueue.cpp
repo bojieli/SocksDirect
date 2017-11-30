@@ -2,11 +2,11 @@
 #include "../common/helper.h"
 void metaqueue_push(metaqueue_pack q_pack, metaqueue_element *data) {
     metaqueue_data* q=q_pack.data;
-    metaqueue_meta* q_m=q_pack.meta;
+    metaqueue_meta_t* q_m=q_pack.meta;
     //is full?
     while (q->data[q_m->pointer & METAQUEUE_MASK].is_valid)
         SW_BARRIER;
-    metaqueue_meta next;
+    metaqueue_meta_t next;
     data->is_valid=0;
     SW_BARRIER;
     q->data[q_m->pointer & METAQUEUE_MASK] = *data;
@@ -17,7 +17,7 @@ void metaqueue_push(metaqueue_pack q_pack, metaqueue_element *data) {
 }
 void metaqueue_pop(metaqueue_pack q_pack, metaqueue_element *data) {
     metaqueue_data* q=q_pack.data;
-    metaqueue_meta* q_m=q_pack.meta;
+    metaqueue_meta_t* q_m=q_pack.meta;
     //is empty?
     while (!q->data[q_m->pointer & METAQUEUE_MASK].is_valid)
             SW_BARRIER;
@@ -29,7 +29,7 @@ void metaqueue_pop(metaqueue_pack q_pack, metaqueue_element *data) {
 }
 int metaqueue_isempty(metaqueue_pack q_pack) {
     metaqueue_data* q=q_pack.data;
-    metaqueue_meta* q_m=q_pack.meta;
+    metaqueue_meta_t* q_m=q_pack.meta;
     return !q->data[q_m->pointer & METAQUEUE_MASK].is_valid;
 }
 

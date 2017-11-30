@@ -2,8 +2,8 @@
 // Created by ctyi on 11/10/17.
 //
 
-#ifndef PROJECT_KVDIRECT_H
-#define PROJECT_KVDIRECT_H
+#ifndef PROJECT_IPCDIRECT_H
+#define PROJECT_IPCDIRECT_H
 //something useful for DEBUG
 #define _GNU_SOURCE
 
@@ -33,14 +33,28 @@ enum {
     REQ_THRTEST,
     REQ_THRTEST_INIT,
     REQ_PING,
-    REQ_LISTEN
+    REQ_LISTEN,
+    REQ_CONNECT,
+    RES_ERROR,
+    RES_SUCCESS,
+    RES_NEWCONNECTION
 };
 
 //configuration
-#define PID_LOC "/dev/shm/ipcd.pid"
 #define SHM_NAME "/ipcd_shmem"
+#define SHM_INTERPROCESS_NAME "/ipcd_interprocess_shmem"
 #define ALLQ_NUM 4
 #define SOCK_FILENAME "/tmp/ipcd.sock"
+#ifdef __cplusplus
+extern "C"
+{
+#endif
+
 extern pid_t gettid();
+
 extern int pin_thread(int core);
+
+#ifdef __cplusplus
+}
+#endif
 #endif //PROJECT_KVDIRECT_H

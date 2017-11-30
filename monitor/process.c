@@ -10,10 +10,13 @@
 #include <semaphore.h>
 #include "../common/metaqueue.h"
 static process_sturc process[MAX_PROCESS_NUM];
+
 int process_current_counter=0;
+
 void process_init() {
     process_current_counter = 0;
 }
+
 key_t process_add(pid_t pid) {
     process[process_current_counter].pid = pid;
     if ((process[process_current_counter].uniq_shmem_id = ftok(SHM_NAME, process_current_counter+2)) < 0)
@@ -42,12 +45,14 @@ key_t process_add(pid_t pid) {
     ++process_current_counter;
     return  ret_val;
 }
+
 metaqueue_pack process_getrequesthandler_byqid(int qid) {
     metaqueue_pack result;
     result.data=process[qid].metaqueue[0];
     result.meta=&process[qid].metaqueue_meta[0];
     return result;
 }
+
 metaqueue_pack process_getresponsehandler_byqid(int qid) {
     metaqueue_pack result;
     result.data=process[qid].metaqueue[1];
