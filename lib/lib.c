@@ -2,16 +2,12 @@
 #include "../common/metaqueue.h"
 #include "setup_sock_lib.h"
 #include "lib.h"
+#include "socket_lib.h"
 #include <sys/ipc.h>
 #include <sys/shm.h>
 #include <pthread.h>
-typedef struct {
-    int uniq_shared_id;
-    void* uniq_shared_base_addr;
-    //0 is to monitor 1 is from monitor
-    metaqueue_data* metaqueue;
-    metaqueue_meta metaqueue_metadata[2];
-} thread_data_t;
+#include "lib_internal.h"
+
 pthread_key_t pthread_key;
 void connect_monitor()
 {
@@ -35,6 +31,7 @@ void after_exec()
 {
     pthread_key_create(&pthread_key, NULL);
     connect_monitor();
+    usocket_init();
 }
 pid_t fork() {
     pid_t result=ORIG(fork, ());

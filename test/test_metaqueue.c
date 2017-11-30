@@ -4,12 +4,12 @@
 #include "../common/helper.h"
 #include "../common/metaqueue.h"
 metaqueue_data q;
-metaqueue_meta meta;
+metaqueue_meta_t meta;
 int glb_counter=0;
 void* q_send(void* arg)
 {
     pin_thread(0);
-    metaqueue_meta meta;
+    metaqueue_meta_t meta;
     metaqueue_pack q_pack;
     q_pack.meta = &meta;
     q_pack.data = &q;
@@ -26,7 +26,7 @@ void* q_send(void* arg)
 void *q_recv(void* arg)
 {
     pin_thread(2);
-    metaqueue_meta meta;
+    metaqueue_meta_t meta;
     metaqueue_pack q_pack;
     q_pack.data = &q;
     q_pack.meta = &meta;

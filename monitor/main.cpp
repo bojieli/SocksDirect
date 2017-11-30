@@ -5,6 +5,7 @@
 #include "../common/helper.h"
 #include "setup_sock_monitor.h"
 #include "process.h"
+#include "sock_monitor.h"
 #include "../common/metaqueue.h"
 #include<time.h>
 
@@ -21,29 +22,19 @@ static void try_accept_new_proc()
         DEBUG("process id: %d", data.pid);
         setup_sock_send(fd, &data);
         DEBUG("Ack sent!");
-        //ping pong test
-        /*metaqueue_pack q_pack;
-        q_pack = process_getrequesthandler_byqid(process_current_counter-1);
-        //printf("qid %d\n", process_current_counter);
-        metaqueue_element data_test;
-        metaqueue_pop(q_pack, &data_test);
-        printf("recv req from %d\n", data_test.data.command.pid);
-        q_pack = process_getresponsehandler_byqid(process_current_counter-1);
-        data_test.data.command.data = data_test.data.command.pid;
-        metaqueue_push(q_pack, &data_test);*/
     }
 }
 
 static struct timespec time_start={0, 0},time_end={0, 0};
 static long counter=0;
 
-__attribute__((always_inline))
+inline
 static void thr_test_init_handler()
 {
     counter=0;
     clock_gettime(CLOCK_REALTIME, &time_start);
 }
-__attribute__((always_inline))
+inline
 static void thr_test_handler(long cnt_recv)
 {
     if (cnt_recv != counter) {
@@ -60,14 +51,14 @@ static void thr_test_handler(long cnt_recv)
         clock_gettime(CLOCK_REALTIME, &time_start);
     }
 }
-__attribute__((always_inline))
+inline
 static void ping_handler(metaqueue_element *req_body, metaqueue_element *res_body)
 {
     *res_body = *req_body;
     (*res_body).data.command.data = ~req_body->data.command.data;
 }
-__attribute__((always_inline))
-static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res)
+inline
+static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res, int qid)
 {
     metaqueue_element req_body;
     metaqueue_element res_body;
@@ -82,6 +73,15 @@ static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res
         case REQ_PING:
             ping_handler(&req_body, &res_body);
             metaqueue_push(q_pack_res, &res_body);
+            break;
+        case REQ_LISTEN:
+            listen_handler(&req_body, &res_body, qid);
+            metaqueue_push(q_pack_res, &res_body);
+            break;
+        case REQ_CONNECT:
+            connect_handler(&req_body, &res_body, qid);
+            metaqueue_push(q_pack_res, &res_body);
+            break;
         case REQ_NOP:
         default:
             break;
@@ -103,7 +103,7 @@ static void event_loop()
         q_pack_res = process_getresponsehandler_byqid(current_pointer);
         //if empty continue
         if (!metaqueue_isempty(q_pack_req))
-            event_processer(q_pack_req, q_pack_res);
+            event_processer(q_pack_req, q_pack_res, current_pointer);
         ++current_pointer;
         if (current_pointer == process_current_counter) {
             ++round;
