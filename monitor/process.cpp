@@ -26,8 +26,9 @@ key_t process_add(pid_t pid) {
         FATAL("Failed to open the shared memory, errno: %s", strerror(errno));
     //point metaqueue pointer of current process to assigned memory address
     process[process_current_counter].metaqueue[0] = (metaqueue_data *)shmat(shm_id, NULL, 0);
-    process[process_current_counter].metaqueue[1] = (void*)process[process_current_counter].metaqueue[0] +
-            sizeof(metaqueue_data);
+    process[process_current_counter].metaqueue[1] = (metaqueue_data *)
+            ((uint8_t *)process[process_current_counter].metaqueue[0] +
+            sizeof(metaqueue_data));
     if (process[process_current_counter].metaqueue[0] == (void*)-1)
         FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
     memset(process[process_current_counter].metaqueue[0], 0, 2*sizeof(metaqueue_data));

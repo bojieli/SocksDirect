@@ -11,6 +11,12 @@ extern "C" {
 #include "../common/helper.h"
 #include "../common/metaqueue.h"
 
+#ifdef __cplusplus
+}
+#endif
+
+#include <unordered_map>
+
 typedef struct {
     pid_t pid;
     key_t uniq_shmem_id;
@@ -29,7 +35,5 @@ metaqueue_pack process_getresponsehandler_byqid(int qid);
 
 metaqueue_pack process_getrequesthandler_byqid(int qid);
 
-#ifdef __cplusplus
-}
-#endif
+
 #endif //IPC_DIRECT_PROCESS_H

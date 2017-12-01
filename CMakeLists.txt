@@ -5,7 +5,7 @@ if(COMMAND cmake_policy)
 endif(COMMAND cmake_policy)
 add_library(ipc SHARED common/helper.c common/metaqueue.cpp lib/setup_sock_lib.c lib/socket_lib.cpp lib/lib.c common/interprocess_buffer.cpp)
 target_link_libraries(ipc dl pthread tcmalloc)
-add_executable(monitor common/helper.c common/metaqueue.cpp monitor/setup_sock_monitor.c monitor/process.c monitor/sock_monitor.cpp
+add_executable(monitor common/helper.c common/metaqueue.cpp monitor/setup_sock_monitor.c monitor/process.cpp monitor/sock_monitor.cpp
         monitor/main.cpp common/interprocess_buffer.cpp)
 target_link_libraries(monitor pthread tcmalloc)
 add_executable(test_attach test/test_attach.c)
