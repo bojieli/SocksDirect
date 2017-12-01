@@ -6,7 +6,6 @@ void metaqueue_push(metaqueue_pack q_pack, metaqueue_element *data) {
     //is full?
     while (q->data[q_m->pointer & METAQUEUE_MASK].is_valid)
         SW_BARRIER;
-    metaqueue_meta_t next;
     data->is_valid=0;
     SW_BARRIER;
     q->data[q_m->pointer & METAQUEUE_MASK] = *data;

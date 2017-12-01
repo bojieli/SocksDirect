@@ -14,7 +14,7 @@ extern "C"
 #include <sys/types.h>
 
 #define MAX_METAQUEUE_SIZE 256
-#define METAQUEUE_MASK (MAX_METAQUEUE_SIZE)-1
+#define METAQUEUE_MASK ((MAX_METAQUEUE_SIZE)-1)
 typedef struct {
     unsigned short command;
     pid_t pid;
