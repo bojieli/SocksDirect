@@ -4,6 +4,7 @@
 #include "process.h"
 #include <unordered_map>
 #include <sys/shm.h>
+#include "../common/interprocess_buffer.h"
 
 struct Hash4InterBuf
 {
@@ -64,7 +65,7 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
         if ((shm_key = ftok(SHM_INTERPROCESS_NAME, current_q_counter)) < 0)
             FATAL("Failed to get the key of shared memory, errno: %d", errno);
         ++current_q_counter;
-        int shm_id = shmget(shm_key, 2*sizeof(metaqueue_data), IPC_CREAT | 0777);
+        int shm_id = shmget(shm_key, interprocess_buffer::get_sharedmem_size(), IPC_CREAT | 0777);
         if (shm_id == -1)
             FATAL("Failed to open the shared memory, errno: %s", strerror(errno));
         interprocess_buf_idx[std::pair<int, int>(qid, peer_qid)].loc = 0;
