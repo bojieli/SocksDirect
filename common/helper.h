@@ -5,8 +5,9 @@
 #ifndef PROJECT_IPCDIRECT_H
 #define PROJECT_IPCDIRECT_H
 //something useful for DEBUG
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
-
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -56,4 +57,4 @@ extern int pin_thread(int core);
 #ifdef __cplusplus
 }
 #endif
-#endif //PROJECT_KVDIRECT_H
+#endif //PROJECT_IPCDIRECT_H

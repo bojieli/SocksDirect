@@ -45,13 +45,15 @@ public:
                 short pointer;
                 int fd;
             } ;
-            unsigned short isvalid;
-            unsigned short command;
+
             union {
-                unsigned char raw[12];
+                unsigned char raw[13];
                 fd_notify_t data_fd_notify;
                 fd_rw_t data_fd_rw;
             };
+            unsigned char isvalid;
+            unsigned char command;
+            unsigned char isclear;
         };
         class data_t
         {
