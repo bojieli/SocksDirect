@@ -33,12 +33,33 @@ typedef struct {
 typedef struct {
     int fd;
     int next;
-    void *buffer_addr;
-    int qid;
+    int buffer_idx;
     int is_valid;
 } fd_list_t;
 void usocket_init();
 #ifdef __cplusplus
 }
+#endif
+#ifdef __cplusplus
+#include <unordered_map>
+#include "../common/interprocess_buffer.h"
+extern pthread_key_t pthread_sock_key;
+const int BUFFERNUM=100;
+class thread_sock_data_t
+{
+public:
+    std::unordered_map<key_t, int> *bufferhash;
+    int lowest_available;
+    int total_num;
+    class buffer_t{
+    public:
+        interprocess_buffer data;
+        bool isvalid;
+        buffer_t():isvalid(false){}
+    } buffer[BUFFERNUM];
+    thread_sock_data_t():lowest_available(0), total_num(0),bufferhash(nullptr){}
+    int isexist(key_t key);
+    int newbuffer(key_t key, int loc);
+};
 #endif
 #endif //IPC_DIRECT_SOCKET_LIB_H
