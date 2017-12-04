@@ -10,6 +10,30 @@
 #include <arpa/inet.h>
 #include "lib_internal.h"
 #include "../common/metaqueue.h"
+pthread_key_t pthread_sock_key;
+
+
+inline int thread_sock_data_t::isexist(key_t key)
+{
+    std::unordered_map<key_t, int>::iterator iter;
+    if ((iter=bufferhash->find(key)) == bufferhash->end())
+        return -1;
+    if (buffer[iter->second].isvalid)
+        return iter->second;
+    else return -1;
+}
+
+int thread_sock_data_t::newbuffer(key_t key, int loc) {
+    buffer[lowest_available].isvalid = true;
+    buffer[lowest_available].data.init(key, loc);
+    ++total_num;
+    if (total_num == BUFFERNUM)
+        FATAL("Dynamic allocation not implemented!");
+    int ret=lowest_available;
+    ++lowest_available;
+    return ret;
+}
+
 
 void usocket_init()
 {
@@ -21,6 +45,13 @@ void usocket_init()
     data->fd_peer_lowest_id = 0;
     for (int i=0;i<MAX_FD_OWN_NUM;++i) data->fds[i].isvaild = 0;
     for (int i=0;i<MAX_FD_PEER_NUM;++i) data->adjlist[i].is_valid = 0;
+
+    pthread_key_create(&pthread_sock_key, NULL);
+    auto *thread_sock_data=new thread_sock_data_t;
+    thread_sock_data->bufferhash = new std::unordered_map<key_t, int>;
+    for (int i=0;i<BUFFERNUM;++i) thread_sock_data->buffer[i].isvalid = false;
+    thread_sock_data->lowest_available = 0;
+    pthread_setspecific(pthread_sock_key, reinterpret_cast<void *>(thread_sock_data));
 }
 int socket(int domain, int type, int protocol) __THROW
 {
@@ -98,6 +129,7 @@ int close(int fildes)
 }
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
+    //init
     if (socket < FD_DELIMITER) return ORIG(connect, (socket, address, address_len));
     socket = MAX_FD_ID - socket;
     char addr_str[100];
@@ -113,9 +145,11 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         errno = EBADF;
         return -1;
     }
-    data->fds->type = USOCKET_TCP_CONNECT;
+    data->fds[socket].type = USOCKET_TCP_CONNECT;
     unsigned short port;
     port = ntohs(((struct sockaddr_in*)address)->sin_port);
+
+    //send to monitor and get respone
     metaqueue_element req_data, res_data;
     req_data.data.sock_connect_command.command = REQ_CONNECT;
     req_data.data.sock_connect_command.fd = socket;
@@ -127,8 +161,58 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     q_pack.data = &data->metaqueue[1];
     q_pack.meta = &data->metaqueue_metadata[1];
     metaqueue_pop(q_pack, &res_data);
-    printf("%d\n", res_data.data.sock_connect_res.shm_key);
-    if (res_data.data.sock_connect_res.command == RES_SUCCESS)
-        return 0;
-    return -1;
+    if (res_data.data.sock_connect_res.command != RES_SUCCESS)
+        return -1;
+        //printf("%d\n", res_data.data.sock_connect_res.shm_key);
+    key_t key=res_data.data.sock_connect_res.shm_key;
+    int loc=res_data.data.sock_connect_res.loc;
+
+    //init buffer
+    thread_sock_data_t *thread_buf;
+    thread_buf = reinterpret_cast<thread_sock_data_t *>(pthread_getspecific(pthread_sock_key));
+    if (thread_buf == nullptr)
+        FATAL("Failed to get thread specific data.");
+    int idx;
+    //TODO: dynamic allocate memory
+    int current_fds_idx = data->fd_peer_lowest_id;
+    data->adjlist[current_fds_idx].next = data->fds[socket].peer_fd_ptr;
+    data->fds[socket].peer_fd_ptr = current_fds_idx;
+    ++data->fd_peer_lowest_id;
+    ++data->fd_peer_num;
+    data->adjlist[current_fds_idx].is_valid = 1;
+    data->adjlist[current_fds_idx].fd = -1;
+    if ((idx = thread_buf->isexist(res_data.data.sock_connect_res.shm_key)) != -1)
+        data->adjlist[current_fds_idx].buffer_idx = idx;
+    else
+        data->adjlist[current_fds_idx].buffer_idx = thread_buf->newbuffer(key, loc);
+
+    //wait for ACK from peer
+    interprocess_buffer *buffer;
+    interprocess_buffer::queue_t::element element;
+    buffer=&thread_buf->buffer[idx].data;
+    bool isFind=false;
+    while (true)
+    {
+        for (int i=0;i<INTERPROCESS_SLOTS_IN_BUFFER;++i)
+        {
+            buffer->q[1].pick(i, element);
+            if (!element.isvalid) continue;
+            if (element.command == interprocess_buffer::cmd::NEW_FD)
+            {
+                data->adjlist[current_fds_idx].fd = element.data_fd_notify.fd;
+                buffer->q[1].del(i);
+                isFind=true;
+                break;
+            }
+        }
+        if (isFind) break;
+    }
+    return 0;
 }
+
+int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+{
+    if (sockfd < FD_DELIMITER) return ORIG(accept4, (sockfd, addr, addrlen, flags));
+    sockfd = MAX_FD_ID - sockfd;
+}
+

@@ -15,8 +15,6 @@ extern "C" {
 }
 #endif
 
-#include <unordered_map>
-
 typedef struct {
     pid_t pid;
     key_t uniq_shmem_id;

@@ -25,7 +25,7 @@ int bind(int socket, const struct sockaddr *address, socklen_t address_len) __TH
 extern int listen(int socket, int backlog) __THROW;
 extern int close(int fildes);
 extern int connect(int socket, const struct sockaddr *address, socklen_t address_len);
-
+extern int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags);
 #ifdef __cplusplus
 }
 #endif

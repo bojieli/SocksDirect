@@ -15,8 +15,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <pthread.h>
-//#include <sys/socket.h>
-//#include <netinet/in.h>
+
 #include <sys/mman.h>
 #include <sys/wait.h>
 #include <sys/syscall.h>

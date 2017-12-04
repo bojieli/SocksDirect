@@ -5,6 +5,7 @@
 #ifndef IPC_DIRECT_LIB_INTERNAL_H
 #define IPC_DIRECT_LIB_INTERNAL_H
 #include "../common/metaqueue.h"
+#include "socket_lib.h"
 typedef struct {
     int uniq_shared_id;
     void* uniq_shared_base_addr;

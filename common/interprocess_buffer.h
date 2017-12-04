@@ -80,5 +80,8 @@ public:
         return (2*sizeof(queue_t::data_t) + 2*sizeof(buffer_t));
     }
     void init(key_t shmem_key, int loc);
+    enum cmd{
+        NEW_FD
+    };
 };
 #endif //IPC_DIRECT_INTERPROCESS_BUFFER_H
