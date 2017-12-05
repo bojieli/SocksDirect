@@ -184,7 +184,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     if ((idx = thread_buf->isexist(res_data.data.sock_connect_res.shm_key)) != -1)
         data->adjlist[current_fds_idx].buffer_idx = idx;
     else
-        data->adjlist[current_fds_idx].buffer_idx = thread_buf->newbuffer(key, loc);
+        idx = data->adjlist[current_fds_idx].buffer_idx = thread_buf->newbuffer(key, loc);
 
     //wait for ACK from peer
     interprocess_buffer *buffer;
@@ -245,7 +245,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     if ((idx = sock_data->isexist(key)) != -1)
         data->adjlist[curr_fd].buffer_idx = idx;
     else
-        data->adjlist[curr_fd].buffer_idx = sock_data->newbuffer(key, loc);
+        idx = data->adjlist[curr_fd].buffer_idx = sock_data->newbuffer(key, loc);
     ++data->fd_peer_lowest_id;
     ++data->fd_peer_num;
     //TODO:cyclic fd_peer_lowest_id
