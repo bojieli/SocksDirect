@@ -11,6 +11,7 @@
 #define INTERPROCESS_SLOTS_IN_BUFFER 1024
 #define INTERPROCESS_SLOTS_IN_QUEUE 256
 #define INTERPROCESS_Q_MASK ((INTERPROCESS_SLOTS_IN_QUEUE)-1)
+#define INTERPROCESS_SLOTS_BLK_SIZE 1018
 
 class interprocess_buffer
 {
@@ -19,16 +20,15 @@ public:
     public:
         class element {
         public:
-            int size;
-            unsigned char data[1018];
+            uint16_t size; uint16_t offset;
+            unsigned char data[INTERPROCESS_SLOTS_BLK_SIZE];
             short next_ptr;
         };
 
         buffer_t();
         inline void init();
         short pushdata(uint8_t *start_ptr, int size);
-        uint8_t * pickdata(unsigned short src, int &size);
-        void free(unsigned short src);
+        short popdata(unsigned short src, int &size, uint8_t *user_buf);
     private:
         element mem[INTERPROCESS_SLOTS_IN_BUFFER];
         short avail_slots[INTERPROCESS_SLOTS_IN_BUFFER];
@@ -53,7 +53,7 @@ public:
             };
             unsigned char isvalid;
             unsigned char command;
-            unsigned char isclear;
+            unsigned char isdel; //set to 1 when data is deleted
         };
         class data_t
         {
@@ -61,13 +61,17 @@ public:
             element data[INTERPROCESS_SLOTS_IN_QUEUE];
         };
         data_t *data;
-        unsigned char pointer;
-        queue_t(): data(nullptr), pointer(0){}
+        union
+        {
+            uint8_t head;
+            uint8_t tail;
+        };
+        queue_t(): data(nullptr), head(0){}
         queue_t(data_t *_data);
         void init(data_t *data);
         void pop(element & data);
         void push(element & data);
-        void pick(int location, element &data);
+        void peek(int location, element &data);
         void del(int location);
         bool isempty();
     };

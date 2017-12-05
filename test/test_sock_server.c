@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include "../common/helper.h"
+#include "../lib/lib.h"
 
 int main()
 {
@@ -19,4 +20,5 @@ int main()
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed");
+    printf("%d", accept4(fd, NULL, 0, 0));
 }

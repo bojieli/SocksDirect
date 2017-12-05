@@ -195,8 +195,8 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     {
         for (int i=0;i<INTERPROCESS_SLOTS_IN_BUFFER;++i)
         {
-            buffer->q[1].pick(i, element);
-            if (!element.isvalid) continue;
+            buffer->q[1].peek(i, element);
+            if (!element.isvalid || !element.isdel) continue;
             if (element.command == interprocess_buffer::cmd::NEW_FD)
             {
                 data->adjlist[current_fds_idx].fd = element.data_fd_notify.fd;
@@ -214,5 +214,49 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     if (sockfd < FD_DELIMITER) return ORIG(accept4, (sockfd, addr, addrlen, flags));
     sockfd = MAX_FD_ID - sockfd;
+    thread_data_t *data;
+    data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+    thread_sock_data_t *sock_data;
+    sock_data = reinterpret_cast<thread_sock_data_t *>(pthread_getspecific(pthread_sock_key));
+    metaqueue_pack q_pack;
+    q_pack.data = &data->metaqueue[1];
+    q_pack.meta = &data->metaqueue_metadata[1];
+    metaqueue_element element;
+    metaqueue_pop(q_pack, &element);
+    if (element.data.command.command != RES_NEWCONNECTION)
+        FATAL("unordered accept response");
+    key_t key=element.data.sock_connect_res.shm_key;
+    int loc=element.data.sock_connect_res.loc;
+    auto peer_fd=element.data.sock_connect_res.fd;
+    DEBUG("Accept new connection, key %d, loc %d", key, loc);
+    int curr_fd=data->fd_peer_lowest_id;
+    data->fds[curr_fd].peer_fd_ptr = -1;
+    data->fds[curr_fd].property.is_addrreuse = 0;
+    data->fds[curr_fd].property.is_blocking = 0;
+    data->fds[curr_fd].isvaild = 1;
+    data->fds[curr_fd].type = USOCKET_TCP_CONNECT;
+    ++data->fd_own_lowest_id;
+    ++data->fd_own_num;
+    //TODO: cyclic data_fd_own_lowest_id
+    data->adjlist[data->fd_peer_lowest_id].fd = peer_fd;
+    data->adjlist[data->fd_peer_lowest_id].next = data->fds[curr_fd].peer_fd_ptr;
+    data->fds[curr_fd].peer_fd_ptr = data->fd_peer_lowest_id;
+    int idx;
+    if ((idx = sock_data->isexist(key)) != -1)
+        data->adjlist[curr_fd].buffer_idx = idx;
+    else
+        data->adjlist[curr_fd].buffer_idx = sock_data->newbuffer(key, loc);
+    ++data->fd_peer_lowest_id;
+    ++data->fd_peer_num;
+    //TODO:cyclic fd_peer_lowest_id
+
+    interprocess_buffer *buffer;
+    interprocess_buffer::queue_t::element inter_element;
+    inter_element.isdel = 0;
+    inter_element.isvalid = 1;
+    inter_element.command = interprocess_buffer::cmd::NEW_FD;
+    inter_element.data_fd_notify.fd = curr_fd;
+    buffer->q[0].push(inter_element);
+    return MAX_FD_ID-curr_fd;
 }
 
