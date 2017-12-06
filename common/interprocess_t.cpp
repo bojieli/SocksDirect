@@ -32,7 +32,7 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
     {
         if (top < 0) return -1;
         short blk = avail_slots[top--];
-        if (prev_blk != -1) 
+        if (prev_blk != -1)
             mem[prev_blk].next_ptr = blk;
         mem[blk].offset = 0;
         int true_size = size_left < sizeof(interprocess_t::buffer_t::element::data) ?
@@ -53,7 +53,7 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
     short current_loc = src;
     int sizeleft = size;
     uint8_t *curr_ptr = user_buf;
-    while ((current_loc != -1) && (sizeleft > 0))
+    while ((current_loc != -1) && (sizeleft != 0))
     {
         uint16_t size_inblk = mem[current_loc].size;
         uint16_t offset_inblk = mem[current_loc].offset;
@@ -73,6 +73,7 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
         }
         mem[current_loc].size = size_inblk;
         mem[current_loc].offset = offset_inblk;
+        if ((sizeleft == 0) && (!isfullblk)) break;
         current_loc = mem[current_loc].next_ptr;
     }
 
@@ -122,6 +123,8 @@ void interprocess_t::queue_t::pop(element &output)
     data->data[tail & INTERPROCESS_Q_MASK].isvalid = 0;
     SW_BARRIER;
     tail++;
+    while (data->data[tail & INTERPROCESS_Q_MASK].isvalid
+           && data->data[tail & INTERPROCESS_Q_MASK].isdel) tail++;
 }
 
 void interprocess_t::queue_t::peek(int location, element &output)
@@ -132,8 +135,11 @@ void interprocess_t::queue_t::peek(int location, element &output)
 void interprocess_t::queue_t::del(int location)
 {
     data->data[location].isdel = 1;
-    if ((data->data[tail & INTERPROCESS_Q_MASK].isvalid) && (tail == location)) ++tail;
-    while (data->data[tail & INTERPROCESS_Q_MASK].isdel) ++tail;
+    if ((data->data[tail & INTERPROCESS_Q_MASK].isvalid) && (tail == location))
+    {
+        ++tail;
+        while (data->data[tail & INTERPROCESS_Q_MASK].isdel) ++tail;
+    }
 }
 
 bool interprocess_t::queue_t::isempty()
