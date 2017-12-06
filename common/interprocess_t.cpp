@@ -27,11 +27,13 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
     int size_left = size;
     uint8_t *curr_ptr = start_ptr;
     short prev_blk = -1;
+    short ret=-1;
     while (size_left > 0)
     {
         if (top < 0) return -1;
         short blk = avail_slots[top--];
-        if (prev_blk != -1) mem[prev_blk].next_ptr = blk;
+        if (prev_blk != -1) 
+            mem[prev_blk].next_ptr = blk;
         mem[blk].offset = 0;
         int true_size = size_left < sizeof(interprocess_t::buffer_t::element::data) ?
                         size_left : sizeof(interprocess_t::buffer_t::element::data);
@@ -40,8 +42,10 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
         curr_ptr += true_size;
         size_left -= true_size;
         if (size_left == 0) mem[blk].next_ptr = -1;
+        if (prev_blk == -1) ret = blk;
         prev_blk = blk;
     }
+    return ret;
 }
 
 short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *user_buf)
