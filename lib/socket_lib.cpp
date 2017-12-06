@@ -250,7 +250,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     ++data->fd_peer_num;
     //TODO:cyclic fd_peer_lowest_id
 
-    interprocess_buffer *buffer;
+    interprocess_buffer *buffer=&sock_data->buffer[idx].data;
     interprocess_buffer::queue_t::element inter_element;
     inter_element.isdel = 0;
     inter_element.isvalid = 1;
