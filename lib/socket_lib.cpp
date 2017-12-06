@@ -256,8 +256,12 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     ++data->fd_own_num;
     //TODO: cyclic data_fd_own_lowest_id
     data->adjlist[data->fd_peer_lowest_id].fd = peer_fd;
+    data->adjlist[data->fd_peer_lowest_id].is_valid=1;
+    data->adjlist[data->fd_peer_lowest_id].is_ready=1;
     data->adjlist[data->fd_peer_lowest_id].next = data->fds[curr_fd].peer_fd_ptr;
     data->fds[curr_fd].peer_fd_ptr = data->fd_peer_lowest_id;
+    data->fds[curr_fd].next_op_fd = data->fd_own_lowest_id;
+
     int idx;
     if ((idx = sock_data->isexist(key)) != -1)
         data->adjlist[curr_fd].buffer_idx = idx;
@@ -308,4 +312,38 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
     if (request == FIONBIO)
         thread_data->fds[fildes].property.is_blocking = 0;
     return 0;
+}
+
+ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
+{
+    if (fd < FD_DELIMITER) return ORIG(writev, (fd, iov, iovcnt));
+    fd = MAX_FD_ID - fd;
+
+    thread_data_t* thread_data= GET_THREAD_DATA();
+    if (!thread_data->fds[fd].isvaild || !thread_data->fds[fd].type!=USOCKET_TCP_CONNECT)
+    {
+        errno = EBADF;
+        return -1;
+    }
+
+    auto thread_sock_data = GET_THREAD_SOCK_DATA();
+    interprocess_t * buffer=&thread_sock_data->
+            buffer[thread_data->adjlist[thread_data->fds[fd].next_op_fd].buffer_idx].data;
+    thread_data->fds[fd].next_op_fd=thread_data->adjlist[thread_data->fds[fd].next_op_fd].next;
+    if (thread_data->fds[fd].next_op_fd == -1)
+        thread_data->fds[fd].next_op_fd=thread_data->fds[fd].peer_fd_ptr;
+
+    size_t total_size(0);
+    for (int i=0;i<iovcnt;++i)
+    {
+        short startloc = buffer->b[0]->pushdata(reinterpret_cast<uint8_t *>(iov[i].iov_base), iov[i].iov_len);
+        if (startloc == -1) return -1;
+        total_size += iov[i].iov_len;
+        interprocess_t::queue_t::element ele;
+        ele.isvalid = 1; ele.isdel = 0; ele.command=interprocess_t::cmd::DATA_TRANSFER;
+        ele.data_fd_rw.fd=fd;
+        ele.data_fd_rw.pointer=startloc;
+        buffer->q[0].push(ele);
+    }
+    return total_size;
 }

@@ -38,6 +38,8 @@ extern int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int fl
 extern int setsockopt(int socket, int level, int option_name, const void *option_value, socklen_t option_len);
 
 extern int ioctl(int fildes, unsigned long request, ...) __THROW;
+extern ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
+
 
 #ifdef __cplusplus
 }

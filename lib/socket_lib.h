@@ -39,7 +39,8 @@ typedef struct
     int fd;
     int next;
     int buffer_idx;
-    int is_valid;
+    short is_valid;
+    short is_ready;
 } fd_list_t;
 void usocket_init();
 #ifdef __cplusplus
