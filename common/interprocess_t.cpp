@@ -105,7 +105,7 @@ void interprocess_t::queue_t::push(element &input)
 
 void interprocess_t::queue_t::clear()
 {
-
+    memset(data->data, 0, sizeof(data->data));
 }
 
 void interprocess_t::queue_t::pop(element &output)
@@ -173,5 +173,6 @@ void interprocess_t::init(key_t shmem_key, int loc)
         b[0] = reinterpret_cast<buffer_t *>((uint8_t *) baseaddr + 2 * sizeof(queue_t::data_t)) + 1;
     }
     b[0]->init();
+    q[0].clear();
 }
 
