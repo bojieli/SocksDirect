@@ -15,34 +15,41 @@ extern "C"
 
 #define MAX_METAQUEUE_SIZE 256
 #define METAQUEUE_MASK ((MAX_METAQUEUE_SIZE)-1)
-typedef struct {
+typedef struct
+{
     unsigned short command;
     pid_t pid;
     int data;
 } command_t;
-typedef struct {
+typedef struct
+{
     unsigned short command;
     unsigned short port;
     unsigned short is_reuseaddr;
 } command_sock_listen_t;
-typedef struct {
+typedef struct
+{
     unsigned short command;
     unsigned short port;
     int fd;
 } command_sock_connect_t;
-typedef struct {
+typedef struct
+{
     unsigned short command;
     key_t shm_key;
     int fd;
     unsigned short port;
     int8_t loc;
 } res_sock_connect_t;
-typedef struct {
+typedef struct
+{
     unsigned short command;
     int data;
 } res_error_t;
-typedef struct {
-    union {
+typedef struct
+{
+    union
+    {
         unsigned char raw[15];
         command_t command;
         command_sock_listen_t sock_listen_command;
@@ -52,16 +59,20 @@ typedef struct {
     } data;
     unsigned char is_valid;
 } metaqueue_element;
-typedef struct {
+typedef struct
+{
     metaqueue_element data[MAX_METAQUEUE_SIZE];
 } metaqueue_data;
-typedef struct {
+typedef struct
+{
     uint32_t pointer;
 } metaqueue_meta_t;
-typedef struct {
+typedef struct
+{
     unsigned char is_other_side_blocking;
 } shared_mem_meta_struc;
-typedef struct {
+typedef struct
+{
     metaqueue_data *data;
     metaqueue_meta_t *meta;
 } metaqueue_pack;

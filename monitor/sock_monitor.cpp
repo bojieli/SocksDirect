@@ -18,19 +18,20 @@ struct Hash4InterBuf
 static std::unordered_map<std::pair<int, int>, interprocess_buf_map_t, Hash4InterBuf> interprocess_buf_idx;
 static monitor_sock_node_t ports[65536];
 static monitor_sock_adjlist_t listen_adjlist[1000];
-static int monitor_adjlist_lowest_available=0;
-static int total_adjlist_peer=0;
-static int current_q_counter=0;
+static int monitor_adjlist_lowest_available = 0;
+static int total_adjlist_peer = 0;
+static int current_q_counter = 0;
 
 void listen_handler(metaqueue_element *req_body, metaqueue_element *res_body, int qid)
 {
-    unsigned short port=req_body->data.sock_listen_command.port;
+    unsigned short port = req_body->data.sock_listen_command.port;
     if (ports[port].is_listening && !ports[port].is_addrreuse)
     {
-        res_body->data.res_error.command=RES_ERROR;
+        res_body->data.res_error.command = RES_ERROR;
         return;
     }
-    if (!ports[port].is_listening) {
+    if (!ports[port].is_listening)
+    {
         ports[port].is_listening = 1;
         ports[port].adjlist_pointer = -1;
         ports[port].is_addrreuse = req_body->data.sock_listen_command.is_reuseaddr;
@@ -39,8 +40,9 @@ void listen_handler(metaqueue_element *req_body, metaqueue_element *res_body, in
     listen_adjlist[monitor_adjlist_lowest_available].peer_qid = qid;
     listen_adjlist[monitor_adjlist_lowest_available].peer_fd = 0;
     listen_adjlist[monitor_adjlist_lowest_available].next = ports[port].adjlist_pointer;
+    ports[port].adjlist_pointer = monitor_adjlist_lowest_available;
     ports[port].current_pointer = monitor_adjlist_lowest_available;
-    //seek for next available point
+    //TODO: seek for next available point
     ++monitor_adjlist_lowest_available;
     if (monitor_adjlist_lowest_available > 1000)
         FATAL("listen buffer used up!");
@@ -51,13 +53,17 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
 {
     unsigned short port;
     port = req_body->data.sock_connect_command.port;
-    if (!ports[port].is_listening) {
+    if (!ports[port].is_listening)
+    {
         res_body->data.res_error.command = RES_ERROR;
         return;
     }
     int peer_qid;
     peer_qid = listen_adjlist[ports[port].current_pointer].peer_qid;
     ports[port].current_pointer = listen_adjlist[ports[port].current_pointer].next;
+    if (ports[port].current_pointer == -1) ports[port].current_pointer = ports[port].adjlist_pointer;
+
+
     key_t shm_key;
     int loc;
     if (interprocess_buf_idx.find(std::pair<int, int>(qid, peer_qid)) == interprocess_buf_idx.end())

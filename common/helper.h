@@ -8,6 +8,7 @@
 #ifndef _GNU_SOURCE
 #define _GNU_SOURCE
 #endif
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <errno.h>
@@ -21,6 +22,7 @@
 #include <sys/wait.h>
 #include <sys/syscall.h>
 #include <dlfcn.h>
+
 #define DEBUGON 0
 #define DEBUG(fmt, ...) (DEBUGON && fprintf(stderr, "[DEBUG] IPC-Direct @%5d, Line%d: " fmt "\n", getpid(), __LINE__, ##__VA_ARGS__))
 #define ERROR(fmt, ...) (fprintf(stderr, "[ERROR] IPC-Direct @%5d, Line %d: " fmt "\n", getpid(), __LINE__, ##__VA_ARGS__))
@@ -28,7 +30,8 @@
 #define SW_BARRIER asm volatile("" ::: "memory")
 #define ORIG(func, args) ((typeof(&func)) dlsym(RTLD_NEXT, #func)) args
 
-enum {
+enum
+{
     REQ_NOP,
     REQ_THRTEST,
     REQ_THRTEST_INIT,

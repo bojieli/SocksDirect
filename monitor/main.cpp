@@ -18,26 +18,28 @@ static void try_accept_new_proc()
     int fd;
     if ((fd = setup_sock_accept(&data)) != -1)
     {
-        data.key=process_add(data.pid);
+        data.key = process_add(data.pid);
         DEBUG("process id: %d", data.pid);
         setup_sock_send(fd, &data);
         DEBUG("Ack sent!");
     }
 }
 
-static struct timespec time_start={0, 0},time_end={0, 0};
-static long counter=0;
+static struct timespec time_start = {0, 0}, time_end = {0, 0};
+static long counter = 0;
 
 inline
 static void thr_test_init_handler()
 {
-    counter=0;
+    counter = 0;
     clock_gettime(CLOCK_REALTIME, &time_start);
 }
+
 inline
 static void thr_test_handler(long cnt_recv)
 {
-    if (cnt_recv != counter) {
+    if (cnt_recv != counter)
+    {
         printf("!!!\n");
         printf("%ld\n", cnt_recv);
         FATAL("Implementation error on counter %ld", counter);
@@ -46,24 +48,27 @@ static void thr_test_handler(long cnt_recv)
     if ((counter & 0xFFFFFF) == 0xFFFFFF)
     {
         clock_gettime(CLOCK_REALTIME, &time_end);
-        printf("16.7Mop time: %lf\n", time_end.tv_sec-time_start.tv_sec+
-                ((double)time_end.tv_nsec-time_start.tv_nsec)/1E9);
+        printf("16.7Mop time: %lf\n", time_end.tv_sec - time_start.tv_sec +
+                                      ((double) time_end.tv_nsec - time_start.tv_nsec) / 1E9);
         clock_gettime(CLOCK_REALTIME, &time_start);
     }
 }
+
 inline
 static void ping_handler(metaqueue_element *req_body, metaqueue_element *res_body)
 {
     *res_body = *req_body;
     (*res_body).data.command.data = ~req_body->data.command.data;
 }
+
 inline
 static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res, int qid)
 {
     metaqueue_element req_body;
     metaqueue_element res_body;
     metaqueue_pop(q_pack_req, &req_body);
-    switch (req_body.data.command.command){
+    switch (req_body.data.command.command)
+    {
         case REQ_THRTEST:
             thr_test_handler(req_body.data.command.data);
             break;
@@ -87,10 +92,11 @@ static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res
             break;
     }
 }
+
 static void event_loop()
 {
     int current_pointer;
-    uint8_t round=0;
+    uint8_t round = 0;
     current_pointer = 0;
     while (process_current_counter == 0)
         try_accept_new_proc();
@@ -105,16 +111,19 @@ static void event_loop()
         if (!metaqueue_isempty(q_pack_req))
             event_processer(q_pack_req, q_pack_res, current_pointer);
         ++current_pointer;
-        if (current_pointer == process_current_counter) {
+        if (current_pointer == process_current_counter)
+        {
             ++round;
             current_pointer = 0;
-            if ((round & 0xFFFF) == 0) {
+            if ((round & 0xFFFF) == 0)
+            {
                 try_accept_new_proc();
             }
         }
     }
 
 }
+
 int main()
 {
     pin_thread(0);

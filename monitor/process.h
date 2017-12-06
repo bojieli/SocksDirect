@@ -15,7 +15,8 @@ extern "C" {
 }
 #endif
 
-typedef struct {
+typedef struct
+{
     pid_t pid;
     key_t uniq_shmem_id;
     metaqueue_data *metaqueue[2]; //0: process send to monitor 1: monitor sent to process

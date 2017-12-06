@@ -4,18 +4,21 @@
 
 #ifndef IPC_DIRECT_ATTACHQUEUE_H
 #define IPC_DIRECT_ATTACHQUEUE_H
+
 #include <sys/types.h>
 #include <sys/shm.h>
 #include <sys/ipc.h>
 #include <semaphore.h>
- typedef struct {
-     pid_t pid;
-     key_t key;
- } ctl_struc;
 
 typedef struct
 {
-    uint8_t head,tail;
+    pid_t pid;
+    key_t key;
+} ctl_struc;
+
+typedef struct
+{
+    uint8_t head, tail;
     ctl_struc data[256];
 
 } aqueue_struc;

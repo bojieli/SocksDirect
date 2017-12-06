@@ -4,7 +4,8 @@
 
 #ifndef IPC_DIRECT_SETUP_SOCK_H
 #define IPC_DIRECT_SETUP_SOCK_H
-typedef struct {
+typedef struct
+{
     pid_t pid;
     key_t key;
 } ctl_struc;

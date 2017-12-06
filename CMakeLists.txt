@@ -1,8 +1,8 @@
 cmake_minimum_required(VERSION 3.8)
 project(ipc_direct)
-if(COMMAND cmake_policy)
+if (COMMAND cmake_policy)
     cmake_policy(SET CMP0003 NEW)
-endif(COMMAND cmake_policy)
+endif (COMMAND cmake_policy)
 add_library(ipc SHARED common/helper.c common/metaqueue.cpp lib/setup_sock_lib.c lib/socket_lib.cpp lib/lib.c common/interprocess_t.cpp
         lib/lib_internal.h common/setup_sock.h)
 target_link_libraries(ipc dl pthread tcmalloc)
