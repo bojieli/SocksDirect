@@ -21,5 +21,6 @@ int main()
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed");
-    printf("%d\n", accept4(fd, NULL, 0, 0));
+    for (int i=0;i<=7;++i)
+        printf("accepted: %d\n", accept4(fd, NULL, 0, 0));
 }
