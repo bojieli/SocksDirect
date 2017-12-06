@@ -8,8 +8,11 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <cstdarg>
 #include "lib_internal.h"
 #include "../common/metaqueue.h"
+#include <sys/ioctl.h>
+
 pthread_key_t pthread_sock_key;
 
 
@@ -187,8 +190,8 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         idx = data->adjlist[current_fds_idx].buffer_idx = thread_buf->newbuffer(key, loc);
 
     //wait for ACK from peer
-    interprocess_buffer *buffer;
-    interprocess_buffer::queue_t::element element;
+    interprocess_t *buffer;
+    interprocess_t::queue_t::element element;
     buffer=&thread_buf->buffer[idx].data;
     bool isFind=false;
     while (true)
@@ -196,8 +199,8 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         for (int i=0;i<INTERPROCESS_SLOTS_IN_BUFFER;++i)
         {
             buffer->q[1].peek(i, element);
-            if (!element.isvalid || !element.isdel) continue;
-            if (element.command == interprocess_buffer::cmd::NEW_FD)
+            if (!element.isvalid || element.isdel) continue;
+            if (element.command == interprocess_t::cmd::NEW_FD)
             {
                 data->adjlist[current_fds_idx].fd = element.data_fd_notify.fd;
                 buffer->q[1].del(i);
@@ -225,11 +228,18 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     metaqueue_pop(q_pack, &element);
     if (element.data.command.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
+    if (!data->fds[sockfd].isvaild || data->fds[sockfd].type!=USOCKET_TCP_LISTEN)
+    {
+        errno = EBADF;
+        return -1;
+    }
+    if (element.data.sock_connect_res.port != data->fds[sockfd].property.tcp.port)
+        FATAL("Incorrect accept order for different ports");
     key_t key=element.data.sock_connect_res.shm_key;
     int loc=element.data.sock_connect_res.loc;
     auto peer_fd=element.data.sock_connect_res.fd;
     DEBUG("Accept new connection, key %d, loc %d", key, loc);
-    int curr_fd=data->fd_peer_lowest_id;
+    int curr_fd=data->fd_own_lowest_id;
     data->fds[curr_fd].peer_fd_ptr = -1;
     data->fds[curr_fd].property.is_addrreuse = 0;
     data->fds[curr_fd].property.is_blocking = 0;
@@ -250,13 +260,45 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     ++data->fd_peer_num;
     //TODO:cyclic fd_peer_lowest_id
 
-    interprocess_buffer *buffer=&sock_data->buffer[idx].data;
-    interprocess_buffer::queue_t::element inter_element;
+    interprocess_t *buffer=&sock_data->buffer[idx].data;
+    interprocess_t::queue_t::element inter_element;
     inter_element.isdel = 0;
     inter_element.isvalid = 1;
-    inter_element.command = interprocess_buffer::cmd::NEW_FD;
+    inter_element.command = interprocess_t::cmd::NEW_FD;
     inter_element.data_fd_notify.fd = curr_fd;
     buffer->q[0].push(inter_element);
     return MAX_FD_ID-curr_fd;
 }
 
+int setsockopt(int socket, int level, int option_name, const void* option_value, socklen_t option_len)
+{
+    if (socket < FD_DELIMITER) return ORIG(setsockopt, (socket, level, option_name, option_value, option_len));
+    socket = MAX_FD_ID - socket;
+    if ((level == SOL_SOCKET) && (option_name==SO_REUSEADDR))
+    {
+        thread_data_t *thread;
+        thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+        thread->fds[socket].property.is_addrreuse = *reinterpret_cast<const int *>(option_value);
+    }
+    return 0;
+}
+
+int ioctl(int fildes, unsigned long request, ...) __THROW
+{
+    va_list p_args;
+    va_start(p_args, request);
+    char * argp=va_arg(p_args, char*);
+    if (fildes < FD_DELIMITER);
+        ORIG(ioctl, (fildes, request, argp));
+    fildes = MAX_FD_ID - fildes;
+    thread_data_t *thread_data= reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+    if (!thread_data->fds[fildes].isvaild)
+    {
+        errno=EBADF;
+        return -1;
+    }
+
+    if (request == FIONBIO)
+        thread_data->fds[fildes].property.is_blocking=0;
+    return 0;
+}

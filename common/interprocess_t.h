@@ -13,7 +13,7 @@
 #define INTERPROCESS_Q_MASK ((INTERPROCESS_SLOTS_IN_QUEUE)-1)
 #define INTERPROCESS_SLOTS_BLK_SIZE 1018
 
-class interprocess_buffer
+class interprocess_t
 {
 public:
     class buffer_t {
@@ -77,7 +77,7 @@ public:
     };
     queue_t q[2];
     buffer_t* b[2];
-    interprocess_buffer() : b{nullptr, nullptr}
+    interprocess_t() : b{nullptr, nullptr}
     {
         b[0] = b[1] = nullptr;
     }

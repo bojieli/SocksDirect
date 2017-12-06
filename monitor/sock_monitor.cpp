@@ -4,7 +4,7 @@
 #include "process.h"
 #include <unordered_map>
 #include <sys/shm.h>
-#include "../common/interprocess_buffer.h"
+#include "../common/interprocess_t.h"
 
 struct Hash4InterBuf
 {
@@ -65,7 +65,7 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
         if ((shm_key = ftok(SHM_INTERPROCESS_NAME, current_q_counter)) < 0)
             FATAL("Failed to get the key of shared memory, errno: %d", errno);
         ++current_q_counter;
-        int shm_id = shmget(shm_key, interprocess_buffer::get_sharedmem_size(), IPC_CREAT | 0777);
+        int shm_id = shmget(shm_key, interprocess_t::get_sharedmem_size(), IPC_CREAT | 0777);
         if (shm_id == -1)
             FATAL("Failed to open the shared memory, errno: %s", strerror(errno));
         interprocess_buf_idx[std::pair<int, int>(qid, peer_qid)].loc = 0;
@@ -87,6 +87,7 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
     res_to_listener.data.sock_connect_res.shm_key = shm_key;
     res_to_listener.data.sock_connect_res.loc = !loc;
     res_to_listener.data.sock_connect_res.fd = req_body->data.sock_connect_command.fd;
+    res_to_listener.data.sock_connect_res.port = port;
     metaqueue_pack q_pack;
     q_pack = process_getresponsehandler_byqid(peer_qid);
     metaqueue_push(q_pack, &res_to_listener);
