@@ -32,16 +32,16 @@ typedef struct {
 } command_sock_connect_t;
 typedef struct {
     unsigned short command;
-    short loc;
     key_t shm_key;
     int fd;
+    unsigned short port;
+    int8_t loc;
 } res_sock_connect_t;
 typedef struct {
     unsigned short command;
     int data;
 } res_error_t;
 typedef struct {
-    unsigned char is_valid;
     union {
         unsigned char raw[15];
         command_t command;
@@ -50,6 +50,7 @@ typedef struct {
         res_sock_connect_t sock_connect_res;
         res_error_t res_error;
     } data;
+    unsigned char is_valid;
 } metaqueue_element;
 typedef struct {
     metaqueue_element data[MAX_METAQUEUE_SIZE];

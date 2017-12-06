@@ -26,6 +26,8 @@ extern int listen(int socket, int backlog) __THROW;
 extern int close(int fildes);
 extern int connect(int socket, const struct sockaddr *address, socklen_t address_len);
 extern int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags);
+extern int setsockopt(int socket, int level, int option_name, const void* option_value, socklen_t option_len);
+extern int ioctl(int fildes, unsigned long request, ...) __THROW;
 #ifdef __cplusplus
 }
 #endif

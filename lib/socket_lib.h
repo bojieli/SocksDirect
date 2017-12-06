@@ -42,7 +42,7 @@ void usocket_init();
 #endif
 #ifdef __cplusplus
 #include <unordered_map>
-#include "../common/interprocess_buffer.h"
+#include "../common/interprocess_t.h"
 extern pthread_key_t pthread_sock_key;
 const int BUFFERNUM=100;
 class thread_sock_data_t
@@ -53,7 +53,7 @@ public:
     int total_num;
     class buffer_t{
     public:
-        interprocess_buffer data;
+        interprocess_t data;
         bool isvalid;
         buffer_t():isvalid(false){}
     } buffer[BUFFERNUM];

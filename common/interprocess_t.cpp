@@ -5,21 +5,21 @@
 #include <cstring>
 #include <cstdlib>
 #include <sys/shm.h>
-#include "interprocess_buffer.h"
+#include "interprocess_t.h"
 #include "../common/helper.h"
 
-interprocess_buffer::buffer_t::buffer_t()  {
+interprocess_t::buffer_t::buffer_t()  {
     for (unsigned short i=0;i<INTERPROCESS_SLOTS_IN_BUFFER;++i)
         avail_slots[INTERPROCESS_SLOTS_IN_BUFFER-i-1]=i;
     top=INTERPROCESS_SLOTS_IN_BUFFER-1;
 }
-void interprocess_buffer::buffer_t::init()  {
+void interprocess_t::buffer_t::init()  {
     for (unsigned short i=0;i<INTERPROCESS_SLOTS_IN_BUFFER;++i)
         avail_slots[INTERPROCESS_SLOTS_IN_BUFFER-i-1]=i;
     top=INTERPROCESS_SLOTS_IN_BUFFER-1;
 }
 
-short interprocess_buffer::buffer_t::pushdata(uint8_t *start_ptr, int size)
+short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
 {
     int size_left=size;
     uint8_t *curr_ptr=start_ptr;
@@ -30,8 +30,8 @@ short interprocess_buffer::buffer_t::pushdata(uint8_t *start_ptr, int size)
         short blk = avail_slots[top--];
         if (prev_blk != -1) mem[prev_blk].next_ptr = blk;
         mem[blk].offset = 0;
-        int true_size=size_left<sizeof(interprocess_buffer::buffer_t::element::data)?
-                      size_left:sizeof(interprocess_buffer::buffer_t::element::data);
+        int true_size=size_left<sizeof(interprocess_t::buffer_t::element::data)?
+                      size_left:sizeof(interprocess_t::buffer_t::element::data);
         memcpy(mem[blk].data, curr_ptr, true_size);
         mem[blk].size = true_size;
         curr_ptr += true_size;
@@ -41,7 +41,7 @@ short interprocess_buffer::buffer_t::pushdata(uint8_t *start_ptr, int size)
     }
 }
 
-short interprocess_buffer::buffer_t::popdata(unsigned short src, int &size, uint8_t *user_buf)
+short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *user_buf)
 {
     short current_loc = src;
     int sizeleft=size;
@@ -72,18 +72,18 @@ short interprocess_buffer::buffer_t::popdata(unsigned short src, int &size, uint
     return current_loc;
 }
 
-interprocess_buffer::queue_t::queue_t(data_t* _data):head(0)
+interprocess_t::queue_t::queue_t(data_t* _data):head(0)
 {
     data = _data;
 }
 
-void interprocess_buffer::queue_t::init(data_t *_data)
+void interprocess_t::queue_t::init(data_t *_data)
 {
     data= _data;
     head = 0;
 }
 
-void interprocess_buffer::queue_t::push(element &input) {
+void interprocess_t::queue_t::push(element &input) {
 
     //is full?
     while (data->data[head & INTERPROCESS_Q_MASK].isvalid)
@@ -98,7 +98,7 @@ void interprocess_buffer::queue_t::push(element &input) {
     head++;
 }
 
-void interprocess_buffer::queue_t::pop(element &output) {
+void interprocess_t::queue_t::pop(element &output) {
     //is empty?
     while (!data->data[tail & INTERPROCESS_Q_MASK].isvalid)
             SW_BARRIER;
@@ -109,19 +109,19 @@ void interprocess_buffer::queue_t::pop(element &output) {
     tail++;
 }
 
-void interprocess_buffer::queue_t::peek(int location, element &output)
+void interprocess_t::queue_t::peek(int location, element &output)
 {
     output = data->data[location];
 }
 
-void interprocess_buffer::queue_t::del(int location)
+void interprocess_t::queue_t::del(int location)
 {
     data->data[location].isdel = 1;
     if ((data->data[tail & INTERPROCESS_Q_MASK].isvalid) && (tail == location)) ++tail;
     while (data->data[tail & INTERPROCESS_Q_MASK].isdel) ++tail;
 }
 
-bool interprocess_buffer::queue_t::isempty() {
+bool interprocess_t::queue_t::isempty() {
     uint8_t tmp_tail = tail;
     bool isempty = true;
     while (data->data[tmp_tail & INTERPROCESS_Q_MASK].isvalid){
@@ -133,7 +133,7 @@ bool interprocess_buffer::queue_t::isempty() {
     }
     return isempty;
 }
-void interprocess_buffer::init(key_t shmem_key, int loc)
+void interprocess_t::init(key_t shmem_key, int loc)
 {
     int mem_id;
     mem_id = shmget(shmem_key, 2*sizeof(get_sharedmem_size()), 0777);
