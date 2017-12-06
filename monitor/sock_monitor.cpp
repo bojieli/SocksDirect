@@ -88,6 +88,6 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
     res_to_listener.data.sock_connect_res.loc = !loc;
     res_to_listener.data.sock_connect_res.fd = req_body->data.sock_connect_command.fd;
     metaqueue_pack q_pack;
-    q_pack = process_getrequesthandler_byqid(peer_qid);
+    q_pack = process_getresponsehandler_byqid(peer_qid);
     metaqueue_push(q_pack, &res_to_listener);
 }
