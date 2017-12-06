@@ -3,10 +3,12 @@
 //
 #include "../common/helper.h"
 #include "../common/metaqueue.h"
+
 metaqueue_data q;
 metaqueue_meta_t meta;
-int glb_counter=0;
-void* q_send(void* arg)
+int glb_counter = 0;
+
+void *q_send(void *arg)
 {
     pin_thread(0);
     metaqueue_meta_t meta;
@@ -23,7 +25,8 @@ void* q_send(void* arg)
         metaqueue_push(q_pack, &data);
     }
 }
-void *q_recv(void* arg)
+
+void *q_recv(void *arg)
 {
     pin_thread(2);
     metaqueue_meta_t meta;
@@ -40,7 +43,9 @@ void *q_recv(void* arg)
         ++glb_counter;
     }
 }
-int main() {
+
+int main()
+{
     metaqueue_pack q_pack;
     q_pack.data = &q;
     q_pack.meta = &meta;
@@ -49,7 +54,8 @@ int main() {
     pthread_create(&sendthread, NULL, q_send, NULL);
     pthread_create(&recvthread, NULL, q_recv, NULL);
     pin_thread(4);
-    while (1) {
+    while (1)
+    {
         sleep(1);
         printf("counter: %dk\n", glb_counter / 1000);
     }

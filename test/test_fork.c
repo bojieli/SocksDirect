@@ -9,7 +9,7 @@
 
 int main()
 {
-    pid_t ret=fork();
+    pid_t ret = fork();
     if (ret == 0)
     {
         printf("Child process!");
@@ -20,7 +20,7 @@ int main()
     } else
     {
         printf("Parent process!");
-        ipclib_sendmsg(REQ_PING,16);
+        ipclib_sendmsg(REQ_PING, 16);
         metaqueue_element data;
         ipclib_recvmsg(&data);
         printf("parent back data%d\n", data.data.command.data);

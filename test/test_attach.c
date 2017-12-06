@@ -13,9 +13,9 @@ int main()
     //printf("msg :%d\n", data.data.command.data);
     printf("Hello world!\n");
     pin_thread(2);
-    long counter=0;
+    long counter = 0;
     ipclib_sendmsg(REQ_THRTEST_INIT, 0);
-    while(1)
+    while (1)
     {
         ipclib_sendmsg(REQ_THRTEST, counter);
         ++counter;
