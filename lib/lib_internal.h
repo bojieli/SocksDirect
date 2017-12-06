@@ -23,4 +23,8 @@ typedef struct
     int fd_peer_lowest_id;
 } thread_data_t;
 extern pthread_key_t pthread_key;
+
+#define GET_THREAD_DATA() (reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key)))
+#define GET_THREAD_SOCK_DATA() (reinterpret_cast<thread_sock_data_t *>(pthread_getspecific(pthread_sock_key)))
+
 #endif //IPC_DIRECT_LIB_INTERNAL_H

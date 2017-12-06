@@ -119,7 +119,8 @@ public:
 
     enum cmd
     {
-        NEW_FD
+        NEW_FD,
+        DATA_TRANSFER,
     };
 };
 
