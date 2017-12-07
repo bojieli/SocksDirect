@@ -260,7 +260,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     data->adjlist[data->fd_peer_lowest_id].is_ready=1;
     data->adjlist[data->fd_peer_lowest_id].next = data->fds[curr_fd].peer_fd_ptr;
     data->fds[curr_fd].peer_fd_ptr = data->fd_peer_lowest_id;
-    data->fds[curr_fd].next_op_fd = data->fd_own_lowest_id;
+    data->fds[curr_fd].next_op_fd = data->fd_peer_lowest_id;
 
     int idx;
     if ((idx = sock_data->isexist(key)) != -1)

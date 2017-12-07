@@ -30,7 +30,7 @@ int main()
         while (1)
         {
             int len = recvfrom(connect_fd, (void *) buffer, 1024, 0, NULL, NULL);
-            printf("ret from recvfrom \n");
+            //printf("ret from recvfrom \n");
             if (len == -1)
             {
                 if (errno == (EWOULDBLOCK | EAGAIN))
@@ -41,9 +41,14 @@ int main()
                 else 
                     FATAL("Rd error!");
             }
-            printf("len: %d:",len);
-            for (int i=0;i<len;++i) printf("%hhu", buffer[i]);
-            printf("\n");
+            printf("data received\n");
+            if (len!=1024)
+                FATAL("length error");
+            for (int i=0;i<1024;++i)
+            {
+                if (buffer[i] != (uint8_t)(i%256)) 
+                    FATAL("data error");
+            }
         }
     }
 }
