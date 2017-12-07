@@ -31,7 +31,9 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
     while (size_left > 0)
     {
         if (top < 0) return -1;
-        short blk = avail_slots[top--];
+        short blk = avail_slots[top];
+        SW_BARRIER;
+        top--;
         if (prev_blk != -1)
             mem[prev_blk].next_ptr = blk;
         mem[blk].offset = 0;
@@ -62,11 +64,7 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
         mempcpy(curr_ptr, &mem[current_loc].data[offset_inblk], copy_size);
         curr_ptr += copy_size;
         sizeleft -= copy_size;
-        if (isfullblk)
-        {
-            ++top;
-            avail_slots[top] = current_loc;
-        } else
+        if (!isfullblk)
         { //last block and not fully copied
             size_inblk -= copy_size;
             offset_inblk += copy_size;
@@ -74,10 +72,27 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
         mem[current_loc].size = size_inblk;
         mem[current_loc].offset = offset_inblk;
         if ((sizeleft == 0) && (!isfullblk)) break;
-        current_loc = mem[current_loc].next_ptr;
+        short next_ptr=mem[current_loc].next_ptr;
+        if (isfullblk)
+        {
+            SW_BARRIER;
+            avail_slots[top+1] = current_loc;
+            SW_BARRIER;
+            ++top;
+
+        }
+        current_loc = next_ptr;
     }
 
     size -= sizeleft;
+    if (current_loc != -1)
+    {
+        printf("not full size\n");
+    }
+    if (sizeleft != 0)
+    {
+        printf("!!!\n");
+    }
     return current_loc;
 }
 

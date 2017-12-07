@@ -25,9 +25,11 @@ int main()
     iovec1.iov_len=1024;
     iovec1.iov_base = (void*)&buffer;
     for(int i=0;i<1024;++i) buffer[i]=(uint8_t)(i%256);
-    while (1)
+    for (int i=0;i<100;++i)
     {
-        writev(fd, &iovec1,1);
+        buffer[0]=i;
+        if(writev(fd, &iovec1,1) == -1)
+            FATAL("write failed");
         printf("write 1024\n");
     }
     return 0;
