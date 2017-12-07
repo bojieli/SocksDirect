@@ -6,6 +6,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include "../common/helper.h"
+#include "../lib/lib.h"
 
 int main()
 {
@@ -18,5 +19,16 @@ int main()
     inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr);
     if (connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("Failed to connect");
-    printf("connect succeed");
+    printf("connect succeed\n");
+    uint8_t buffer[1024];
+    struct iovec iovec1;
+    iovec1.iov_len=1024;
+    iovec1.iov_base = (void*)&buffer;
+    for(int i=0;i<1024;++i) buffer[i]=(uint8_t)(i%256);
+    while (1)
+    {
+        writev(fd, &iovec1,1);
+        printf("write 1024\n");
+    }
+    return 0;
 }

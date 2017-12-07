@@ -320,7 +320,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     fd = MAX_FD_ID - fd;
 
     thread_data_t* thread_data= GET_THREAD_DATA();
-    if (!thread_data->fds[fd].isvaild || !thread_data->fds[fd].type!=USOCKET_TCP_CONNECT)
+    if (!thread_data->fds[fd].isvaild || thread_data->fds[fd].type!=USOCKET_TCP_CONNECT)
     {
         errno = EBADF;
         return -1;
@@ -329,6 +329,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     interprocess_t * buffer=&thread_sock_data->
             buffer[thread_data->adjlist[thread_data->fds[fd].next_op_fd].buffer_idx].data;
+    int peer_fd=thread_data->adjlist[thread_data->fds[fd].next_op_fd].fd;
     thread_data->fds[fd].next_op_fd=thread_data->adjlist[thread_data->fds[fd].next_op_fd].next;
     if (thread_data->fds[fd].next_op_fd == -1)
         thread_data->fds[fd].next_op_fd=thread_data->fds[fd].peer_fd_ptr;
@@ -341,9 +342,71 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         total_size += iov[i].iov_len;
         interprocess_t::queue_t::element ele;
         ele.isvalid = 1; ele.isdel = 0; ele.command=interprocess_t::cmd::DATA_TRANSFER;
-        ele.data_fd_rw.fd=fd;
+        ele.data_fd_rw.fd=peer_fd;
         ele.data_fd_rw.pointer=startloc;
         buffer->q[0].push(ele);
     }
     return total_size;
+}
+
+ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+                 struct sockaddr *src_addr, socklen_t *addrlen)
+{
+    if (sockfd < FD_DELIMITER) return ORIG(recvfrom, (sockfd, buf, len, flags, src_addr, addrlen));
+    sockfd = MAX_FD_ID - sockfd;
+
+    thread_data_t* thread_data= GET_THREAD_DATA();
+    if (!thread_data->fds[sockfd].isvaild || thread_data->fds[sockfd].type!=USOCKET_TCP_CONNECT)
+    {
+        errno = EBADF;
+        return -1;
+    }
+
+    auto thread_sock_data = GET_THREAD_SOCK_DATA();
+    int curr_next_fd=thread_data->fds[sockfd].next_op_fd;
+    int nextfd=curr_next_fd;
+    bool isFind(false);
+    interprocess_t *buffer_has_blk(nullptr);
+    int loc_has_blk(-1);
+    do
+    {
+        do
+        {
+            interprocess_t *buffer=&thread_sock_data->buffer[thread_data->adjlist[curr_next_fd].buffer_idx].data;
+            uint8_t pointer=buffer->q[1].tail;
+            while (buffer->q[1].data->data[pointer].isvalid)
+            {
+                if (!buffer->q[1].data->data[pointer].isdel)
+                {
+                    auto ele=buffer->q[1].data->data[pointer];
+                    if (ele.command==interprocess_t::cmd::DATA_TRANSFER &&
+                        ele.data_fd_rw.fd==sockfd)
+                    {
+                        isFind=true;
+                        buffer_has_blk=buffer;
+                        loc_has_blk=pointer;
+                        break;
+                    }
+                }
+                ++pointer;
+            }
+            if (isFind) break;
+            curr_next_fd = thread_data->adjlist[curr_next_fd].next;
+            if (curr_next_fd == -1) curr_next_fd=thread_data->fds[sockfd].peer_fd_ptr;
+        } while (nextfd != curr_next_fd);
+        if (isFind) break;
+    } while (thread_data->fds[sockfd].property.is_blocking);
+    int ret(len);
+    if (!isFind)
+    {
+        errno = EAGAIN | EWOULDBLOCK;
+        return -1;
+    } else
+    {
+            auto ele=&buffer_has_blk->q[1].data->data[loc_has_blk];
+        short blk = buffer_has_blk->b[1]->popdata(ele->data_fd_rw.pointer,ret, (uint8_t *)buf);
+        if (blk==-1) buffer_has_blk->q[1].del(loc_has_blk);
+        else ele->data_fd_rw.pointer=blk;
+    }
+    return ret;
 }
