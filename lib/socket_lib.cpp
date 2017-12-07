@@ -405,8 +405,16 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     {
             auto ele=&buffer_has_blk->q[1].data->data[loc_has_blk];
         short blk = buffer_has_blk->b[1]->popdata(ele->data_fd_rw.pointer,ret, (uint8_t *)buf);
-        if (blk==-1) buffer_has_blk->q[1].del(loc_has_blk);
-        else ele->data_fd_rw.pointer=blk;
+        if (blk==-1) 
+        {
+            printf("Full element read! pointer %d\n", loc_has_blk);
+            buffer_has_blk->q[1].del(loc_has_blk);
+        }
+        else 
+        {
+            printf("Not full block read\n");
+            ele->data_fd_rw.pointer=blk;
+        }
     }
     return ret;
 }

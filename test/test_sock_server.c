@@ -22,6 +22,7 @@ int main()
         FATAL("listen failed");
     printf("listen succeed\n");
     uint8_t buffer[1024];
+    int counter=0;
     while (1)
     {
         int connect_fd = accept4(fd, NULL, 0, 0);
@@ -35,20 +36,23 @@ int main()
             {
                 if (errno == (EWOULDBLOCK | EAGAIN))
                 {
-                    printf("empty\n");
+                    //printf("empty\n");
                     continue;
                 }
-                else 
+                else
                     FATAL("Rd error!");
             }
             printf("data received\n");
             if (len!=1024)
                 FATAL("length error");
-            for (int i=0;i<1024;++i)
-            {
-                if (buffer[i] != (uint8_t)(i%256)) 
-                    FATAL("data error");
-            }
+            //for (int i=0;i<1024;++i)
+            //{
+            //    if (buffer[i] != (uint8_t)(i%256))
+            //        FATAL("data error");
+            //}
+            if (buffer[0] != counter)
+                FATAL("data error");
+            ++counter;
         }
     }
 }
