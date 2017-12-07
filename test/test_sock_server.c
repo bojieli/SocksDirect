@@ -23,6 +23,7 @@ int main()
     printf("listen succeed\n");
     uint8_t buffer[1024];
     uint8_t counter = 0;
+    //int connect_fd=accept4(fd, NULL, 0, 0);
     while (1)
     {
         int connect_fd = accept4(fd, NULL, 0, 0);
