@@ -210,6 +210,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             if (element.command == interprocess_t::cmd::NEW_FD)
             {
                 data->adjlist[current_fds_idx].fd = element.data_fd_notify.fd;
+                printf("peer fd: %d\n",element.data_fd_notify.fd);
                 buffer->q[1].del(i);
                 isFind = true;
                 break;
@@ -277,6 +278,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     inter_element.isvalid = 1;
     inter_element.command = interprocess_t::cmd::NEW_FD;
     inter_element.data_fd_notify.fd = curr_fd;
+    //printf("currfd: %d\n", curr_fd);
     buffer->q[0].push(inter_element);
     return MAX_FD_ID - curr_fd;
 }
