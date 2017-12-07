@@ -7,19 +7,22 @@
 #include <sys/shm.h>
 #include "interprocess_t.h"
 #include "../common/helper.h"
+#include "locklessqueue_n.hpp"
 
-interprocess_t::buffer_t::buffer_t()
+interprocess_t::buffer_t::buffer_t() : mem(nullptr), avail_slots(nullptr)
 {
-    for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
-        avail_slots[INTERPROCESS_SLOTS_IN_BUFFER - i - 1] = i;
-    top = INTERPROCESS_SLOTS_IN_BUFFER - 1;
 }
 
-void interprocess_t::buffer_t::init()
+void interprocess_t::buffer_t::init(element *_mem, locklessqueue_t<int, 2048> *_avail_slots)
 {
-    for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
-        avail_slots[INTERPROCESS_SLOTS_IN_BUFFER - i - 1] = i;
-    top = INTERPROCESS_SLOTS_IN_BUFFER - 1;
+    mem = _mem;
+    avail_slots = _avail_slots;
+
+}
+
+void interprocess_t::buffer_t::init_mem()
+{
+    avail_slots->init_mem();
 }
 
 short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
@@ -27,13 +30,17 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
     int size_left = size;
     uint8_t *curr_ptr = start_ptr;
     short prev_blk = -1;
-    short ret=-1;
+    short ret = -1;
     while (size_left > 0)
     {
-        if (top < 0) return -1;
-        short blk = avail_slots[top];
-        SW_BARRIER;
-        top--;
+        int blk;
+        bool isAvail = avail_slots->pop_nb(blk);
+        if (!isAvail)
+        {
+            if (prev_blk != -1)
+                popdata(prev_blk, size, nullptr);
+            return -1;
+        }
         if (prev_blk != -1)
             mem[prev_blk].next_ptr = blk;
         mem[blk].offset = 0;
@@ -61,7 +68,8 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
         uint16_t offset_inblk = mem[current_loc].offset;
         bool isfullblk = (sizeleft >= mem[current_loc].size);
         short copy_size = isfullblk ? size_inblk : sizeleft;
-        mempcpy(curr_ptr, &mem[current_loc].data[offset_inblk], copy_size);
+        if (user_buf != nullptr)
+            mempcpy(curr_ptr, &mem[current_loc].data[offset_inblk], copy_size);
         curr_ptr += copy_size;
         sizeleft -= copy_size;
         if (!isfullblk)
@@ -72,27 +80,13 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
         mem[current_loc].size = size_inblk;
         mem[current_loc].offset = offset_inblk;
         if ((sizeleft == 0) && (!isfullblk)) break;
-        short next_ptr=mem[current_loc].next_ptr;
+        short next_ptr = mem[current_loc].next_ptr;
         if (isfullblk)
-        {
-            SW_BARRIER;
-            avail_slots[top+1] = current_loc;
-            SW_BARRIER;
-            ++top;
-
-        }
+            avail_slots->push(current_loc);
         current_loc = next_ptr;
     }
 
     size -= sizeleft;
-    if (current_loc != -1)
-    {
-        printf("not full size\n");
-    }
-    if (sizeleft != 0)
-    {
-        printf("!!!\n");
-    }
     return current_loc;
 }
 
@@ -139,7 +133,8 @@ void interprocess_t::queue_t::pop(element &output)
     SW_BARRIER;
     tail++;
     while (data->data[tail & INTERPROCESS_Q_MASK].isvalid
-           && data->data[tail & INTERPROCESS_Q_MASK].isdel) tail++;
+           && data->data[tail & INTERPROCESS_Q_MASK].isdel)
+        tail++;
 }
 
 void interprocess_t::queue_t::peek(int location, element &output)
@@ -154,7 +149,7 @@ void interprocess_t::queue_t::del(int location)
     {
         data->data[location].isvalid = 0;
         ++tail;
-        while (data->data[tail & INTERPROCESS_Q_MASK].isdel) 
+        while (data->data[tail & INTERPROCESS_Q_MASK].isdel)
         {
             data->data[tail & INTERPROCESS_Q_MASK].isvalid = 0;
             ++tail;
@@ -189,20 +184,42 @@ void interprocess_t::init(key_t shmem_key, int loc)
     baseaddr = shmat(mem_id, NULL, 0);
     if (baseaddr == (void *) -1)
         FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
-    if (loc == 0)
-    {
-        q[0].init(reinterpret_cast<queue_t::data_t *>(baseaddr));
-        q[1].init(reinterpret_cast<queue_t::data_t *>(baseaddr) + 1);
-        b[0] = reinterpret_cast<buffer_t *>((uint8_t *) baseaddr + 2 * sizeof(queue_t::data_t));
-        b[1] = reinterpret_cast<buffer_t *>((uint8_t *) baseaddr + 2 * sizeof(queue_t::data_t)) + 1;
-    } else
-    {
-        q[1].init(reinterpret_cast<queue_t::data_t *>(baseaddr));
-        q[0].init(reinterpret_cast<queue_t::data_t *>(baseaddr) + 1);
-        b[1] = reinterpret_cast<buffer_t *>((uint8_t *) baseaddr + 2 * sizeof(queue_t::data_t));
-        b[0] = reinterpret_cast<buffer_t *>((uint8_t *) baseaddr + 2 * sizeof(queue_t::data_t)) + 1;
-    }
-    b[0]->init();
-    q[0].clear();
+    init(baseaddr, loc);
 }
 
+void interprocess_t::init(void *baseaddr, int loc)
+{
+    uint8_t *memory = (uint8_t *) baseaddr;
+    if (loc == 0)
+    {
+        b_avail[0].init(memory);
+        memory += locklessqueue_t<int, 2048>::getmemsize();
+        b_avail[1].init((void *) memory);
+        memory += locklessqueue_t<int, 2048>::getmemsize();
+        q[0].init(reinterpret_cast<queue_t::data_t *>(memory));
+        memory += sizeof(queue_t::data_t);
+        q[1].init(reinterpret_cast<queue_t::data_t *>(memory));
+        memory += sizeof(queue_t::data_t);
+        b[0].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[0]);
+        memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
+        b[1].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[1]);
+    } else
+    {
+        b_avail[1].init(memory);
+        memory += locklessqueue_t<int, 2048>::getmemsize();
+        b_avail[0].init((void *) memory);
+        memory += locklessqueue_t<int, 2048>::getmemsize();
+        q[1].init(reinterpret_cast<queue_t::data_t *>(memory));
+        memory += sizeof(queue_t::data_t);
+        q[0].init(reinterpret_cast<queue_t::data_t *>(memory));
+        memory += sizeof(queue_t::data_t);
+        b[1].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[1]);
+        memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
+        b[0].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[0]);
+
+    }
+    q[0].clear();
+    b[0].init_mem();
+    for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
+        b_avail[1].push(i);
+}
