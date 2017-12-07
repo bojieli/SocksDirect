@@ -25,20 +25,22 @@ extern int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
 
 extern int socket(int domain, int type, int protocol) __THROW;
 
-int bind(int socket, const struct sockaddr *address, socklen_t address_len) __THROW;
+int bind(int socket, __CONST_SOCKADDR_ARG address, socklen_t address_len) __THROW;
 
 extern int listen(int socket, int backlog) __THROW;
 
 extern int close(int fildes);
 
-extern int connect(int socket, const struct sockaddr *address, socklen_t address_len);
+extern int connect(int socket, __CONST_SOCKADDR_ARG address, socklen_t address_len);
 
-extern int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags);
+extern int accept4(int sockfd, __SOCKADDR_ARG addr, socklen_t *addrlen, int flags);
 
 extern int setsockopt(int socket, int level, int option_name, const void *option_value, socklen_t option_len);
 
 extern int ioctl(int fildes, unsigned long request, ...) __THROW;
 extern ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
+extern ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
+                 __SOCKADDR_ARG src_addr, socklen_t *addrlen);
 
 
 #ifdef __cplusplus

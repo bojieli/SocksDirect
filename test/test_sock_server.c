@@ -20,7 +20,30 @@ int main()
         FATAL("failed to bind");
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
-    printf("listen succeed");
-    for (int i=0;i<=7;++i)
-        printf("accepted: %d\n", accept4(fd, NULL, 0, 0));
+    printf("listen succeed\n");
+    uint8_t buffer[1024];
+    while (1)
+    {
+        int connect_fd = accept4(fd, NULL, 0, 0);
+        if (connect_fd == -1)
+            FATAL("Failed to connect to client");
+        while (1)
+        {
+            int len = recvfrom(connect_fd, (void *) buffer, 1024, 0, NULL, NULL);
+            printf("ret from recvfrom \n");
+            if (len == -1)
+            {
+                if (errno == (EWOULDBLOCK | EAGAIN))
+                {
+                    printf("empty\n");
+                    continue;
+                }
+                else 
+                    FATAL("Rd error!");
+            }
+            printf("len: %d:",len);
+            for (int i=0;i<len;++i) printf("%hhu", buffer[i]);
+            printf("\n");
+        }
+    }
 }
