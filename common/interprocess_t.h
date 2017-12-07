@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <pthread.h>
+#include "locklessqueue_n.hpp"
 
 #define INTERPROCESS_SLOTS_IN_BUFFER 1024
 #define INTERPROCESS_SLOTS_IN_QUEUE 256
@@ -30,16 +31,18 @@ public:
 
         buffer_t();
 
-        inline void init();
+        void init(element *_mem, locklessqueue_t<int, 2048> *_avail_slots);
+
+        void init_mem();
 
         short pushdata(uint8_t *start_ptr, int size);
 
         short popdata(unsigned short src, int &size, uint8_t *user_buf);
 
+        locklessqueue_t<int, 2048> *avail_slots;
+
     private:
-        element mem[INTERPROCESS_SLOTS_IN_BUFFER];
-        short avail_slots[INTERPROCESS_SLOTS_IN_BUFFER];
-        int top;
+        element *mem;
     };
 
     class queue_t
@@ -103,19 +106,18 @@ public:
     };
 
     queue_t q[2];
-    buffer_t *b[2];
-
-    interprocess_t() : b{nullptr, nullptr}
-    {
-        b[0] = b[1] = nullptr;
-    }
+    buffer_t b[2];
+    locklessqueue_t<int, 2048> b_avail[2];
 
     static int get_sharedmem_size()
     {
-        return (2 * sizeof(queue_t::data_t) + 2 * sizeof(buffer_t));
+        return (2 * sizeof(queue_t::data_t) + 2 * sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER
+                + 2 * locklessqueue_t<int, 2048>::getmemsize());
     }
 
     void init(key_t shmem_key, int loc);
+
+    void init(void *baseaddr, int loc);
 
     enum cmd
     {
