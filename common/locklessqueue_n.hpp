@@ -32,7 +32,7 @@ public:
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
     }
 
-    void init_mem()
+    inline void init_mem()
     {
         memset(ringbuffer, 0, sizeof(element_t) * SIZE);
     }
