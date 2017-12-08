@@ -114,11 +114,9 @@ void interprocess_t::queue_t::push(element &input)
             SW_BARRIER;
     input.isvalid = 0;
     input.isdel = 0;
-    SW_BARRIER;
     data->data[head & INTERPROCESS_Q_MASK] = input;
     SW_BARRIER;
     data->data[head & INTERPROCESS_Q_MASK].isvalid = 1;
-    SW_BARRIER;
     head++;
 }
 
