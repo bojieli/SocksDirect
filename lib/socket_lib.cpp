@@ -379,11 +379,12 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         {
             interprocess_t *buffer = &thread_sock_data->buffer[thread_data->adjlist[curr_next_fd].buffer_idx].data;
             uint8_t pointer = buffer->q[1].tail;
-            while (buffer->q[1].data->data[pointer].isvalid)
-            {
-                if (!buffer->q[1].data->data[pointer].isdel)
+            while (1) {
+                auto ele = buffer->q[1].data->data[pointer];
+                if (!ele.isvalid)
+                    break;
+                if (!ele.isdel)
                 {
-                    auto ele = buffer->q[1].data->data[pointer];
                     if (ele.command == interprocess_t::cmd::DATA_TRANSFER &&
                         ele.data_fd_rw.fd == sockfd)
                     {
@@ -408,8 +409,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     {
         errno = EAGAIN | EWOULDBLOCK;
         return -1;
-    } else
-    {
+    } else {
         auto ele = &buffer_has_blk->q[1].data->data[loc_has_blk];
         short blk = buffer_has_blk->b[1].popdata(ele->data_fd_rw.pointer, ret, (uint8_t *) buf);
         if (blk == -1)
