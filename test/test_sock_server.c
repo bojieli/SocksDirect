@@ -16,8 +16,9 @@ int main()
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(8080);
+    servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     if (bind(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
-        FATAL("failed to bind");
+        FATAL("failed to bind %s", strerror(errno));
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed\n");
