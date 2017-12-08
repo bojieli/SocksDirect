@@ -197,6 +197,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         idx = data->adjlist[current_fds_idx].buffer_idx = thread_buf->newbuffer(key, loc);
 
     //wait for ACK from peer
+    //sleep(1);
     interprocess_t *buffer;
     interprocess_t::queue_t::element element;
     buffer = &thread_buf->buffer[idx].data;
