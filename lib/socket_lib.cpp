@@ -402,8 +402,6 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         if (isFind) break;
     } while (thread_data->fds[sockfd].property.is_blocking);
     int ret(len);
-    if (loc_has_blk !=  thread_sock_data->buffer[0].data.q[1].tail)
-        FATAL("recvfrom error");
     if (!isFind)
     {
         errno = EAGAIN | EWOULDBLOCK;
@@ -422,10 +420,5 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
             ele->data_fd_rw.pointer = blk;
         }
     }
-    return ret;/*
-    int ret(len);
-    interprocess_t::queue_t::element ele;
-    thread_sock_data->buffer[0].data.q[1].pop(ele);
-    thread_sock_data->buffer[0].data.b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
-    return ret;*/
+    return ret;
 }
