@@ -2,6 +2,7 @@
 // Created by ctyi on 11/23/17.
 //
 
+#include "../common/darray.hpp"
 #include "lib.h"
 #include "socket_lib.h"
 #include "../common/helper.h"
@@ -43,12 +44,8 @@ void usocket_init()
 {
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    data->fd_own_num = 0;
-    data->fd_peer_num = 0;
-    data->fd_own_lowest_id = 0;
-    data->fd_peer_lowest_id = 0;
-    for (int i = 0; i < MAX_FD_OWN_NUM; ++i) data->fds[i].isvaild = 0;
-    for (int i = 0; i < MAX_FD_PEER_NUM; ++i) data->adjlist[i].is_valid = 0;
+    data->fds.init();
+    data->adjlist.init();
 
     pthread_key_create(&pthread_sock_key, NULL);
     auto *thread_sock_data = new thread_sock_data_t;
@@ -60,30 +57,15 @@ void usocket_init()
 
 int socket(int domain, int type, int protocol) __THROW
 {
-    if (domain != AF_INET) FATAL("unsupported socket domain");
-    if (type != SOCK_STREAM) FATAL("unsupported socket type");
+    if ((domain != AF_INET) || (type != SOCK_STREAM)) return ORIG(socket, (domain, type, protocol));
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    data->fds[data->fd_own_lowest_id].peer_fd_ptr = -1;
-    data->fds[data->fd_own_lowest_id].property.is_addrreuse = 0;
-    data->fds[data->fd_own_lowest_id].property.is_blocking = 1;
-    data->fds[data->fd_own_lowest_id].isvaild = 1;
-    int ret = MAX_FD_ID - data->fd_own_lowest_id;
-    int n_fd_own_lowest_id = data->fd_own_lowest_id + 1;
-    while (n_fd_own_lowest_id != data->fd_own_lowest_id)
-    {
-        if (n_fd_own_lowest_id >= MAX_FD_OWN_NUM)
-        {
-            n_fd_own_lowest_id = 0;
-            continue;
-        }
-        if (!data->fds[n_fd_own_lowest_id].isvaild) break;
-        ++n_fd_own_lowest_id;
-    }
-    if (n_fd_own_lowest_id == data->fd_own_lowest_id)
-        FATAL("fd is full, cannot insert new fd");
-    data->fd_own_lowest_id = n_fd_own_lowest_id;
-    ++data->fd_own_num;
+    file_struc_t nfd;
+    nfd.peer_fd_ptr = -1;
+    nfd.property.is_addrreuse = 0;
+    nfd.property.is_blocking = 1;
+    unsigned int idx_nfd=data->fds.add(nfd);
+    int ret = MAX_FD_ID - idx_nfd;
     return ret;
 }
 
@@ -108,7 +90,7 @@ int listen(int socket, int backlog) __THROW
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     data2m.is_valid = 1;
     data2m.data.sock_listen_command.command = REQ_LISTEN;
-    if (!data->fds[socket].isvaild)
+    if (!data->fds.isvalid(socket))
     {
         errno = EBADF;
         return -1;
@@ -134,7 +116,17 @@ int close(int fildes)
     //TODO: Notify the monitor
     thread_data_t *data = NULL;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    data->fds[fildes].isvaild = 0;
+    if (!data->fds.isvalid(fildes))
+    {
+        errno = EBADF;
+        return -1;
+    }
+    if (data->fds[fildes].type == USOCKET_TCP_CONNECT)
+    {
+        thread_sock_data_t* sock_data=GET_THREAD_SOCK_DATA();
+        //TODO: close signal to peer
+    }
+    data->fds.del(fildes);
 }
 
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
@@ -150,7 +142,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         FATAL("Only support TCP connection");
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (!data->fds[socket].isvaild)
+    if (!data->fds.isvalid(socket))
     {
         errno = EBADF;
         return -1;
@@ -184,17 +176,17 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         FATAL("Failed to get thread specific data.");
     int idx;
     //TODO: dynamic allocate memory
-    int current_fds_idx = data->fd_peer_lowest_id;
-    data->adjlist[current_fds_idx].next = data->fds[socket].peer_fd_ptr;
-    data->fds[socket].peer_fd_ptr = current_fds_idx;
-    ++data->fd_peer_lowest_id;
-    ++data->fd_peer_num;
-    data->adjlist[current_fds_idx].is_valid = 1;
-    data->adjlist[current_fds_idx].fd = -1;
+    fd_list_t peer_fd;
+    unsigned int idx_peer_fd;
+    peer_fd.next = data->fds[socket].peer_fd_ptr;
+    peer_fd.fd = -1;
+    idx_peer_fd = data->adjlist.add(peer_fd);
+    data->fds[socket].peer_fd_ptr = idx_peer_fd;
+    data->fds[socket].next_op_fd = idx_peer_fd;
     if ((idx = thread_buf->isexist(res_data.data.sock_connect_res.shm_key)) != -1)
-        data->adjlist[current_fds_idx].buffer_idx = idx;
+        data->adjlist[idx_peer_fd].buffer_idx = idx;
     else
-        idx = data->adjlist[current_fds_idx].buffer_idx = thread_buf->newbuffer(key, loc);
+        idx = data->adjlist[idx_peer_fd].buffer_idx = thread_buf->newbuffer(key, loc);
 
     //wait for ACK from peer
     //sleep(1);
@@ -210,7 +202,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             if (!element.isvalid || element.isdel) continue;
             if (element.command == interprocess_t::cmd::NEW_FD)
             {
-                data->adjlist[current_fds_idx].fd = element.data_fd_notify.fd;
+                data->adjlist[idx_peer_fd].fd = element.data_fd_notify.fd;
                 printf("peer fd: %d\n",element.data_fd_notify.fd);
                 buffer->q[1].del(i);
                 isFind = true;
@@ -237,7 +229,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     metaqueue_pop(q_pack, &element);
     if (element.data.command.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
-    if (!data->fds[sockfd].isvaild || data->fds[sockfd].type != USOCKET_TCP_LISTEN)
+    if (!data->fds.isvalid(sockfd) || data->fds[sockfd].type != USOCKET_TCP_LISTEN)
     {
         errno = EBADF;
         return -1;
@@ -248,40 +240,36 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     int loc = element.data.sock_connect_res.loc;
     auto peer_fd = element.data.sock_connect_res.fd;
     DEBUG("Accept new connection, key %d, loc %d", key, loc);
-    int curr_fd = data->fd_own_lowest_id;
-    data->fds[curr_fd].peer_fd_ptr = -1;
-    data->fds[curr_fd].property.is_addrreuse = 0;
-    data->fds[curr_fd].property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
-    data->fds[curr_fd].isvaild = 1;
-    data->fds[curr_fd].type = USOCKET_TCP_CONNECT;
-    ++data->fd_own_lowest_id;
-    ++data->fd_own_num;
-    //TODO: cyclic data_fd_own_lowest_id
-    data->adjlist[data->fd_peer_lowest_id].fd = peer_fd;
-    data->adjlist[data->fd_peer_lowest_id].is_valid = 1;
-    data->adjlist[data->fd_peer_lowest_id].is_ready = 1;
-    data->adjlist[data->fd_peer_lowest_id].next = data->fds[curr_fd].peer_fd_ptr;
-    data->fds[curr_fd].peer_fd_ptr = data->fd_peer_lowest_id;
-    data->fds[curr_fd].next_op_fd = data->fd_peer_lowest_id;
+    file_struc_t nfd;
+    fd_list_t npeerfd;
+    
+    nfd.peer_fd_ptr = -1;
+    nfd.property.is_addrreuse = 0;
+    nfd.property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
+    nfd.type = USOCKET_TCP_CONNECT;
+    unsigned int idx_nfd=data->fds.add(nfd);
+    npeerfd.fd = peer_fd;
+    npeerfd.is_ready = 1;
+    npeerfd.next = nfd.peer_fd_ptr;
+    unsigned int idx_npeerfd=data->adjlist.add(npeerfd);
+    data->fds[idx_nfd].peer_fd_ptr = idx_npeerfd;
+    data->fds[idx_nfd].next_op_fd = idx_npeerfd;
 
     int idx;
     if ((idx = sock_data->isexist(key)) != -1)
-        data->adjlist[curr_fd].buffer_idx = idx;
+        data->adjlist[idx_npeerfd].buffer_idx = idx;
     else
-        idx = data->adjlist[curr_fd].buffer_idx = sock_data->newbuffer(key, loc);
-    ++data->fd_peer_lowest_id;
-    ++data->fd_peer_num;
-    //TODO:cyclic fd_peer_lowest_id
+        idx = data->adjlist[idx_npeerfd].buffer_idx = sock_data->newbuffer(key, loc);
 
     interprocess_t *buffer = &sock_data->buffer[idx].data;
     interprocess_t::queue_t::element inter_element;
     inter_element.isdel = 0;
     inter_element.isvalid = 1;
     inter_element.command = interprocess_t::cmd::NEW_FD;
-    inter_element.data_fd_notify.fd = curr_fd;
+    inter_element.data_fd_notify.fd = idx_nfd;
     //printf("currfd: %d\n", curr_fd);
     buffer->q[0].push(inter_element);
-    return MAX_FD_ID - curr_fd;
+    return MAX_FD_ID - idx_nfd;
 }
 
 int setsockopt(int socket, int level, int option_name, const void *option_value, socklen_t option_len)
@@ -306,7 +294,7 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
     ORIG(ioctl, (fildes, request, argp));
     fildes = MAX_FD_ID - fildes;
     thread_data_t *thread_data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (!thread_data->fds[fildes].isvaild)
+    if (!thread_data->fds.isvalid(fildes))
     {
         errno = EBADF;
         return -1;
@@ -323,7 +311,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     fd = MAX_FD_ID - fd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (!thread_data->fds[fd].isvaild || thread_data->fds[fd].type != USOCKET_TCP_CONNECT)
+    if (!thread_data->fds.isvalid(fd) || thread_data->fds[fd].type != USOCKET_TCP_CONNECT)
     {
         errno = EBADF;
         return -1;
@@ -361,7 +349,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     sockfd = MAX_FD_ID - sockfd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (!thread_data->fds[sockfd].isvaild || thread_data->fds[sockfd].type != USOCKET_TCP_CONNECT)
+    if (!thread_data->fds.isvalid(sockfd) || thread_data->fds[sockfd].type != USOCKET_TCP_CONNECT)
     {
         errno = EBADF;
         return -1;

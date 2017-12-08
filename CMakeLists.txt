@@ -4,8 +4,8 @@ set(CMAKE_CXX_STANDARD 11)
 if (COMMAND cmake_policy)
     cmake_policy(SET CMP0003 NEW)
 endif (COMMAND cmake_policy)
-add_library(ipc SHARED common/helper.c common/metaqueue.cpp lib/setup_sock_lib.c lib/socket_lib.cpp lib/lib.c common/interprocess_t.cpp
-        lib/lib_internal.h common/setup_sock.h)
+add_library(ipc SHARED common/helper.c common/metaqueue.cpp lib/setup_sock_lib.cpp lib/socket_lib.cpp lib/lib.cpp common/interprocess_t.cpp
+        lib/lib_internal.h common/setup_sock.h common/darray.hpp)
 target_link_libraries(ipc dl pthread tcmalloc)
 add_executable(monitor common/helper.c common/metaqueue.cpp monitor/setup_sock_monitor.c monitor/process.cpp monitor/sock_monitor.cpp
         monitor/main.cpp common/interprocess_t.cpp common/setup_sock.h common/locklessqueue_n.hpp)
@@ -27,3 +27,4 @@ target_link_libraries(test_sock_server ipc)
 target_link_libraries(test_sock_client ipc)
 add_executable(test_interprocess_t test/test_interprocess_t.cpp common/interprocess_t.cpp common/helper.c)
 target_link_libraries(test_interprocess_t pthread)
+add_executable(test_darray test/test_daary.cpp common/darray.hpp)

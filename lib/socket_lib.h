@@ -28,7 +28,6 @@ typedef struct
 } socket_property_t;
 typedef struct
 {
-    int isvaild;
     int type;
     int peer_fd_ptr;
     int next_op_fd;
@@ -39,7 +38,6 @@ typedef struct
     int fd;
     int next;
     int buffer_idx;
-    short is_valid;
     short is_ready;
 } fd_list_t;
 void usocket_init();

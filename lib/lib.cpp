@@ -89,7 +89,7 @@ struct wrapper_arg
 
 static void *wrapper(void *arg)
 {
-    struct wrapper_arg *warg = arg;
+    struct wrapper_arg *warg = (wrapper_arg *)arg;
     connect_monitor();
     void *(*func)(void *) = warg->func;
     arg = warg->arg;
@@ -99,9 +99,9 @@ static void *wrapper(void *arg)
 }
 
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
-                   void *(*start_routine)(void *), void *arg)
+                   void *(*start_routine)(void *), void *arg) __THROW
 {
-    struct wrapper_arg *warg = malloc(sizeof(*warg));
+    struct wrapper_arg *warg = (wrapper_arg *)malloc(sizeof(*warg));
     if (!warg)
         FATAL("malloc() failed");
     warg->func = start_routine;

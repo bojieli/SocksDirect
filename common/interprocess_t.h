@@ -123,6 +123,7 @@ public:
     {
         NEW_FD,
         DATA_TRANSFER,
+        CLOSE_FD
     };
 };
 

@@ -7,6 +7,10 @@
 
 #include "../common/metaqueue.h"
 #include "socket_lib.h"
+#include "../common/darray.hpp"
+
+typedef darray_t<file_struc_t, MAX_FD_OWN_NUM> d_file_struc_t;
+typedef darray_t<fd_list_t, MAX_FD_PEER_NUM> d_fd_list_t;
 
 typedef struct
 {
@@ -15,13 +19,11 @@ typedef struct
     //0 is to monitor 1 is from monitor
     metaqueue_data *metaqueue;
     metaqueue_meta_t metaqueue_metadata[2];
-    file_struc_t fds[MAX_FD_OWN_NUM];
-    fd_list_t adjlist[MAX_FD_PEER_NUM];
-    int fd_own_num;
-    int fd_peer_num;
-    int fd_own_lowest_id;
-    int fd_peer_lowest_id;
+    d_file_struc_t fds;
+    d_fd_list_t adjlist;
 } thread_data_t;
+
+
 extern pthread_key_t pthread_key;
 
 #define GET_THREAD_DATA() (reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key)))

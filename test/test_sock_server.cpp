@@ -30,7 +30,7 @@ int main()
     //int connect_fd=accept4(fd, NULL, 0, 0);
     while (1)
     {
-        int connect_fd = accept4(fd, NULL, 0, 0);
+        int connect_fd = accept4(fd, NULL, NULL, SOCK_NONBLOCK);
         if (connect_fd == -1)
             FATAL("Failed to connect to client");
         while (1)
@@ -41,12 +41,12 @@ int main()
             {
                 if (errno == (EWOULDBLOCK | EAGAIN))
                 {
-                    printf("empty\n");
+                    //printf("empty\n");
                     continue;
                 } else
                     FATAL("Rd error!");
             }
-           // printf("data received\n");
+            //printf("data received\n");
             if (len != 16)
                 FATAL("length error");
             if (*(int *)buffer != counter)
