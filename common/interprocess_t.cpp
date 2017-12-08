@@ -154,7 +154,8 @@ void interprocess_t::queue_t::del(int location)
     {
         data->data[location].isvalid = 0;
         ++tail;
-        while (data->data[tail & INTERPROCESS_Q_MASK].isdel)
+        while (data->data[tail & INTERPROCESS_Q_MASK].isvalid
+            && data->data[tail & INTERPROCESS_Q_MASK].isdel)
         {
             data->data[tail & INTERPROCESS_Q_MASK].isvalid = 0;
             ++tail;
