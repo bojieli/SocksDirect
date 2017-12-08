@@ -96,13 +96,15 @@ static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res
 static void event_loop()
 {
     int current_pointer;
-    uint8_t round = 0;
+    unsigned int round = 0;
     current_pointer = 0;
-    while (process_current_counter == 0)
-        try_accept_new_proc();
+    while (process_current_counter == 0) {
+        if ((round & 0xFFFF) == 0)
+            try_accept_new_proc();
+        round ++;
+    }
     while (1)
     {
-
         //main part of the event loop
         metaqueue_pack q_pack_req, q_pack_res;
         q_pack_req = process_getrequesthandler_byqid(current_pointer);

@@ -26,7 +26,7 @@ int main()
         FATAL("listen failed");
     printf("listen succeed\n");
     uint8_t buffer[1024];
-    uint8_t counter = 0;
+    unsigned int counter = 0;
     //int connect_fd=accept4(fd, NULL, 0, 0);
     while (1)
     {
@@ -47,17 +47,16 @@ int main()
                     FATAL("Rd error!");
             }
            // printf("data received\n");
-            if (len != 1024)
+            if (len != 16)
                 FATAL("length error");
-            if (buffer[0] != counter)
+            if (*(int *)buffer != counter)
             {
                 auto thread_sock_data = GET_THREAD_SOCK_DATA();
-                FATAL("data error should: %hhu, recvd: %hhu", counter, buffer[0]);
+                FATAL("data error should: %p, recvd: %p", counter, *(int *)buffer);
             }
             ++counter;
-            if (counter == 97) counter =0;
-            //if (counter == 0)
-            //    printf("Read 97\n");
+            if (counter % 1000000 == 0)
+                printf("Read %u\n", counter);
         }
     }
 }
