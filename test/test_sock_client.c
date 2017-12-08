@@ -27,6 +27,7 @@ int main()
     for (int i = 0; i < 1024; ++i) buffer[i] = (uint8_t) (i % 256);
     uint8_t counter;
     counter=0;
+    //writev(fd, &iovec1, 1);
     while (1)
     {
         buffer[0] = counter;

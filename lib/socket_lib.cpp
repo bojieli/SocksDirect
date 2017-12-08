@@ -251,7 +251,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     int curr_fd = data->fd_own_lowest_id;
     data->fds[curr_fd].peer_fd_ptr = -1;
     data->fds[curr_fd].property.is_addrreuse = 0;
-    data->fds[curr_fd].property.is_blocking = 0;
+    data->fds[curr_fd].property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
     data->fds[curr_fd].isvaild = 1;
     data->fds[curr_fd].type = USOCKET_TCP_CONNECT;
     ++data->fd_own_lowest_id;

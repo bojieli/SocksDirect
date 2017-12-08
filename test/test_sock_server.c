@@ -26,7 +26,7 @@ int main()
     //int connect_fd=accept4(fd, NULL, 0, 0);
     while (1)
     {
-        int connect_fd = accept4(fd, NULL, 0, 0);
+        int connect_fd = accept4(fd, NULL, 0, SOCK_NONBLOCK);
         if (connect_fd == -1)
             FATAL("Failed to connect to client");
         while (1)
@@ -45,7 +45,7 @@ int main()
             if (len != 1024)
                 FATAL("length error");
             if (buffer[0] != counter)
-                FATAL("data error");
+                FATAL("data error should: %hhu, recvd: %hhu", counter, buffer[0]);
             ++counter;
             if (counter == 0)
                 printf("Read 256\n");
