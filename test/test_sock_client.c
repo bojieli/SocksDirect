@@ -22,21 +22,18 @@ int main()
     printf("connect succeed\n");
     uint8_t buffer[1024];
     struct iovec iovec1;
-    iovec1.iov_len = 1024;
+    iovec1.iov_len = 16;
     iovec1.iov_base = (void *) &buffer;
     for (int i = 0; i < 1024; ++i) buffer[i] = (uint8_t) (i % 256);
-    uint8_t counter;
+    unsigned int counter;
     counter=0;
     //writev(fd, &iovec1, 1);
     while (1)
     {
-        buffer[0] = counter;
+        *(int *)buffer = counter;
         ++counter;
-        if (counter == 97) counter=0;
         if (writev(fd, &iovec1, 1) == -1)
             FATAL("write failed");
-        //if (counter == 0)
-         //   printf("write 97\n");
     }
     return 0;
 }
