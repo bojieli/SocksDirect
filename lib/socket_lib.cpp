@@ -373,13 +373,13 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     bool isFind(false);
     interprocess_t *buffer_has_blk(nullptr);
     int loc_has_blk(-1);
-    do
+    do //if blocking, infinate loop
     {
-        do
+        do //iterate different peer fd
         {
             interprocess_t *buffer = &thread_sock_data->buffer[thread_data->adjlist[curr_next_fd].buffer_idx].data;
             uint8_t pointer = buffer->q[1].tail;
-            while (1) {
+            while (1) {  //for same fd(buffer), iterate each available buffer
                 auto ele = buffer->q[1].data->data[pointer];
                 if (!ele.isvalid)
                     break;
