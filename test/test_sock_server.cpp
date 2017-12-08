@@ -6,13 +6,16 @@
 #include <netinet/in.h>
 #include "../common/helper.h"
 #include "../lib/lib.h"
+#include "../lib/lib_internal.h"
+#include "../lib/socket_lib.h"
 
 int main()
 {
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) FATAL("Failed to create fd");
-    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &(int) {1}, sizeof(int));
+    int property=1;
+    setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &property, sizeof(int));
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(8080);
@@ -27,7 +30,7 @@ int main()
     //int connect_fd=accept4(fd, NULL, 0, 0);
     while (1)
     {
-        int connect_fd = accept4(fd, NULL, 0, SOCK_NONBLOCK);
+        int connect_fd = accept4(fd, NULL, 0, 0);
         if (connect_fd == -1)
             FATAL("Failed to connect to client");
         while (1)
@@ -38,6 +41,7 @@ int main()
             {
                 if (errno == (EWOULDBLOCK | EAGAIN))
                 {
+                    printf("empty\n");
                     continue;
                 } else
                     FATAL("Rd error!");
@@ -46,10 +50,14 @@ int main()
             if (len != 1024)
                 FATAL("length error");
             if (buffer[0] != counter)
+            {
+                auto thread_sock_data = GET_THREAD_SOCK_DATA();
                 FATAL("data error should: %hhu, recvd: %hhu", counter, buffer[0]);
+            }
             ++counter;
-            if (counter == 0)
-                printf("Read 256\n");
+            if (counter == 97) counter =0;
+            //if (counter == 0)
+            //    printf("Read 97\n");
         }
     }
 }

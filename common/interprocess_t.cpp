@@ -35,6 +35,7 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
     {
         int blk;
         bool isAvail = avail_slots->pop_nb(blk);
+        SW_BARRIER;
         if (!isAvail)
         {
             if (prev_blk != -1)
@@ -82,7 +83,11 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
         if ((sizeleft == 0) && (!isfullblk)) break;
         short next_ptr = mem[current_loc].next_ptr;
         if (isfullblk)
+        {
+            SW_BARRIER;
             avail_slots->push(current_loc);
+            SW_BARRIER;
+        }
         current_loc = next_ptr;
     }
 

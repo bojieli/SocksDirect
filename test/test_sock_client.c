@@ -32,10 +32,11 @@ int main()
     {
         buffer[0] = counter;
         ++counter;
+        if (counter == 97) counter=0;
         if (writev(fd, &iovec1, 1) == -1)
             FATAL("write failed");
-        if (counter == 0)
-            printf("write 256\n");
+        //if (counter == 0)
+         //   printf("write 97\n");
     }
     return 0;
 }
