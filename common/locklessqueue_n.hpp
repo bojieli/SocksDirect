@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <cstdio>
 
 #define SW_BARRIER asm volatile("" ::: "memory")
 
@@ -43,7 +44,10 @@ public:
         ele.isvalid = false;
         //is full?
         while (ringbuffer[pointer & MASK].isvalid)
-                SW_BARRIER;
+        {
+            printf("Full!\n");
+            SW_BARRIER;
+        }
         SW_BARRIER;
         ringbuffer[pointer & MASK] = ele;
         SW_BARRIER;
