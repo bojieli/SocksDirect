@@ -410,7 +410,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                         //this is the first on the adjlist
                         if (prev_ptr == -1)
                         {
-                            thread_data->fds[sockfd].peer_fd_ptr 
+                            thread_data->fds[sockfd].peer_fd_ptr
                                     = thread_data->fds[sockfd].next_op_fd = curr_peer_fd->next;
                             int n_idx_curr_next_fd=curr_peer_fd->next;
                             thread_data->adjlist.del(idx_curr_next_fd);
@@ -475,3 +475,37 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     return ret;
 }
 #undef DEBUGON
+
+ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
+{
+    if (fd < FD_DELIMITER) return ORIG(readv, (fd, iov, iovcnt));
+    ssize_t ret(0);
+    bool iserror(false);
+    for (int i=0;i<iovcnt;++i)
+    {
+        ssize_t lret;
+        lret =  recvfrom(fd, iov[i].iov_base, iov[i].iov_len, 0, NULL, NULL);
+        if (lret == -1)
+            iserror=true;
+        else ret += lret;
+    }
+    if (iserror)
+        return -1;
+    else
+        return ret;
+}
+
+ssize_t read(int fildes, void *buf, size_t nbyte)
+{
+    if (fildes < FD_DELIMITER) return ORIG(read, (fildes, buf, nbyte));
+    return recvfrom(fildes,buf,nbyte,0,NULL,NULL);
+}
+
+ssize_t write(int fildes, const void *buf, size_t nbyte)
+{
+    if (fildes < FD_DELIMITER) return ORIG(write, (fildes, buf, nbyte));
+    iovec iov;
+    iov.iov_len=nbyte;
+    iov.iov_base=(void *)buf;
+    return writev(fildes,&iov,1);
+}

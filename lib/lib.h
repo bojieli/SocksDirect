@@ -43,6 +43,9 @@ extern ssize_t writev(int fd, const struct iovec *iov, int iovcnt);
 
 extern ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                         __SOCKADDR_ARG src_addr, socklen_t *addrlen);
+extern ssize_t readv(int fd, const struct iovec *iov, int iovcnt);
+extern ssize_t read(int fildes, void *buf, size_t nbyte);
+extern ssize_t write(int fildes, const void *buf, size_t nbyte);
 
 
 #ifdef __cplusplus
