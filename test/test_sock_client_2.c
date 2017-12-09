@@ -28,12 +28,13 @@ int main()
     unsigned int counter;
     counter=0;
     //writev(fd, &iovec1, 1);
-    while (1)
+    for (int i=0;i<=10;++i)
     {
         *(int *)buffer = counter;
         ++counter;
         if (writev(fd, &iovec1, 1) == -1)
             FATAL("write failed");
     }
+    close(fd);
     return 0;
 }

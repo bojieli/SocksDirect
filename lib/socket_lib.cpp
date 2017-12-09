@@ -47,7 +47,6 @@ void usocket_init()
     data->fds.init();
     data->adjlist.init();
 
-    pthread_key_create(&pthread_sock_key, NULL);
     auto *thread_sock_data = new thread_sock_data_t;
     thread_sock_data->bufferhash = new std::unordered_map<key_t, int>;
     for (int i = 0; i < BUFFERNUM; ++i) thread_sock_data->buffer[i].isvalid = false;
@@ -364,6 +363,8 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     return total_size;
 }
 
+#undef DEBUGON
+#define DEBUGON 1
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen)
 {
@@ -378,25 +379,60 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     }
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    int curr_next_fd = thread_data->fds[sockfd].next_op_fd;
-    int nextfd = curr_next_fd;
+    int idx_curr_next_fd = thread_data->fds[sockfd].peer_fd_ptr;
+    int prev_ptr=-1;
     bool isFind(false);
     volatile interprocess_t *buffer_has_blk(nullptr);
     int loc_has_blk(-1);
+
     do //if blocking, infinate loop
     {
         do //iterate different peer fd
         {
-            volatile interprocess_t *buffer = &thread_sock_data->buffer[thread_data->adjlist[curr_next_fd].buffer_idx].data;
+            fd_list_t* curr_peer_fd=&thread_data->adjlist[idx_curr_next_fd];
+            volatile interprocess_t *buffer = &thread_sock_data->buffer[curr_peer_fd->buffer_idx].data;
             uint8_t pointer = buffer->q[1].tail;
             SW_BARRIER;
-            while (1) {  //for same fd(buffer), iterate each available buffer
+            bool isdel(false);
+            while (1) {  //for same fd(buffer), iterate each available slot
                 volatile auto ele = buffer->q[1].data->data[pointer];
                 SW_BARRIER;
                 if (!ele.isvalid)
                     break;
                 if (!ele.isdel)
                 {
+                    if (ele.command == interprocess_t::cmd::CLOSE_FD &&
+                        ele.close_fd.peer_fd == sockfd &&
+                        ele.close_fd.req_fd == curr_peer_fd->fd)
+                    {
+                        isdel=true;
+                        DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
+                        //this is the first on the adjlist
+                        if (prev_ptr == -1)
+                        {
+                            thread_data->fds[sockfd].peer_fd_ptr 
+                                    = thread_data->fds[sockfd].next_op_fd = curr_peer_fd->next;
+                            int n_idx_curr_next_fd=curr_peer_fd->next;
+                            thread_data->adjlist.del(idx_curr_next_fd);
+                            idx_curr_next_fd = n_idx_curr_next_fd;
+                            curr_peer_fd = nullptr;
+                            //All the peer fd destructed
+                            if (thread_data->fds[sockfd].peer_fd_ptr == -1)
+                            {
+                                DEBUG("Self fd fd %d destructed", sockfd);
+                                thread_data->fds.del(sockfd);
+                                return 0;
+                            }
+                        } else
+                        {
+                            thread_data->adjlist[prev_ptr].next = curr_peer_fd->next;
+                            int n_idx_curr_next_fd = curr_peer_fd->next;
+                            curr_peer_fd=nullptr;
+                            thread_data->adjlist.del(idx_curr_next_fd);
+                            idx_curr_next_fd = n_idx_curr_next_fd;
+                        }
+                        break; //no need to traverse this queue anyway
+                    }
                     if (ele.command == interprocess_t::cmd::DATA_TRANSFER &&
                         ele.data_fd_rw.fd == sockfd)
                     {
@@ -409,9 +445,13 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                 ++pointer;
             }
             if (isFind) break;
-            curr_next_fd = thread_data->adjlist[curr_next_fd].next;
-            if (curr_next_fd == -1) curr_next_fd = thread_data->fds[sockfd].peer_fd_ptr;
-        } while (nextfd != curr_next_fd);
+            if (!isdel)
+            {
+                prev_ptr = idx_curr_next_fd;
+                idx_curr_next_fd = thread_data->adjlist[idx_curr_next_fd].next;
+            }
+            if (idx_curr_next_fd == -1) idx_curr_next_fd = thread_data->fds[sockfd].peer_fd_ptr;
+        } while (idx_curr_next_fd != -1);
         if (isFind) break;
     } while (thread_data->fds[sockfd].property.is_blocking);
     int ret(len);
@@ -434,3 +474,4 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     }
     return ret;
 }
+#undef DEBUGON

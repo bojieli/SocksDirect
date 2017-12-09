@@ -32,6 +32,7 @@ __attribute__((constructor))
 void after_exec()
 {
     pthread_key_create(&pthread_key, NULL);
+    pthread_key_create(&pthread_sock_key, NULL);
     connect_monitor();
     usocket_init();
 }
@@ -91,6 +92,7 @@ static void *wrapper(void *arg)
 {
     struct wrapper_arg *warg = (wrapper_arg *)arg;
     connect_monitor();
+    usocket_init();
     void *(*func)(void *) = warg->func;
     arg = warg->arg;
     free(warg);
