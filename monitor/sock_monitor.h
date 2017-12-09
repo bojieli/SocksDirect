@@ -29,6 +29,7 @@ extern "C"
 #endif
 extern void listen_handler(metaqueue_element *req_body, metaqueue_element *res_body, int qid);
 extern void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, int qid);
+extern void close_handler(metaqueue_element *req_body, int qid);
 #ifdef __cplusplus
 }
 #endif

@@ -124,7 +124,29 @@ int close(int fildes)
     if (data->fds[fildes].type == USOCKET_TCP_CONNECT)
     {
         thread_sock_data_t* sock_data=GET_THREAD_SOCK_DATA();
-        //TODO: close signal to peer
+        for(int idx = data->fds[fildes].peer_fd_ptr;idx != -1;idx=data->adjlist[idx].next)
+        {
+            fd_list_t peer_adj_item(data->adjlist[idx]);
+            interprocess_t *interprocess;
+            interprocess = &sock_data->buffer[peer_adj_item.buffer_idx].data;
+            interprocess_t::queue_t::element ele;
+            ele.command=interprocess_t::cmd::CLOSE_FD;
+            ele.close_fd.req_fd=fildes;
+            ele.close_fd.peer_fd=peer_adj_item.fd;
+            interprocess->q[0].push(ele);
+        }
+    }
+
+    if (data->fds[fildes].type == USOCKET_TCP_LISTEN)
+    {
+        metaqueue_element ele;
+        ele.data.command.command=REQ_CLOSE;
+        ele.data.res_close.port=data->fds[fildes].property.tcp.port;
+        ele.data.res_close.listen_fd=fildes;
+        metaqueue_pack q_pack;
+        q_pack.data = &data->metaqueue[0];
+        q_pack.meta = &data->metaqueue_metadata[0];
+        metaqueue_push(q_pack, &ele);
     }
     data->fds.del(fildes);
 }

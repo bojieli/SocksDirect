@@ -87,6 +87,9 @@ static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res
             connect_handler(&req_body, &res_body, qid);
             metaqueue_push(q_pack_res, &res_body);
             break;
+        case REQ_CLOSE:
+            close_handler(&req_body, qid);
+            break;
         case REQ_NOP:
         default:
             break;

@@ -102,3 +102,34 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
     q_pack = process_getresponsehandler_byqid(peer_qid);
     metaqueue_push(q_pack, &res_to_listener);
 }
+#undef DEBUGON
+#define DEBUGON 1
+void close_handler(metaqueue_element *req_body, int qid)
+{
+    unsigned short port=req_body->data.res_close.port;
+    if (!ports[port].is_listening)
+        return;
+    int prev_idx=-1;
+    for (int idx=ports[port].adjlist_pointer;idx!=-1;prev_idx=idx,idx=listen_adjlist[idx].next)
+    {
+        monitor_sock_adjlist_t listen_elem;
+        listen_elem=listen_adjlist[idx];
+        if (listen_elem.peer_qid==qid)
+        {
+            DEBUG("Process %d close port %hu", qid, port);
+            //only one left
+            if (prev_idx == -1)
+            {
+                ports[port].is_listening = 0;
+                ports[port].current_pointer = ports[port].adjlist_pointer = -1;
+            } else
+            {
+                listen_adjlist[prev_idx].next = listen_adjlist[idx].next;
+            }
+            break;
+        }
+    }
+}
+
+#undef DEBUGON
+#define DEBUGON 0
