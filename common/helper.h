@@ -24,9 +24,9 @@
 #include <dlfcn.h>
 
 #define DEBUGON 0
-#define DEBUG(fmt, ...) (DEBUGON && fprintf(stderr, "[DEBUG] IPC-Direct @%5d, Line%d: " fmt "\n", getpid(), __LINE__, ##__VA_ARGS__))
-#define ERROR(fmt, ...) (fprintf(stderr, "[ERROR] IPC-Direct @%5d, Line %d: " fmt "\n", getpid(), __LINE__, ##__VA_ARGS__))
-#define FATAL(fmt, ...) (fprintf(stderr, "[FATAL] IPC-Direct @%5d, Line %d: " fmt "\n", getpid(), __LINE__, ##__VA_ARGS__), abort())
+#define DEBUG(fmt, ...) (DEBUGON && fprintf(stderr, "[DEBUG] IPC-Direct @%5d, %s Line%d: " fmt "\n", getpid(), __FILE__, __LINE__, ##__VA_ARGS__))
+#define ERROR(fmt, ...) (fprintf(stderr, "[ERROR] IPC-Direct @%5d, %s Line %d: " fmt "\n", getpid(), __FILE__, __LINE__, ##__VA_ARGS__))
+#define FATAL(fmt, ...) (fprintf(stderr, "[FATAL] IPC-Direct @%5d, %s Line %d: " fmt "\n", getpid(), __FILE__, __LINE__, ##__VA_ARGS__), abort())
 #define SW_BARRIER asm volatile("" ::: "memory")
 #define ORIG(func, args) ((typeof(&func)) dlsym(RTLD_NEXT, #func)) args
 
