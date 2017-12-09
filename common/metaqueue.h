@@ -46,6 +46,12 @@ typedef struct
     unsigned short command;
     int data;
 } res_error_t;
+typedef struct 
+{
+    unsigned short command;
+    unsigned short port;
+    int listen_fd;
+} close_t;
 typedef struct
 {
     union
@@ -56,6 +62,7 @@ typedef struct
         command_sock_connect_t sock_connect_command;
         res_sock_connect_t sock_connect_res;
         res_error_t res_error;
+        close_t res_close;
     } data;
     unsigned char is_valid;
 } metaqueue_element;
