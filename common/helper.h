@@ -36,6 +36,7 @@ enum
     REQ_THRTEST,
     REQ_THRTEST_INIT,
     REQ_PING,
+    REQ_CLOSE,
     REQ_LISTEN,
     REQ_CONNECT,
     RES_ERROR,

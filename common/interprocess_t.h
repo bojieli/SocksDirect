@@ -35,9 +35,9 @@ public:
 
         void init_mem();
 
-        short pushdata(uint8_t *start_ptr, int size);
+        short pushdata(uint8_t *start_ptr, int size) volatile ;
 
-        short popdata(unsigned short src, int &size, uint8_t *user_buf);
+        short popdata(unsigned short src, int &size, uint8_t *user_buf) volatile ;
 
         locklessqueue_t<int, 2048> *avail_slots;
 
@@ -60,12 +60,18 @@ public:
                 short pointer;
                 int fd;
             };
+            struct close_t
+            {
+                int req_fd;
+                int peer_fd;
+            };
 
             union
             {
                 unsigned char raw[13];
                 fd_notify_t data_fd_notify;
                 fd_rw_t data_fd_rw;
+                close_t close_fd;
             };
             unsigned char isvalid;
             unsigned char command;
@@ -100,7 +106,7 @@ public:
 
         void peek(int location, element &data);
 
-        void del(int location);
+        void del(int location) volatile;
 
         bool isempty();
     };

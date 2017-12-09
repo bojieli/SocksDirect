@@ -34,6 +34,8 @@ int main()
         ++counter;
         if (writev(fd, &iovec1, 1) == -1)
             FATAL("write failed");
+        //if (counter % 128==0)
+        //    printf("write 128\n");
     }
     return 0;
 }

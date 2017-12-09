@@ -25,7 +25,7 @@ void interprocess_t::buffer_t::init_mem()
     avail_slots->init_mem();
 }
 
-short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
+short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size) volatile
 {
     int size_left = size;
     uint8_t *curr_ptr = start_ptr;
@@ -58,7 +58,7 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size)
     return ret;
 }
 
-short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *user_buf)
+short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *user_buf) volatile
 {
     short current_loc = src;
     int sizeleft = size;
@@ -122,7 +122,7 @@ void interprocess_t::queue_t::push(element &input)
 
 void interprocess_t::queue_t::clear()
 {
-    memset(data->data, 0, sizeof(data->data));
+    memset(static_cast<void *>(data->data), 0, sizeof(data->data));
 }
 
 void interprocess_t::queue_t::pop(element &output)
@@ -142,10 +142,12 @@ void interprocess_t::queue_t::pop(element &output)
 
 void interprocess_t::queue_t::peek(int location, element &output)
 {
+    SW_BARRIER;
     output = data->data[location];
+    SW_BARRIER;
 }
 
-void interprocess_t::queue_t::del(int location)
+void interprocess_t::queue_t::del(int location) volatile
 {
     data->data[location].isdel = 1;
     if ((data->data[tail & INTERPROCESS_Q_MASK].isvalid) && (tail == location))
