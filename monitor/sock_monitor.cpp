@@ -5,6 +5,7 @@
 #include <unordered_map>
 #include <sys/shm.h>
 #include "../common/interprocess_t.h"
+#include "../common/darray.hpp"
 
 struct Hash4InterBuf
 {
@@ -17,9 +18,7 @@ struct Hash4InterBuf
 
 static std::unordered_map<std::pair<int, int>, interprocess_buf_map_t, Hash4InterBuf> interprocess_buf_idx;
 static monitor_sock_node_t ports[65536];
-static monitor_sock_adjlist_t listen_adjlist[1000];
-static int monitor_adjlist_lowest_available = 0;
-static int total_adjlist_peer = 0;
+darray_t<monitor_sock_adjlist_t, 1000> listen_adjlist;
 static int current_q_counter = 0;
 
 void listen_handler(metaqueue_element *req_body, metaqueue_element *res_body, int qid)
@@ -36,16 +35,13 @@ void listen_handler(metaqueue_element *req_body, metaqueue_element *res_body, in
         ports[port].adjlist_pointer = -1;
         ports[port].is_addrreuse = req_body->data.sock_listen_command.is_reuseaddr;
     }
-    ++total_adjlist_peer;
-    listen_adjlist[monitor_adjlist_lowest_available].peer_qid = qid;
-    listen_adjlist[monitor_adjlist_lowest_available].peer_fd = 0;
-    listen_adjlist[monitor_adjlist_lowest_available].next = ports[port].adjlist_pointer;
-    ports[port].adjlist_pointer = monitor_adjlist_lowest_available;
-    ports[port].current_pointer = monitor_adjlist_lowest_available;
-    //TODO: seek for next available point
-    ++monitor_adjlist_lowest_available;
-    if (monitor_adjlist_lowest_available > 1000)
-        FATAL("listen buffer used up!");
+    monitor_sock_adjlist_t new_listen_fd;
+    new_listen_fd.peer_qid=qid;
+    new_listen_fd.next=ports[port].adjlist_pointer;
+    new_listen_fd.peer_fd=-1;
+    unsigned int idx_new_fd=listen_adjlist.add(new_listen_fd);
+    ports[port].adjlist_pointer = idx_new_fd;
+    ports[port].current_pointer = idx_new_fd;
     res_body->data.command.command = RES_SUCCESS;
 }
 
@@ -125,7 +121,10 @@ void close_handler(metaqueue_element *req_body, int qid)
             } else
             {
                 listen_adjlist[prev_idx].next = listen_adjlist[idx].next;
+                if (ports[port].current_pointer == idx)
+                    ports[port].current_pointer = ports[port].adjlist_pointer;
             }
+            listen_adjlist.del(idx);
             break;
         }
     }
