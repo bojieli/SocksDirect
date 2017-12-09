@@ -2,7 +2,6 @@
 #define IPC_DIRECT_SOCK_MONITOR_H
 
 #include "../common/metaqueue.h"
-#include "shmem.h"
 
 typedef struct
 {
