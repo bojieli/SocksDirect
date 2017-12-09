@@ -196,20 +196,23 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     bool isFind = false;
     while (true)
     {
-        for (int i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
+
+        for (unsigned int i = buffer->q[1].tail; buffer->q[1].peek(i, element),element.isvalid; ++i)
         {
-            buffer->q[1].peek(i, element);
             if (!element.isvalid || element.isdel) continue;
             if (element.command == interprocess_t::cmd::NEW_FD)
             {
                 data->adjlist[idx_peer_fd].fd = element.data_fd_notify.fd;
                 printf("peer fd: %d\n",element.data_fd_notify.fd);
-                buffer->q[1].del(i);
+                SW_BARRIER;
+                buffer->q[1].del(i & INTERPROCESS_Q_MASK);
                 isFind = true;
                 break;
             }
+            printf("Failed!\n");
         }
         if (isFind) break;
+        //printf("not found\n");
     }
     return 0;
 }
@@ -242,7 +245,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     DEBUG("Accept new connection, key %d, loc %d", key, loc);
     file_struc_t nfd;
     fd_list_t npeerfd;
-    
+
     nfd.peer_fd_ptr = -1;
     nfd.property.is_addrreuse = 0;
     nfd.property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
@@ -359,16 +362,18 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     int curr_next_fd = thread_data->fds[sockfd].next_op_fd;
     int nextfd = curr_next_fd;
     bool isFind(false);
-    interprocess_t *buffer_has_blk(nullptr);
+    volatile interprocess_t *buffer_has_blk(nullptr);
     int loc_has_blk(-1);
     do //if blocking, infinate loop
     {
         do //iterate different peer fd
         {
-            interprocess_t *buffer = &thread_sock_data->buffer[thread_data->adjlist[curr_next_fd].buffer_idx].data;
+            volatile interprocess_t *buffer = &thread_sock_data->buffer[thread_data->adjlist[curr_next_fd].buffer_idx].data;
             uint8_t pointer = buffer->q[1].tail;
+            SW_BARRIER;
             while (1) {  //for same fd(buffer), iterate each available buffer
-                auto ele = buffer->q[1].data->data[pointer];
+                volatile auto ele = buffer->q[1].data->data[pointer];
+                SW_BARRIER;
                 if (!ele.isvalid)
                     break;
                 if (!ele.isdel)

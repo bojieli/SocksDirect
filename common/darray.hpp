@@ -82,6 +82,7 @@ public:
     }
     inline bool isvalid(unsigned int loc)
     {
+        if (loc > highest_possible) return false;
         return data[loc].isvalid;
     }
 };
