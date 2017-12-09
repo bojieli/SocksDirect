@@ -225,7 +225,7 @@ void interprocess_t::init(void *baseaddr, int loc)
 
     }
     q[0].clear();
-    b[0].init_mem();
+    b[1].init_mem();
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
         b_avail[1].push(i);
 }
