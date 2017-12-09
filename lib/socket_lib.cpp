@@ -113,7 +113,6 @@ int close(int fildes)
 {
     if (fildes < FD_DELIMITER) return ORIG(close, (fildes));
     fildes = MAX_FD_ID - fildes;
-    //TODO: Notify the monitor
     thread_data_t *data = NULL;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (!data->fds.isvalid(fildes))
@@ -197,7 +196,6 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     if (thread_buf == nullptr)
         FATAL("Failed to get thread specific data.");
     int idx;
-    //TODO: dynamic allocate memory
     fd_list_t peer_fd;
     unsigned int idx_peer_fd;
     peer_fd.next = data->fds[socket].peer_fd_ptr;
@@ -211,7 +209,6 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         idx = data->adjlist[idx_peer_fd].buffer_idx = thread_buf->newbuffer(key, loc);
 
     //wait for ACK from peer
-    //sleep(1);
     interprocess_t *buffer;
     interprocess_t::queue_t::element element;
     buffer = &thread_buf->buffer[idx].data;
