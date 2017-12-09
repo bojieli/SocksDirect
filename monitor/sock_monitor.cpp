@@ -113,11 +113,15 @@ void close_handler(metaqueue_element *req_body, int qid)
         if (listen_elem.peer_qid==qid)
         {
             DEBUG("Process %d close port %hu", qid, port);
-            //only one left
+            //this is the first on the adjlist
             if (prev_idx == -1)
             {
-                ports[port].is_listening = 0;
-                ports[port].current_pointer = ports[port].adjlist_pointer = -1;
+                ports[port].adjlist_pointer = 
+                        ports[port].current_pointer = listen_adjlist[idx].next;
+                if (ports[port].adjlist_pointer == -1)
+                {
+                    ports[port].is_listening = 0;
+                }
             } else
             {
                 listen_adjlist[prev_idx].next = listen_adjlist[idx].next;

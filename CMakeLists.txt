@@ -30,4 +30,6 @@ target_link_libraries(test_interprocess_t pthread)
 add_executable(test_darray test/test_daary.cpp common/darray.hpp)
 add_executable(test_sock_server_2 test/test_sock_server_2.cpp)
 target_link_libraries(test_sock_server_2 ipc)
+add_executable(test_sock_client_2 test/test_sock_client_2.c)
+target_link_libraries(test_sock_client_2 ipc)
 
