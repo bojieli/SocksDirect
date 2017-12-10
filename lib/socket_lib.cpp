@@ -31,6 +31,7 @@ int thread_sock_data_t::newbuffer(key_t key, int loc)
 {
     buffer[lowest_available].isvalid = true;
     buffer[lowest_available].data.init(key, loc);
+    (*bufferhash)[key]=lowest_available;
     ++total_num;
     if (total_num == BUFFERNUM)
         FATAL("Dynamic allocation not implemented!");
@@ -63,6 +64,7 @@ int socket(int domain, int type, int protocol) __THROW
     nfd.peer_fd_ptr = -1;
     nfd.property.is_addrreuse = 0;
     nfd.property.is_blocking = 1;
+    nfd.property.tcp.isopened = false;
     unsigned int idx_nfd=data->fds.add(nfd);
     int ret = MAX_FD_ID - idx_nfd;
     return ret;
@@ -146,7 +148,8 @@ int close(int fildes)
         q_pack.meta = &data->metaqueue_metadata[0];
         metaqueue_push(q_pack, &ele);
     }
-    data->fds.del(fildes);
+    data->fds[fildes].property.tcp.isopened=false;
+    return 0;
 }
 
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
@@ -167,7 +170,10 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         errno = EBADF;
         return -1;
     }
+    if (data->fds[socket].property.tcp.isopened) close(socket);
     data->fds[socket].type = USOCKET_TCP_CONNECT;
+    data->fds[socket].property.tcp.isopened=true;
+    data->fds[socket].next_op_fd = data->fds[socket].peer_fd_ptr = -1;
     unsigned short port;
     port = ntohs(((struct sockaddr_in *) address)->sin_port);
 
@@ -208,26 +214,44 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         idx = data->adjlist[idx_peer_fd].buffer_idx = thread_buf->newbuffer(key, loc);
 
     //wait for ACK from peer
-    interprocess_t *buffer;
+    volatile interprocess_t *buffer;
     interprocess_t::queue_t::element element;
     buffer = &thread_buf->buffer[idx].data;
     bool isFind = false;
     while (true)
     {
-
-        for (unsigned int i = buffer->q[1].tail; buffer->q[1].peek(i, element),element.isvalid; ++i)
+        SW_BARRIER;
+        buffer->q[1].peek(buffer->q[1].tail, element);
+        //printf("head peek %d\n", buffer->q[1].tail);
+        SW_BARRIER;
+        for (unsigned int i = buffer->q[1].tail; element.isvalid; ++i)
         {
-            if (!element.isvalid || element.isdel) continue;
+            if (!element.isvalid || element.isdel)
+            {
+                //printf("%d peeked\n", i+1);
+                buffer->q[1].peek((i+1) & INTERPROCESS_Q_MASK, element);
+                continue;
+            }
             if (element.command == interprocess_t::cmd::NEW_FD)
             {
-                data->adjlist[idx_peer_fd].fd = element.data_fd_notify.fd;
-                printf("peer fd: %d\n",element.data_fd_notify.fd);
+                if (element.data_fd_notify.fd == 0){
+                    buffer->q[1].peek((i+1) & INTERPROCESS_Q_MASK, element);
+                    continue;
+                }
+                    data->adjlist[idx_peer_fd].fd = element.data_fd_notify.fd;
+                if (element.data_fd_notify.fd == 0) 
+                    FATAL("error!");
+                DEBUG("peer fd: %d\n",element.data_fd_notify.fd);
                 SW_BARRIER;
                 buffer->q[1].del(i & INTERPROCESS_Q_MASK);
                 isFind = true;
                 break;
             }
-            printf("Failed!\n");
+            SW_BARRIER;
+            //printf("%d peeked\n", i+1);
+            buffer->q[1].peek((i+1) & INTERPROCESS_Q_MASK, element);
+            SW_BARRIER;
+            //printf("Failed!\n");
         }
         if (isFind) break;
         //printf("not found\n");
@@ -268,6 +292,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     nfd.property.is_addrreuse = 0;
     nfd.property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
     nfd.type = USOCKET_TCP_CONNECT;
+    nfd.property.tcp.isopened = true;
     unsigned int idx_nfd=data->fds.add(nfd);
     npeerfd.fd = peer_fd;
     npeerfd.is_ready = 1;
@@ -282,13 +307,15 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     else
         idx = data->adjlist[idx_npeerfd].buffer_idx = sock_data->newbuffer(key, loc);
 
-    interprocess_t *buffer = &sock_data->buffer[idx].data;
+    volatile interprocess_t *buffer = &sock_data->buffer[idx].data;
     interprocess_t::queue_t::element inter_element;
     inter_element.isdel = 0;
     inter_element.isvalid = 1;
     inter_element.command = interprocess_t::cmd::NEW_FD;
     inter_element.data_fd_notify.fd = idx_nfd;
+    if (idx_nfd == 0) FATAL("error!");
     //printf("currfd: %d\n", curr_fd);
+    SW_BARRIER;
     buffer->q[0].push(inter_element);
     return MAX_FD_ID - idx_nfd;
 }
@@ -332,7 +359,8 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     fd = MAX_FD_ID - fd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (!thread_data->fds.isvalid(fd) || thread_data->fds[fd].type != USOCKET_TCP_CONNECT)
+    if (!thread_data->fds.isvalid(fd) || thread_data->fds[fd].type != USOCKET_TCP_CONNECT
+            || !thread_data->fds[fd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
@@ -358,6 +386,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
         ele.data_fd_rw.fd = peer_fd;
         ele.data_fd_rw.pointer = startloc;
+        SW_BARRIER;
         buffer->q[0].push(ele);
     }
     return total_size;
@@ -372,7 +401,8 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     sockfd = MAX_FD_ID - sockfd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (!thread_data->fds.isvalid(sockfd) || thread_data->fds[sockfd].type != USOCKET_TCP_CONNECT)
+    if (!thread_data->fds.isvalid(sockfd) || thread_data->fds[sockfd].type != USOCKET_TCP_CONNECT
+            || !thread_data->fds[sockfd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
@@ -460,6 +490,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         errno = EAGAIN | EWOULDBLOCK;
         return -1;
     } else {
+        //printf("found blk loc %d\n", loc_has_blk);
         auto ele = &buffer_has_blk->q[1].data->data[loc_has_blk];
         short blk = buffer_has_blk->b[1].popdata(ele->data_fd_rw.pointer, ret, (uint8_t *) buf);
         if (blk == -1)
