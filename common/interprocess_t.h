@@ -98,13 +98,13 @@ public:
 
         void init(data_t *data);
 
-        void clear();
+        void clear() volatile ;
 
         void pop(element &data);
 
-        void push(element &data);
+        void push(element &data) volatile ;
 
-        void peek(int location, element &data);
+        void peek(int location, element &data) volatile ;
 
         void del(int location) volatile;
 
@@ -127,7 +127,7 @@ public:
 
     enum cmd
     {
-        NEW_FD,
+        NEW_FD=2,
         DATA_TRANSFER,
         CLOSE_FD
     };

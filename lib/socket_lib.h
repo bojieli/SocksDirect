@@ -23,8 +23,12 @@ typedef struct
     int is_blocking;
     union
     {
-        unsigned short port;
-    } tcp;
+        struct
+        {
+            unsigned short port;
+            bool isopened;
+        } tcp;
+    };
 } socket_property_t;
 typedef struct
 {

@@ -106,21 +106,26 @@ void interprocess_t::queue_t::init(data_t *_data)
     head = 0;
 }
 
-void interprocess_t::queue_t::push(element &input)
+void interprocess_t::queue_t::push(element &input) volatile
 {
 
     //is full?
     while (data->data[head & INTERPROCESS_Q_MASK].isvalid)
             SW_BARRIER;
+    data->data[head & INTERPROCESS_Q_MASK].isvalid = 0;
+    SW_BARRIER;
+    asm volatile("mfence" ::: "memory");
     input.isvalid = 0;
     input.isdel = 0;
     data->data[head & INTERPROCESS_Q_MASK] = input;
     SW_BARRIER;
+    asm volatile("mfence" ::: "memory");
     data->data[head & INTERPROCESS_Q_MASK].isvalid = 1;
+    SW_BARRIER;
     head++;
 }
 
-void interprocess_t::queue_t::clear()
+void interprocess_t::queue_t::clear() volatile
 {
     memset(static_cast<void *>(data->data), 0, sizeof(data->data));
 }
@@ -140,7 +145,7 @@ void interprocess_t::queue_t::pop(element &output)
         tail++;
 }
 
-void interprocess_t::queue_t::peek(int location, element &output)
+void interprocess_t::queue_t::peek(int location, element &output) volatile
 {
     SW_BARRIER;
     output = data->data[location];
@@ -225,7 +230,7 @@ void interprocess_t::init(void *baseaddr, int loc)
 
     }
     q[0].clear();
-    b[1].init_mem();
+    b[0].init_mem();
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
         b_avail[1].push(i);
 }
