@@ -12,12 +12,6 @@ int main()
 {
     const int FD_NUM=128;
     int fds[FD_NUM];
-    for (int i=0;i<FD_NUM;++i)
-    {
-        fds[i] = socket(AF_INET, SOCK_STREAM, 0);
-        if (fds[i] == -1)
-            FATAL("Failed to create FD");
-    }
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(8080);
@@ -34,6 +28,9 @@ int main()
     {
         for (int i=0;i<FD_NUM;++i)
         {
+            fds[i] = socket(AF_INET, SOCK_STREAM, 0);
+            if (fds[i] == -1)
+                FATAL("Failed to create FD");
             if (connect(fds[i], (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
                 FATAL("Failed to connect");
         }
