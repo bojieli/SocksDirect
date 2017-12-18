@@ -149,6 +149,7 @@ int close(int fildes)
         metaqueue_push(q_pack, &ele);
     }
     data->fds[fildes].property.tcp.isopened=false;
+    data->fds.del(fildes);
     return 0;
 }
 
