@@ -57,7 +57,7 @@ public:
             };
             struct fd_rw_t
             {
-                short pointer;
+                int pointer;
                 int fd;
             };
             struct close_t
@@ -98,11 +98,11 @@ public:
 
         void init(data_t *data);
 
-        void clear() volatile ;
+        void clear()  ;
 
         void pop(element &data);
 
-        void push(element &data) volatile ;
+        void push(element &data)  ;
 
         void peek(int location, element &data) volatile ;
 
