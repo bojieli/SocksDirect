@@ -1,0 +1,174 @@
+<!doctype html>
+<html>
+	<head>
+        <meta charset="utf-8">
+        <meta http-equiv="X-UA-Compatible" content="IE=edge">
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+		<title>Web Server Performance Monitor</title>
+
+        <script src="js/jquery-3.2.1.min.js"></script>
+		<script src="chartjs/Chart.js"></script>
+        <script src="js/bootstrap.min.js"></script>
+        <link href="css/bootstrap.min.css" rel="stylesheet">
+        <style>
+        div.graph {
+            width: 50%;
+            max-width: 50%;
+            float: left;
+            border: none;
+            padding: 1% 2%;
+        }
+        div.curr {
+            font-size: 28px;
+            font-family: "Helvetica";
+            float: right;
+        }
+        div.h {
+            font-size: 24px;
+            float: left;
+        }
+        table.table {
+            font-size: 24px;
+        }
+        </style>
+	</head>
+	<body>
+        <h1 align="center">Web Server Performance Monitor</h1>
+        <div class="graph">
+            <div class="h">User CPU utilization</div>
+            <div class="curr" id="currUserCPU"></div>
+            <canvas id="UserCPU"></canvas>
+        </div>
+        <div class="graph">
+            <div class="h">Kernel CPU utilization</div>
+            <div class="curr" id="currKernelCPU"></div>
+            <canvas id="KernelCPU"></canvas>
+        </div>
+        <div style="clear: both"></div>
+        <div class="graph">
+            <div class="h">Throughput (Kreq/s)</div>
+            <div class="curr" id="currTputMpps"></div>
+            <canvas id="TputMpps"></canvas>
+        </div>
+        <div class="graph">
+            <div class="h">Latency (us)</div>
+            <div class="curr" id="currDelay"></div>
+            <canvas id="Delay"></canvas>
+        </div>
+        <div style="clear: both"></div>
+        <div class="graph">
+            <h3>Throughput Records (Kreq/s)</h3>
+            <table class="table table-striped">
+            <tr><th>#Cores</th><th>Linux</th><th>IPC-Direct</th></tr>
+            <tr><th>1</th><td id="thr-linux-1"></td><td id="thr-ipc-1"></td></tr>
+            <tr><th>8</th><td id="thr-linux-8"></td><td id="thr-ipc-8"></td></tr>
+            </table>
+        </div>
+        <div class="graph">
+            <h3>Latency Records (us)</h3>
+            <table class="table table-striped">
+            <tr><th>#Cores</th><th>Linux</th><th>IPC-Direct</th></tr>
+            <tr><th>1</th><td id="lat-linux-1"></td><td id="lat-ipc-1"></td></tr>
+            <tr><th>8</th><td id="lat-linux-8"></td><td id="lat-ipc-8"></td></tr>
+            </table>
+        </div>
+    </body>
+
+
+	<script>
+        Chart.defaults.global.animation = false;
+        Chart.defaults.global.scaleShowLabels = true;
+        Chart.defaults.global.scaleBeginAtZero = true;
+        Chart.defaults.global.scaleFontSize = 18;
+        Chart.defaults.global.scaleFontColor = "#000";
+        Chart.defaults.global.showTooltips = false;
+        Chart.defaults.global.responsive = true;
+        var num_points = 60;
+
+        function zeroStringArray(num_points) {
+            var arr = [];
+            for (var i = 0; i < num_points; i ++) {
+                arr.push("");
+            }
+            return arr;
+        }
+        function zeroArray(num_points) {
+            var arr = [];
+            for (var i = 0; i < num_points; i ++) {
+                arr.push(0);
+            }
+            return arr;
+        }
+		var lineChartData = {
+            labels : zeroStringArray(num_points),
+			datasets : [
+				{
+					fillColor : "rgba(151,187,205,0.2)",
+					strokeColor : "#2980B9",
+					pointColor : "#2980B9",
+					pointStrokeColor : "#fff",
+					pointHighlightFill : "#fff",
+					pointHighlightStroke : "rgba(151,187,205,1)",
+					data : zeroArray(num_points),
+				}
+			]
+		}
+
+        function pushDataPoint(name, new_value) {
+            document.getElementById("curr" + name).innerHTML = String(new_value);
+
+            for (var i = 0; i < num_points - 1; i ++) {
+                window[name].datasets[0].points[i].value = window[name].datasets[0].points[i+1].value;
+            }
+            window[name].datasets[0].points[num_points - 1].value = new_value;
+            window[name].update();
+        }
+
+		var ctx = document.getElementById("UserCPU").getContext("2d");
+		window.UserCPU = new Chart(ctx).Line(lineChartData);
+		ctx = document.getElementById("KernelCPU").getContext("2d");
+		window.KernelCPU = new Chart(ctx).Line(lineChartData);
+		ctx = document.getElementById("TputMpps").getContext("2d");
+		window.TputMpps = new Chart(ctx).Line(lineChartData);
+		ctx = document.getElementById("Delay").getContext("2d");
+		window.Delay = new Chart(ctx).Line(lineChartData);
+
+        function refreshData() {
+            $.get("data/live.txt", function(data) {
+                lines = data.split("\n");
+                for (idx in lines) {
+                    line = lines[idx];
+                    fields = line.split(/\s+/).filter(Boolean);
+                    if (fields.length != 3)
+                        return;
+
+                    data_point = fields[0];
+                    thr = fields[1];
+                    lat = fields[2];
+                    pushDataPoint("TputMpps", thr);
+                    pushDataPoint("Delay", lat);
+                    $('#thr-' + data_point).text(thr);
+                    $('#lat-' + data_point).text(lat);
+
+                    $.get("data/cpu.txt", function(data) {
+                        lines = data.split("\n");
+                        for (idx in lines) {
+                            line = lines[idx];
+                            fields = line.split(/\s+/).filter(Boolean);
+                            if (fields.length != 2)
+                                return;
+
+                            pushDataPoint("UserCPU", fields[0]);
+                            pushDataPoint("KernelCPU", fields[1]);
+                        }
+                    });
+                }
+            });
+        }
+        setInterval(refreshData, 500);
+	</script>
+	</body>
+</html>
+
+
