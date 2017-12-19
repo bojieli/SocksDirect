@@ -149,6 +149,7 @@ int close(int fildes)
         metaqueue_push(q_pack, &ele);
     }
     data->fds[fildes].property.tcp.isopened=false;
+    data->fds.del(fildes);
     return 0;
 }
 
@@ -239,7 +240,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
                     continue;
                 }
                     data->adjlist[idx_peer_fd].fd = element.data_fd_notify.fd;
-                if (element.data_fd_notify.fd == 0) 
+                if (element.data_fd_notify.fd == 0)
                     FATAL("error!");
                 DEBUG("peer fd: %d\n",element.data_fd_notify.fd);
                 SW_BARRIER;
@@ -307,7 +308,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     else
         idx = data->adjlist[idx_npeerfd].buffer_idx = sock_data->newbuffer(key, loc);
 
-    volatile interprocess_t *buffer = &sock_data->buffer[idx].data;
+    interprocess_t *buffer = &sock_data->buffer[idx].data;
     interprocess_t::queue_t::element inter_element;
     inter_element.isdel = 0;
     inter_element.isvalid = 1;
@@ -393,7 +394,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen)
 {
@@ -409,7 +410,6 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     }
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    int idx_curr_next_fd = thread_data->fds[sockfd].peer_fd_ptr;
     int prev_ptr=-1;
     bool isFind(false);
     volatile interprocess_t *buffer_has_blk(nullptr);
@@ -417,6 +417,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
 
     do //if blocking, infinate loop
     {
+        int idx_curr_next_fd = thread_data->fds[sockfd].peer_fd_ptr;
         do //iterate different peer fd
         {
             fd_list_t* curr_peer_fd=&thread_data->adjlist[idx_curr_next_fd];
@@ -436,6 +437,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                         ele.close_fd.req_fd == curr_peer_fd->fd)
                     {
                         isdel=true;
+                        buffer->q[1].del(pointer);
                         DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
                         //this is the first on the adjlist
                         if (prev_ptr == -1)
@@ -480,7 +482,6 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                 prev_ptr = idx_curr_next_fd;
                 idx_curr_next_fd = thread_data->adjlist[idx_curr_next_fd].next;
             }
-            if (idx_curr_next_fd == -1) idx_curr_next_fd = thread_data->fds[sockfd].peer_fd_ptr;
         } while (idx_curr_next_fd != -1);
         if (isFind) break;
     } while (thread_data->fds[sockfd].property.is_blocking);

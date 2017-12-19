@@ -10,10 +10,56 @@
 
 interprocess_t interprocess_w;
 interprocess_t interprocess_r;
+pthread_t sendthread, recvthread;
+void *baseaddr;
+int glb_counter=0;
+
+static void* reader(void* param)
+{
+    pin_thread(0);
+    int counter=0;
+    interprocess_t::queue_t::element element;
+    while (1)
+    {
+        interprocess_r.q[1].pop(element);
+        if (*(int*)element.raw != counter)
+            FATAL("data error");
+        ++counter;
+    }
+    return nullptr;
+}
+
+static void* writer(void* param)
+{
+    pin_thread(2);
+    interprocess_t::queue_t::element element;
+    while (1)
+    {
+        *(int*)element.raw=glb_counter;
+        interprocess_w.q[0].push(element);
+        ++glb_counter;
+    }
+    return nullptr;
+}
+
+static void init()
+{
+    interprocess_w.init(baseaddr, 0);
+    interprocess_r.init(baseaddr, 1);
+    pthread_create(&sendthread, NULL, writer, NULL);
+    pthread_create(&recvthread, NULL, reader, NULL);
+    while (1)
+    {
+        sleep(1);
+        printf("%dM\n", glb_counter/1000000);
+    }
+}
+
+
 
 int main()
 {
-    void *baseaddr = malloc(interprocess_t::get_sharedmem_size());
+    baseaddr=malloc(interprocess_t::get_sharedmem_size());
     interprocess_w.init(baseaddr, 0);
     interprocess_r.init(baseaddr, 1);
 
@@ -104,5 +150,6 @@ int main()
         FATAL("queue pointer error");
 
     printf("interprocess queue test success");
+    init();
     return 0;
 }
