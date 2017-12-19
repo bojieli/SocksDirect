@@ -106,7 +106,7 @@ void interprocess_t::queue_t::init(data_t *_data)
     head = 0;
 }
 
-void interprocess_t::queue_t::push(element &input) volatile
+void interprocess_t::queue_t::push(element &input) 
 {
 
     //is full?
@@ -114,18 +114,16 @@ void interprocess_t::queue_t::push(element &input) volatile
             SW_BARRIER;
     data->data[head & INTERPROCESS_Q_MASK].isvalid = 0;
     SW_BARRIER;
-    asm volatile("mfence" ::: "memory");
     input.isvalid = 0;
     input.isdel = 0;
     data->data[head & INTERPROCESS_Q_MASK] = input;
     SW_BARRIER;
-    asm volatile("mfence" ::: "memory");
     data->data[head & INTERPROCESS_Q_MASK].isvalid = 1;
     SW_BARRIER;
     head++;
 }
 
-void interprocess_t::queue_t::clear() volatile
+void interprocess_t::queue_t::clear() 
 {
     memset(static_cast<void *>(data->data), 0, sizeof(data->data));
 }
@@ -142,7 +140,10 @@ void interprocess_t::queue_t::pop(element &output)
     tail++;
     while (data->data[tail & INTERPROCESS_Q_MASK].isvalid
            && data->data[tail & INTERPROCESS_Q_MASK].isdel)
+    {
+        SW_BARRIER;
         tail++;
+    }
 }
 
 void interprocess_t::queue_t::peek(int location, element &output) volatile
@@ -154,16 +155,19 @@ void interprocess_t::queue_t::peek(int location, element &output) volatile
 
 void interprocess_t::queue_t::del(int location) volatile
 {
+    location = location & INTERPROCESS_Q_MASK;
     data->data[location].isdel = 1;
     if ((data->data[tail & INTERPROCESS_Q_MASK].isvalid) && (tail == location))
     {
         data->data[location].isvalid = 0;
         ++tail;
+        SW_BARRIER;
         while (data->data[tail & INTERPROCESS_Q_MASK].isvalid
             && data->data[tail & INTERPROCESS_Q_MASK].isdel)
         {
             data->data[tail & INTERPROCESS_Q_MASK].isvalid = 0;
             ++tail;
+            SW_BARRIER;
         }
     }
 }
