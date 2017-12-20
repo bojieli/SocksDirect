@@ -379,7 +379,10 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     for (int i = 0; i < iovcnt; ++i)
     {
         short startloc = buffer->b[0].pushdata(reinterpret_cast<uint8_t *>(iov[i].iov_base), iov[i].iov_len);
-        if (startloc == -1) return -1;
+        if (startloc == -1) {
+            errno = ENOMEM;
+            return -1;
+        }
         total_size += iov[i].iov_len;
         interprocess_t::queue_t::element ele;
         ele.isvalid = 1;

@@ -38,9 +38,20 @@ int main()
         for (int i=0;i<FD_NUM;++i)
         {
             *(int *)buffer = i;
-            if (writev(fds[i], &iovec1, 1) == -1)
-                FATAL("write error");
-            printf("write %d\n",i);
+            while (1) {
+                if (writev(fds[i], &iovec1, 1) == -1) {
+                    if (errno == EAGAIN)
+                        continue;
+                    else {
+                        FATAL("write error, errno %d", errno);
+                        break;
+                    }
+                }
+                else {
+                    printf("write %d\n",i);
+                    break;
+                }
+            }
         }
         printf("2\n");
         for (int i=0;i<FD_NUM;++i)
@@ -48,7 +59,7 @@ int main()
                 FATAL("Failed to close the socket");
         printf("3\n");
         ++counter;
-        printf("connection counter: %d\n", counter * FD_NUM);
+        printf("Client: Completed %d connections\n", counter * FD_NUM);
     }
     return 0;
 }
