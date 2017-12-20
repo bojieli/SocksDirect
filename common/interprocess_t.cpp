@@ -207,33 +207,19 @@ void interprocess_t::init(key_t shmem_key, int loc)
 void interprocess_t::init(void *baseaddr, int loc)
 {
     uint8_t *memory = (uint8_t *) baseaddr;
-    if (loc == 0)
-    {
-        b_avail[0].init(memory);
-        memory += locklessqueue_t<int, 2048>::getmemsize();
-        b_avail[1].init((void *) memory);
-        memory += locklessqueue_t<int, 2048>::getmemsize();
-        q[0].init(reinterpret_cast<queue_t::data_t *>(memory));
-        memory += sizeof(queue_t::data_t);
-        q[1].init(reinterpret_cast<queue_t::data_t *>(memory));
-        memory += sizeof(queue_t::data_t);
-        b[0].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[0]);
-        memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
-        b[1].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[1]);
-    } else
-    {
-        b_avail[1].init(memory);
-        memory += locklessqueue_t<int, 2048>::getmemsize();
-        b_avail[0].init((void *) memory);
-        memory += locklessqueue_t<int, 2048>::getmemsize();
-        q[1].init(reinterpret_cast<queue_t::data_t *>(memory));
-        memory += sizeof(queue_t::data_t);
-        q[0].init(reinterpret_cast<queue_t::data_t *>(memory));
-        memory += sizeof(queue_t::data_t);
-        b[1].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[1]);
-        memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
-        b[0].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[0]);
-    }
+    int my_loc = loc;
+    int peer_loc = 1 - my_loc;
+    b_avail[my_loc].init(memory);
+    memory += locklessqueue_t<int, 2048>::getmemsize();
+    b_avail[peer_loc].init((void *) memory);
+    memory += locklessqueue_t<int, 2048>::getmemsize();
+    q[my_loc].init(reinterpret_cast<queue_t::data_t *>(memory));
+    memory += sizeof(queue_t::data_t);
+    q[peer_loc].init(reinterpret_cast<queue_t::data_t *>(memory));
+    memory += sizeof(queue_t::data_t);
+    b[my_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[my_loc]);
+    memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
+    b[peer_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[peer_loc]);
 }
 
 void interprocess_t::init_avail_entries(void *baseaddr) {
