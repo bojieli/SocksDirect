@@ -78,6 +78,8 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
         interprocess_buf_idx[std::pair<int, int>(qid, peer_qid)].buffer_key = shm_key;
         interprocess_buf_idx[std::pair<int, int>(peer_qid, qid)].loc = 1;
         interprocess_buf_idx[std::pair<int, int>(peer_qid, qid)].buffer_key = shm_key;
+        interprocess_t interprocess_inst;
+        interprocess_inst.init_avail_entries(baseaddr);
         loc = 0;
     } else
     {
