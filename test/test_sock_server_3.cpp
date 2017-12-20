@@ -33,23 +33,28 @@ int main()
     {
         for (int i=0;i<FD_NUM;++i)
         {
-            fds[i] = accept4(fd, NULL, NULL, SOCK_NONBLOCK);
+            fds[i] = accept4(fd, NULL, NULL, NULL);
             if (fds[i] < 0)
                 FATAL("accept failed");
         }
         printf("1\n");
         for (int i=0;i<FD_NUM;++i)
         {
-            int len = recvfrom(fds[i], (void *) buffer, 1024, 0, NULL, NULL);
-            if (len == -1)
-            {
-                if (errno == (EWOULDBLOCK | EAGAIN))
+            int len = -1;
+            // loop until received the data
+            do {
+                len = recvfrom(fds[i], (void *) buffer, 1024, 0, NULL, NULL);
+                if (len == -1)
                 {
-                    //printf("empty\n");
-                    continue;
-                } else
-                    FATAL("Rd error!");
-            }
+                    if (errno == (EWOULDBLOCK | EAGAIN))
+                    {
+                        //printf("empty\n");
+                        continue;
+                    } else
+                        FATAL("Rd error!");
+                }
+            } while (len == -1);
+
             if (len != 1024)
                 FATAL("length error, received %d bytes, should be 1024 bytes", len);
             if (*(int *)buffer != i)
@@ -65,6 +70,6 @@ int main()
         }
         printf("3\n");
         ++counter;
-        printf("Recvd %d connections\n", counter * FD_NUM);
+        printf("Server: Completed %d connections\n", counter * FD_NUM);
     }
 }
