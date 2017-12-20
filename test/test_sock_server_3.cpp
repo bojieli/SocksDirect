@@ -42,7 +42,7 @@ int main()
         {
             int len = recvfrom(fds[i], (void *) buffer, 1024, 0, NULL, NULL);
             if (len != 1024)
-                FATAL("length error");
+                FATAL("length error, received %d bytes, should be 1024 bytes", len);
             if (*(int *)buffer != i)
                 FATAL("Data error should: %p, recvd: %p", i, *(int *)buffer);
             printf("recvd %d\n",i);

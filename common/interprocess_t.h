@@ -125,6 +125,8 @@ public:
 
     void init(void *baseaddr, int loc);
 
+    void init_avail_entries(void *baseaddr);
+
     enum cmd
     {
         NEW_FD=2,
