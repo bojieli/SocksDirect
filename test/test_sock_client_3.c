@@ -46,9 +46,9 @@ int main()
         for (int i=0;i<FD_NUM;++i)
             if (close(fds[i]) != 0)
                 FATAL("Failed to close the socket");
+        printf("3\n");
         ++counter;
-        if (counter % 100 == 0)
-            printf("counter:%d * 1024 * 3\n", counter);
+        printf("connection counter: %d\n", counter * FD_NUM);
     }
     return 0;
 }

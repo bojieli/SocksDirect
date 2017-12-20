@@ -41,6 +41,15 @@ int main()
         for (int i=0;i<FD_NUM;++i)
         {
             int len = recvfrom(fds[i], (void *) buffer, 1024, 0, NULL, NULL);
+            if (len == -1)
+            {
+                if (errno == (EWOULDBLOCK | EAGAIN))
+                {
+                    //printf("empty\n");
+                    continue;
+                } else
+                    FATAL("Rd error!");
+            }
             if (len != 1024)
                 FATAL("length error, received %d bytes, should be 1024 bytes", len);
             if (*(int *)buffer != i)
@@ -56,7 +65,6 @@ int main()
         }
         printf("3\n");
         ++counter;
-        if (counter % 100 == 0)
-            printf("Recvd %d * 1024 connections\n");
+        printf("Recvd %d connections\n", counter * FD_NUM);
     }
 }
