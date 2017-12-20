@@ -108,17 +108,17 @@ void interprocess_t::queue_t::init(data_t *_data)
 
 void interprocess_t::queue_t::push(element &input) 
 {
-
+    element *head_ptr = &data->data[head & INTERPROCESS_Q_MASK];
     //is full?
-    while (data->data[head & INTERPROCESS_Q_MASK].isvalid)
+    while (head_ptr->isvalid)
             SW_BARRIER;
-    data->data[head & INTERPROCESS_Q_MASK].isvalid = 0;
+    head_ptr->isvalid = 0;
     SW_BARRIER;
     input.isvalid = 0;
     input.isdel = 0;
-    data->data[head & INTERPROCESS_Q_MASK] = input;
+    *head_ptr = input;
     SW_BARRIER;
-    data->data[head & INTERPROCESS_Q_MASK].isvalid = 1;
+    head_ptr->isvalid = 1;
     SW_BARRIER;
     head++;
 }
@@ -130,12 +130,13 @@ void interprocess_t::queue_t::clear()
 
 void interprocess_t::queue_t::pop(element &output)
 {
+    element *tail_ptr = &data->data[tail & INTERPROCESS_Q_MASK];
     //is empty?
-    while (!data->data[tail & INTERPROCESS_Q_MASK].isvalid)
+    while (!tail_ptr->isvalid)
             SW_BARRIER;
-    output = data->data[tail & INTERPROCESS_Q_MASK];
+    output = *tail_ptr;
     SW_BARRIER;
-    data->data[tail & INTERPROCESS_Q_MASK].isvalid = 0;
+    tail_ptr->isvalid = 0;
     SW_BARRIER;
     tail++;
     while (data->data[tail & INTERPROCESS_Q_MASK].isvalid
@@ -157,6 +158,7 @@ void interprocess_t::queue_t::del(int location) volatile
 {
     location = location & INTERPROCESS_Q_MASK;
     data->data[location].isdel = 1;
+    SW_BARRIER;
     if ((data->data[tail & INTERPROCESS_Q_MASK].isvalid) && (tail == location))
     {
         data->data[location].isvalid = 0;
@@ -231,10 +233,14 @@ void interprocess_t::init(void *baseaddr, int loc)
         b[1].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[1]);
         memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
         b[0].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[0]);
-
     }
-    q[0].clear();
-    b[0].init_mem();
+}
+
+void interprocess_t::init_avail_entries(void *baseaddr) {
+    init(baseaddr, 0);
+    for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
+        b_avail[0].push(i);
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
         b_avail[1].push(i);
 }
+
