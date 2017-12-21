@@ -85,5 +85,26 @@ public:
         if (loc > highest_possible) return false;
         return data[loc].isvalid;
     }
+
+    inline int iterator_init()
+    {
+        int curr_pointer=0;
+        while (curr_pointer <= highest_possible)
+        {
+            if (isvalid(curr_pointer)) return curr_pointer;
+            ++curr_pointer;
+        }
+        return -1;
+    }
+    inline int iterator_next(int prev_pointer)
+    {
+        int next_pointer=prev_pointer+1;
+        while (next_pointer <= highest_possible)
+        {
+            if (isvalid(next_pointer)) return next_pointer;
+            ++next_pointer;
+        }
+        return -1;
+    }
 };
 #endif //IPC_DIRECT_DARRAY_HPP
