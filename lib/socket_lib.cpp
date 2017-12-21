@@ -413,13 +413,13 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     }
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    int prev_ptr=-1;
     bool isFind(false);
     volatile interprocess_t *buffer_has_blk(nullptr);
     int loc_has_blk(-1);
 
     do //if blocking, infinate loop
     {
+        int prev_ptr=-1;
         int idx_curr_next_fd = thread_data->fds[sockfd].peer_fd_ptr;
         do //iterate different peer fd
         {
