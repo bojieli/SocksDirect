@@ -36,9 +36,8 @@ int main()
         if (close(fd) != 0)
             FATAL("fail to close");
         ++counter;
-        if (counter % 1000 == 0)
-            printf("1k sent\n");
-        printf("send 1\n");
+        //if (counter % 1000 == 0)
+        //    printf("1k sent\n");
     }
     return 0;
 }
