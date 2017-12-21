@@ -33,7 +33,7 @@ int main()
     {
         for (int i=0;i<FD_NUM;++i)
         {
-            fds[i] = accept4(fd, NULL, NULL, NULL);
+            fds[i] = accept4(fd, NULL, NULL, 0);
             if (fds[i] < 0)
                 FATAL("accept failed");
         }
