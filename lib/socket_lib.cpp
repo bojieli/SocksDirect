@@ -235,13 +235,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             }
             if (element.command == interprocess_t::cmd::NEW_FD)
             {
-                if (element.data_fd_notify.fd == 0){
-                    buffer->q[1].peek((i+1) & INTERPROCESS_Q_MASK, element);
-                    continue;
-                }
-                    data->adjlist[idx_peer_fd].fd = element.data_fd_notify.fd;
-                if (element.data_fd_notify.fd == 0)
-                    FATAL("error!");
+                data->adjlist[idx_peer_fd].fd = element.data_fd_notify.fd;
                 DEBUG("peer fd: %d\n",element.data_fd_notify.fd);
                 SW_BARRIER;
                 buffer->q[1].del(i & INTERPROCESS_Q_MASK);
