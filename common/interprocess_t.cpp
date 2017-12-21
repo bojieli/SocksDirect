@@ -210,9 +210,11 @@ void interprocess_t::init(void *baseaddr, int loc)
     int my_loc = loc;
     int peer_loc = 1 - my_loc;
     b_avail[my_loc].init(memory);
-    memory += locklessqueue_t<int, 2048>::getmemsize();
+    memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
     b_avail[peer_loc].init((void *) memory);
-    memory += locklessqueue_t<int, 2048>::getmemsize();
+    b_avail[1].setpointer(INTERPROCESS_SLOTS_IN_BUFFER);
+    b_avail[0].setpointer(0);
+    memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
     q[my_loc].init(reinterpret_cast<queue_t::data_t *>(memory));
     memory += sizeof(queue_t::data_t);
     q[peer_loc].init(reinterpret_cast<queue_t::data_t *>(memory));

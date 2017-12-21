@@ -55,11 +55,17 @@ public:
         SW_BARRIER;
         pointer++;
     }
+    
+    inline void setpointer(uint32_t _pointer)
+    {
+        pointer = _pointer;    
+    }
 
     //true: success false: fail
     inline bool pop_nb(T &data)
     {
-        if (!ringbuffer[pointer & MASK].isvalid) return false;
+        if (!ringbuffer[pointer & MASK].isvalid) 
+            return false;
         SW_BARRIER;
         data = ringbuffer[pointer & MASK].data;
         SW_BARRIER;
