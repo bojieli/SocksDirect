@@ -98,32 +98,22 @@ static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res
 
 static void event_loop()
 {
-    int current_pointer;
     unsigned int round = 0;
-    current_pointer = 0;
-    while (process_current_counter == 0) {
-        if ((round & 0xFFFF) == 0)
-            try_accept_new_proc();
-        round ++;
-    }
     while (1)
     {
-        //main part of the event loop
-        metaqueue_pack q_pack_req, q_pack_res;
-        q_pack_req = process_getrequesthandler_byqid(current_pointer);
-        q_pack_res = process_getresponsehandler_byqid(current_pointer);
-        //if empty continue
-        if (!metaqueue_isempty(q_pack_req))
-            event_processer(q_pack_req, q_pack_res, current_pointer);
-        ++current_pointer;
-        if (current_pointer == process_current_counter)
+       for (int i=process_iterator_init();i!=-1;i=process_iterator_next(i))
+       {
+           metaqueue_pack q_pack_req, q_pack_res;
+           q_pack_req = process_getrequesthandler_byqid(i);
+           q_pack_res = process_getresponsehandler_byqid(i);
+           //if empty continue
+           if (!metaqueue_isempty(q_pack_req))
+               event_processer(q_pack_req, q_pack_res, i);
+       }
+        ++round;
+        if ((round & 0xFFFF) == 0)
         {
-            ++round;
-            current_pointer = 0;
-            if ((round & 0xFFFF) == 0)
-            {
-                try_accept_new_proc();
-            }
+            try_accept_new_proc();
         }
     }
 
