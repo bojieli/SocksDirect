@@ -9,3 +9,6 @@ compile_commands.json
 CTestTestfile.cmake
 .idea/
 cmake-build-debug/
+cmake-build-minsizerel/
+cmake-build-release/
+cmake-build-relwithdebinfo/
