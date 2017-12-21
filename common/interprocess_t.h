@@ -48,25 +48,25 @@ public:
     class queue_t
     {
     public:
-        class element
+        class __attribute__((packed)) element
         {
         public:
-            struct fd_notify_t
+            struct __attribute__((packed)) fd_notify_t
             {
                 int fd;
             };
-            struct fd_rw_t
+            struct __attribute__((packed)) fd_rw_t
             {
                 int pointer;
                 int fd;
             };
-            struct close_t
+            struct __attribute__((packed)) close_t
             {
                 int req_fd;
                 int peer_fd;
             };
 
-            union
+            union __attribute__((packed))
             {
                 unsigned char raw[13];
                 fd_notify_t data_fd_notify;
