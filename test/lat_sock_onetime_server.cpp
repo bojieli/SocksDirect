@@ -8,6 +8,7 @@
 #include "../lib/lib.h"
 #include "../lib/lib_internal.h"
 #include "../lib/socket_lib.h"
+#include <time.h>
 
 int main()
 {
@@ -29,6 +30,8 @@ int main()
     uint8_t buffer[1024];
     recvfrom(init_fd, buffer, 1024, 0, NULL, NULL);
     int counter=0;
+    struct timespec tv_begin;
+    clock_gettime(CLOCK_REALTIME, &tv_begin);
     while (1)
     {
         int sock_fd = accept4(fd, NULL, NULL, 0);
@@ -36,8 +39,11 @@ int main()
             FATAL("failed to accept");
         ++counter;
         recvfrom(sock_fd, buffer, 1024, 0, NULL, NULL);
-        if (counter % 1000 == 0)
-            printf("1k\n");
-        printf("recv 1\n");
+        if (counter % 100000 == 0) {
+            struct timespec tv_end;
+            clock_gettime(CLOCK_REALTIME, &tv_end);
+            unsigned long diff = (tv_end.tv_sec - tv_begin.tv_sec) * 1e9 + (tv_end.tv_nsec - tv_begin.tv_nsec);
+            printf ("counter=%d, tput=%lf /s\n", counter, (double)counter * 1e9 / diff);
+        }
     }
 }
