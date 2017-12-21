@@ -34,5 +34,8 @@ metaqueue_pack process_getresponsehandler_byqid(int qid);
 
 metaqueue_pack process_getrequesthandler_byqid(int qid);
 
+extern int process_iterator_init();
+
+extern int process_iterator_next(int prev);
 
 #endif //IPC_DIRECT_PROCESS_H

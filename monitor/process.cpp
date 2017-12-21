@@ -65,3 +65,13 @@ metaqueue_pack process_getresponsehandler_byqid(int qid)
     result.meta = &process[qid].metaqueue_meta[1];
     return result;
 }
+
+int process_iterator_init()
+{
+    return process.iterator_init();
+}
+
+int process_iterator_next(int prev)
+{
+    return process.iterator_next(prev);
+}
