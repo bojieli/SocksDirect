@@ -15,25 +15,25 @@ extern "C"
 
 #define MAX_METAQUEUE_SIZE 256
 #define METAQUEUE_MASK ((MAX_METAQUEUE_SIZE)-1)
-typedef struct
+typedef struct __attribute__((packed))
 {
     unsigned short command;
     pid_t pid;
     int data;
 } command_t;
-typedef struct
+typedef struct __attribute__((packed))
 {
     unsigned short command;
     unsigned short port;
     unsigned short is_reuseaddr;
 } command_sock_listen_t;
-typedef struct
+typedef struct __attribute__((packed))
 {
     unsigned short command;
     unsigned short port;
     int fd;
 } command_sock_connect_t;
-typedef struct
+typedef struct __attribute__((packed))
 {
     unsigned short command;
     key_t shm_key;
@@ -41,20 +41,20 @@ typedef struct
     unsigned short port;
     int8_t loc;
 } res_sock_connect_t;
-typedef struct
+typedef struct __attribute__((packed))
 {
     unsigned short command;
     int data;
 } res_error_t;
-typedef struct 
+typedef struct __attribute__((packed))
 {
     unsigned short command;
     unsigned short port;
     int listen_fd;
 } close_t;
-typedef struct
+typedef struct __attribute__((packed))
 {
-    union
+    union __attribute__((packed))
     {
         unsigned char raw[15];
         command_t command;

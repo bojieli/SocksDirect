@@ -12,7 +12,7 @@ class locklessqueue_t
 {
 public:
 
-    struct element_t
+    struct __attribute__((packed, aligned(16))) element_t 
     {
         T data;
         bool isvalid;
