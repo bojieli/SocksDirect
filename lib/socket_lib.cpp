@@ -390,6 +390,85 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     return total_size;
 }
 
+enum ITERATE_FD_IN_BUFFER_STATE
+{
+    CLOSED,
+    FIND,
+    NOTFIND,
+    ALLCLOSED
+};
+#undef DEBUGON
+#define DEBUGON 1
+static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf(int target_fd, interprocess_t *buffer,
+                                                                  int &prev_adjlist_ptr, int &adjlist_ptr,
+                                                                  int &loc_in_buffer_has_blk)
+{
+    uint8_t pointer = buffer->q[1].tail;
+    thread_data_t *thread_data = GET_THREAD_DATA();
+    SW_BARRIER;
+    while (true)
+    {  //for same fd(buffer), iterate each available slot
+        volatile auto ele = buffer->q[1].data->data[pointer];
+        SW_BARRIER;
+        if (!ele.isvalid)
+            break;
+        if (!ele.isdel)
+        {
+            if (ele.command == interprocess_t::cmd::CLOSE_FD)
+            {
+                if (ele.close_fd.peer_fd == target_fd &&
+                    ele.close_fd.req_fd == thread_data->adjlist[adjlist_ptr].fd)
+                {
+                    buffer->q[1].del(pointer);
+                    DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
+
+                    //process Linklist
+                    int next_adjlist_ptr=thread_data->adjlist[adjlist_ptr].next;
+                    //this is the first on the adjlist
+                    if (prev_adjlist_ptr == -1)
+                    {
+                        thread_data->fds[target_fd].peer_fd_ptr
+                                = thread_data->fds[target_fd].next_op_fd = next_adjlist_ptr;
+                        thread_data->adjlist.del(adjlist_ptr);
+                        adjlist_ptr = next_adjlist_ptr;
+                        //All the peer fd destructed
+                        if (thread_data->fds[target_fd].peer_fd_ptr == -1)
+                        {
+                            DEBUG("Self fd fd %d destructed", target_fd);
+                            thread_data->fds.del(target_fd);
+                            return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
+                        }
+                    } else
+                    {
+                        thread_data->adjlist[prev_adjlist_ptr].next = next_adjlist_ptr;
+                        thread_data->adjlist.del(adjlist_ptr);
+                        adjlist_ptr = next_adjlist_ptr;
+                        prev_adjlist_ptr = adjlist_ptr;
+                    }
+                    return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
+                } else
+                {
+                    if (!thread_data->fds.isvalid(ele.close_fd.peer_fd)) buffer->q[1].del(pointer);
+                }
+            }
+            if (ele.command == interprocess_t::cmd::DATA_TRANSFER &&
+                ele.data_fd_rw.fd == target_fd)
+            {
+                loc_in_buffer_has_blk = pointer;
+                return ITERATE_FD_IN_BUFFER_STATE::FIND;
+            }
+        }
+        if (buffer->q[1].tail > pointer)
+            pointer = buffer->q[1].tail;
+        else
+            ++pointer;
+    }
+    prev_adjlist_ptr=adjlist_ptr;
+    adjlist_ptr=thread_data->adjlist[adjlist_ptr].next;
+    return ITERATE_FD_IN_BUFFER_STATE::NOTFIND;
+}
+
+
 #undef DEBUGON
 #define DEBUGON 0
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
@@ -407,79 +486,40 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     }
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    bool isFind(false);
     volatile interprocess_t *buffer_has_blk(nullptr);
     int loc_has_blk(-1);
-
-    do //if blocking, infinate loop
+    bool isFind(false);
+    do //if blocking infinate loop
     {
-        int prev_ptr=-1;
-        int idx_curr_next_fd = thread_data->fds[sockfd].peer_fd_ptr;
-        do //iterate different peer fd
+        int prev_adjlist_ptr=-1;
+        int adjlist_ptr=thread_data->fds[sockfd].peer_fd_ptr;
+        while (1) //iterate different peer fd
         {
-            fd_list_t* curr_peer_fd=&thread_data->adjlist[idx_curr_next_fd];
-            volatile interprocess_t *buffer = &thread_sock_data->buffer[curr_peer_fd->buffer_idx].data;
-            uint8_t pointer = buffer->q[1].tail;
-            SW_BARRIER;
-            bool isdel(false);
-            while (1) {  //for same fd(buffer), iterate each available slot
-                volatile auto ele = buffer->q[1].data->data[pointer];
-                SW_BARRIER;
-                if (!ele.isvalid)
-                    break;
-                if (!ele.isdel)
-                {
-                    if (ele.command == interprocess_t::cmd::CLOSE_FD &&
-                        ele.close_fd.peer_fd == sockfd &&
-                        ele.close_fd.req_fd == curr_peer_fd->fd)
-                    {
-                        isdel=true;
-                        buffer->q[1].del(pointer);
-                        DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
-                        //this is the first on the adjlist
-                        if (prev_ptr == -1)
-                        {
-                            thread_data->fds[sockfd].peer_fd_ptr
-                                    = thread_data->fds[sockfd].next_op_fd = curr_peer_fd->next;
-                            int n_idx_curr_next_fd=curr_peer_fd->next;
-                            thread_data->adjlist.del(idx_curr_next_fd);
-                            idx_curr_next_fd = n_idx_curr_next_fd;
-                            curr_peer_fd = nullptr;
-                            //All the peer fd destructed
-                            if (thread_data->fds[sockfd].peer_fd_ptr == -1)
-                            {
-                                DEBUG("Self fd fd %d destructed", sockfd);
-                                thread_data->fds.del(sockfd);
-                                return 0;
-                            }
-                        } else
-                        {
-                            thread_data->adjlist[prev_ptr].next = curr_peer_fd->next;
-                            int n_idx_curr_next_fd = curr_peer_fd->next;
-                            curr_peer_fd=nullptr;
-                            thread_data->adjlist.del(idx_curr_next_fd);
-                            idx_curr_next_fd = n_idx_curr_next_fd;
-                        }
-                        break; //no need to traverse this queue anyway
-                    }
-                    if (ele.command == interprocess_t::cmd::DATA_TRANSFER &&
-                        ele.data_fd_rw.fd == sockfd)
-                    {
-                        isFind = true;
-                        buffer_has_blk = buffer;
-                        loc_has_blk = pointer;
-                        break;
-                    }
-                }
-                ++pointer;
-            }
-            if (isFind) break;
-            if (!isdel)
+            int ret_loc(-1);
+            bool isFin(false);
+            ITERATE_FD_IN_BUFFER_STATE ret_state = recvfrom_iter_fd_in_buf(
+                    sockfd,
+                    &(thread_sock_data->buffer[thread_data->adjlist[adjlist_ptr].buffer_idx].data),
+                    prev_adjlist_ptr, adjlist_ptr, ret_loc);
+            switch (ret_state)
             {
-                prev_ptr = idx_curr_next_fd;
-                idx_curr_next_fd = thread_data->adjlist[idx_curr_next_fd].next;
+                case ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED:
+                    return 0;
+                case ITERATE_FD_IN_BUFFER_STATE::CLOSED:
+                    break;
+                case ITERATE_FD_IN_BUFFER_STATE::FIND:
+                    buffer_has_blk = &(thread_sock_data->buffer[thread_data->adjlist[adjlist_ptr].buffer_idx].data);
+                    loc_has_blk = ret_loc;
+                    isFind=true;
+                    break;
+                case ITERATE_FD_IN_BUFFER_STATE::NOTFIND:
+                    if (adjlist_ptr == -1)
+                        isFin=true;
+                    break;
             }
-        } while (idx_curr_next_fd != -1);
+            if (isFin) break; //Finish iterate all peer fds
+            if (isFind) break; //Get the requested block
+        }
         if (isFind) break;
     } while (thread_data->fds[sockfd].property.is_blocking);
     int ret(len);

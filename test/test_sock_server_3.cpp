@@ -59,12 +59,12 @@ int main()
                 FATAL("length error, received %d bytes, should be 1024 bytes", len);
             if (*(int *)buffer != i)
                 FATAL("Data error should: %p, recvd: %p", i, *(int *)buffer);
-            printf("recvd %d\n",i);
+            printf("recvd %d\n",MAX_FD_ID-fds[i]);
         }
         printf("2\n");
         for (int i=0;i<FD_NUM;++i)
         {
-            printf("close %d\n",i);
+            printf("close %d\n",MAX_FD_ID-fds[i]);
             if (close(fds[i]) != 0)
                 FATAL("close failed");
         }

@@ -9,7 +9,7 @@ extern "C"
 {
 #endif
 #define MAX_FD_ID 0x7FFFFFFF
-#define MAX_FD_OWN_NUM 100
+#define MAX_FD_OWN_NUM 1000
 #define MAX_FD_PEER_NUM 1000
 #define FD_DELIMITER 0x3FFFFFFF
 enum
