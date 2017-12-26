@@ -112,13 +112,9 @@ void interprocess_t::queue_t::push(element &input)
     //is full?
     while (head_ptr->isvalid)
             SW_BARRIER;
-    head_ptr->isvalid = 0;
-    SW_BARRIER;
-    input.isvalid = 0;
+    input.isvalid = 1;
     input.isdel = 0;
     *head_ptr = input;
-    SW_BARRIER;
-    head_ptr->isvalid = 1;
     SW_BARRIER;
     head++;
 }
