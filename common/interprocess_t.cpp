@@ -224,11 +224,13 @@ void interprocess_t::init(void *baseaddr, int loc)
     b[peer_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[peer_loc]);
 }
 
-void interprocess_t::init_avail_entries(void *baseaddr) {
-    init(baseaddr, 0);
+void interprocess_t::monitor_init(void *baseaddr) {
+    interprocess_t tmp;
+    memset(baseaddr, 0, get_sharedmem_size());
+    tmp.init(baseaddr, 0);
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
-        b_avail[0].push(i);
+        tmp.b_avail[0].push(i);
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
-        b_avail[1].push(i);
+        tmp.b_avail[1].push(i);
 }
 
