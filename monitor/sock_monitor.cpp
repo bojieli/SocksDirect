@@ -73,13 +73,13 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
         void *baseaddr = shmat(shm_id, NULL, 0);
         if (baseaddr == (void *) -1)
             FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
-        memset(baseaddr, 0, interprocess_t::get_sharedmem_size());
+
+        interprocess_t::monitor_init(baseaddr);
+
         interprocess_buf_idx[std::pair<int, int>(qid, peer_qid)].loc = 0;
         interprocess_buf_idx[std::pair<int, int>(qid, peer_qid)].buffer_key = shm_key;
         interprocess_buf_idx[std::pair<int, int>(peer_qid, qid)].loc = 1;
         interprocess_buf_idx[std::pair<int, int>(peer_qid, qid)].buffer_key = shm_key;
-        interprocess_t interprocess_inst;
-        interprocess_inst.init_avail_entries(baseaddr);
         loc = 0;
     } else
     {

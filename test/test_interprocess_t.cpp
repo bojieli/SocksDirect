@@ -44,6 +44,7 @@ static void* writer(void* param)
 
 static void init()
 {
+    interprocess_t::monitor_init(baseaddr);
     interprocess_w.init(baseaddr, 0);
     interprocess_r.init(baseaddr, 1);
     pthread_create(&sendthread, NULL, writer, NULL);
@@ -60,11 +61,11 @@ static void init()
 int main()
 {
     baseaddr=malloc(interprocess_t::get_sharedmem_size());
+    interprocess_t::monitor_init(baseaddr);
     interprocess_w.init(baseaddr, 0);
     interprocess_r.init(baseaddr, 1);
 
     //test the buffer
-
     //generate the test data
     int total_buffer_size = 8 * INTERPROCESS_SLOTS_BLK_SIZE;
     uint8_t test_data[total_buffer_size];
@@ -98,7 +99,6 @@ int main()
             FATAL("Read size is different");
         if (single_byte != test_data[i])
             FATAL("Read data different %d", i);
-
     }
 
     //2 times, each time two and a half

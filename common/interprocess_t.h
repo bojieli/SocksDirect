@@ -125,7 +125,7 @@ public:
 
     void init(void *baseaddr, int loc);
 
-    void init_avail_entries(void *baseaddr);
+    static void monitor_init(void *baseaddr);
 
     enum cmd
     {
