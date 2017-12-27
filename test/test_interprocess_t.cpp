@@ -14,6 +14,10 @@ pthread_t sendthread, recvthread;
 void *baseaddr;
 int glb_counter=0;
 
+const int total_buffer_size = 8 * INTERPROCESS_SLOTS_BLK_SIZE;
+uint8_t test_data[total_buffer_size];
+uint8_t output_data[total_buffer_size];
+
 static void* reader(void* param)
 {
     pin_thread(0);
@@ -60,6 +64,7 @@ static void init()
 
 int main()
 {
+    pin_thread(0);
     baseaddr=malloc(interprocess_t::get_sharedmem_size());
     interprocess_t::monitor_init(baseaddr);
     interprocess_w.init(baseaddr, 0);
@@ -67,9 +72,6 @@ int main()
 
     //test the buffer
     //generate the test data
-    int total_buffer_size = 8 * INTERPROCESS_SLOTS_BLK_SIZE;
-    uint8_t test_data[total_buffer_size];
-    uint8_t output_data[total_buffer_size];
     for (int i = 0; i < total_buffer_size; ++i)
         test_data[i] = rand() % 256;
 
@@ -84,7 +86,6 @@ int main()
             FATAL("Read size is different");
         if (memcmp(output_data, test_data, total_buffer_size) != 0)
             FATAL("Read data different");
-
     }
 
     //less than a block
@@ -149,7 +150,7 @@ int main()
     if (interprocess_r.q[1].tail != 3)
         FATAL("queue pointer error");
 
-    printf("interprocess queue test success");
+    printf("interprocess queue test success\n");
     init();
     return 0;
 }
