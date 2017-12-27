@@ -24,7 +24,8 @@ void setup_sock_connect(ctl_struc *res)
     if (ORIG(connect, (fd, (struct sockaddr *) &local, len)) == -1)
         FATAL("Failed to open the connection to server, %s", strerror(errno));
     ctl_struc data;
-    data.pid = gettid();
+    data.tid = gettid();
+    data.pid = getpid();
     ORIG(send, (fd, (void *) &data, sizeof(ctl_struc), 0));
     DEBUG("Connect req sent");
     ORIG(recv, (fd, (void *) &data, sizeof(ctl_struc), MSG_WAITALL));

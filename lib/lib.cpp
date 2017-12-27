@@ -56,7 +56,7 @@ void ipclib_sendmsg(int command, int data)
     metaqueue_element data2send;
     data2send.data.command.command = command;
     data2send.data.command.data = data;
-    //data2send.data.command.pid=gettid();
+    //data2send.data.command.tid=gettid();
     metaqueue_pack q_pack;
     thread_data_t *t_data = NULL;
     t_data = (thread_data_t *) pthread_getspecific(pthread_key);

@@ -18,8 +18,8 @@ static void try_accept_new_proc()
     int fd;
     if ((fd = setup_sock_accept(&data)) != -1)
     {
-        data.key = process_add(data.pid);
-        DEBUG("process id: %d", data.pid);
+        data.key = process_add(data.pid, data.tid);
+        DEBUG("process id: %d, thread id: %d", data.pid, data.tid);
         setup_sock_send(fd, &data);
         DEBUG("Ack sent!");
     }
@@ -114,6 +114,8 @@ static void event_loop()
         if ((round & 0xFFFF) == 0)
         {
             try_accept_new_proc();
+            process_chk_remove();
+            sock_resource_gc();
         }
     }
 
@@ -121,7 +123,7 @@ static void event_loop()
 
 int main()
 {
-    pin_thread(0);
+    pin_thread(4);
     setup_sock_monitor_init();
     process_init();
     event_loop();

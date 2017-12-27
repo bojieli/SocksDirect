@@ -135,6 +135,54 @@ void close_handler(metaqueue_element *req_body, int qid)
         }
     }
 }
+#undef DEBUGON
+
+#define DEBUGON 1
+void sock_resource_gc()
+{
+    for (int i=0;i<=65535;++i)
+    {
+        if (!ports[i].is_listening) continue;
+        int prev_listen_adjlist=-1;
+        int curr_listen_ptr=ports[i].adjlist_pointer;
+        while (true)
+        {
+            monitor_sock_adjlist_t curr_listen_proc;
+            curr_listen_proc = listen_adjlist[curr_listen_ptr];
+            listen_adjlist.del(curr_listen_ptr);
+            if (!process_isexist(curr_listen_proc.peer_qid))
+            {
+                DEBUG("port %d qid %d not exists", i, curr_listen_proc.peer_qid);
+                if (ports[i].current_pointer == curr_listen_ptr)
+                    ports[i].current_pointer = curr_listen_proc.next;
+                if (prev_listen_adjlist == -1) // it is the first one on adjlist
+                {
+                    ports[i].adjlist_pointer = curr_listen_proc.next;
+                    if (curr_listen_proc.next == -1) //it is the last one
+                    {
+                        ports[i].is_listening=false;
+                        break;
+                    }
+                    curr_listen_ptr = curr_listen_proc.next;
+                    continue;
+                } else
+                {
+                    listen_adjlist[prev_listen_adjlist].next = curr_listen_proc.next;
+                    curr_listen_ptr = curr_listen_proc.next;
+                    continue;
+                }
+            }
+            
+            //nothing happens
+            prev_listen_adjlist = curr_listen_ptr;
+            curr_listen_ptr = curr_listen_proc.next;
+            if (curr_listen_ptr == -1) break;
+        }
+        
+        if (ports[i].current_pointer == -1)
+            ports[i].current_pointer = ports[i].adjlist_pointer; 
+    }
+}
 
 #undef DEBUGON
 #define DEBUGON 0
