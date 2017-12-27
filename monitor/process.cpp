@@ -10,20 +10,20 @@
 #include <semaphore.h>
 #include "../common/metaqueue.h"
 #include "../common/darray.hpp"
+#include <sys/stat.h>
 
 static darray_t<process_sturc, MAX_PROCESS_NUM> process;
-
-int process_current_counter = 0;
 
 void process_init()
 {
     process.init();
 }
 
-key_t process_add(pid_t pid)
+key_t process_add(pid_t pid, pid_t tid)
 {
     process_sturc curr_proc;
     int id=process.add(curr_proc);
+    curr_proc.tid = tid;
     curr_proc.pid = pid;
     if ((curr_proc.uniq_shmem_id = ftok(SHM_NAME, id + 2)) < 0)
         FATAL("Failed to get the key of shared memory, errno: %d", errno);
@@ -77,3 +77,33 @@ int process_iterator_next(int prev)
 {
     return process.iterator_next(prev);
 }
+
+void process_del(int qid)
+{
+    process.del(qid);
+}
+
+#undef DEBUGON
+#define DEBUGON 1
+void process_chk_remove()
+{
+    const char* basestr="/proc/%d/task/%d/";
+    char dirstr[100];
+    for (int i=process_iterator_init();i!=-1;i=process_iterator_next(i))
+    {
+        sprintf(dirstr, basestr, process[i].pid, process[i].tid);
+        struct stat sb;
+        if (!(stat(dirstr, &sb) == 0 && S_ISDIR(sb.st_mode)))
+        {
+            DEBUG("thread %d in process %d exits", process[i].tid, process[i].pid);
+            process_del(i);
+        }
+    }
+}
+
+bool process_isexist(int qid)
+{
+    return process.isvalid(qid);
+}
+
+#undef DEBUGON

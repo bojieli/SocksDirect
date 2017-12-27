@@ -398,7 +398,7 @@ enum ITERATE_FD_IN_BUFFER_STATE
     ALLCLOSED
 };
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf(int target_fd, interprocess_t *buffer,
                                                                   int &prev_adjlist_ptr, int &adjlist_ptr,
                                                                   int &loc_in_buffer_has_blk)
@@ -443,7 +443,6 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf(int target_fd, 
                         thread_data->adjlist[prev_adjlist_ptr].next = next_adjlist_ptr;
                         thread_data->adjlist.del(adjlist_ptr);
                         adjlist_ptr = next_adjlist_ptr;
-                        prev_adjlist_ptr = adjlist_ptr;
                     }
                     return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
                 } else
