@@ -16,11 +16,12 @@ public:
     {
         T data;
         bool isvalid;
+        bool isdel;
     };
 private:
     element_t *ringbuffer;
-    uint32_t pointer;
 public:
+    uint32_t pointer;
     const uint32_t MASK;
 
     locklessqueue_t() : MASK(SIZE - 1), pointer(0), ringbuffer(nullptr)
@@ -37,23 +38,30 @@ public:
         memset(ringbuffer, 0, sizeof(element_t) * SIZE);
     }
 
-    inline void push(const T &data)
+    inline bool push_nb(const T &data)
     {
+        uint32_t local_ptr = pointer & MASK;
+        SW_BARRIER;
+        //is full?
+        if (ringbuffer[local_ptr].isvalid)
+            return false;
+        //fillup element
         element_t ele;
         ele.data = data;
         ele.isvalid = false;
-        //is full?
-        while (ringbuffer[pointer & MASK].isvalid)
-        {
-            printf("Full!\n");
-            SW_BARRIER;
-        }
+        ele.isdel = false;
         SW_BARRIER;
-        ringbuffer[pointer & MASK] = ele;
+        ringbuffer[local_ptr] = ele;
         SW_BARRIER;
-        ringbuffer[pointer & MASK].isvalid = true;
+        ringbuffer[local_ptr].isvalid = true;
         SW_BARRIER;
         pointer++;
+        return true;
+    }
+
+    inline void push(const T &data)
+    {
+        while (!push_nb(data));
     }
     
     inline void setpointer(uint32_t _pointer)
@@ -64,31 +72,74 @@ public:
     //true: success false: fail
     inline bool pop_nb(T &data)
     {
-        if (!ringbuffer[pointer & MASK].isvalid) 
+        int local_ptr = pointer & MASK;
+        SW_BARRIER;
+        if (!ringbuffer[local_ptr].isvalid)
             return false;
         SW_BARRIER;
-        data = ringbuffer[pointer & MASK].data;
+        data = ringbuffer[local_ptr].data;
         SW_BARRIER;
-        ringbuffer[pointer & MASK].isvalid = false;
+        ringbuffer[local_ptr].isvalid = false;
         SW_BARRIER;
         pointer++;
+        SW_BARRIER;
+        while (ringbuffer[pointer & MASK].isvalid && ringbuffer[pointer & MASK].isdel)
+        {
+            SW_BARRIER;
+            ringbuffer[pointer & MASK].isvalid = false;
+            pointer++;
+        }
         return true;
     }
 
-    inline void pop(T &data)
+    inline void peek(int loc, T &output)
     {
-        while (!ringbuffer[pointer & MASK].isvalid)
+        loc = loc & MASK;
+        SW_BARRIER;
+        output = ringbuffer[loc].data;
+    }
+
+    inline void del(int loc)
+    {
+        loc = loc & MASK;
+        ringbuffer[loc].isdel=true;
+        SW_BARRIER;
+        if ((ringbuffer[pointer & MASK].isvalid) && (loc == (pointer & MASK)))
+        {
+            ringbuffer[loc].isvalid = false;
+            ++pointer;
+            SW_BARRIER;
+            while (ringbuffer[pointer & MASK].isvalid
+                   && ringbuffer[pointer & MASK].isdel)
+            {
+                ringbuffer[pointer & MASK].isvalid = false;
+                ++pointer;
                 SW_BARRIER;
-        data = ringbuffer[pointer & MASK].data;
-        SW_BARRIER;
-        ringbuffer[pointer & MASK].isvalid = false;
-        SW_BARRIER;
-        pointer++;
+            }
+        }
     }
 
     inline bool isempty()
     {
-        return !ringbuffer[pointer & MASK].isvalid;
+        uint32_t tmp_tail = pointer;
+        bool isempty(true);
+        SW_BARRIER;
+        element_t curr_blk;
+        curr_blk = ringbuffer[tmp_tail & MASK];
+        SW_BARRIER;
+        while (curr_blk.isvalid)
+        {
+            if (!curr_blk.isdel)
+            {
+                isempty = false;
+                break;
+            }
+            tmp_tail++;
+            SW_BARRIER;
+            curr_blk = ringbuffer[tmp_tail & MASK];
+            SW_BARRIER;
+        }
+        return isempty;
     }
 
     inline static int getmemsize()
