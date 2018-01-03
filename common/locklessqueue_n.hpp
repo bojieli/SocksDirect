@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <cstring>
 #include <cstdio>
+#include <tuple>
+#include <cassert>
 
 #define SW_BARRIER asm volatile("" ::: "memory")
 
@@ -21,7 +23,12 @@ public:
 private:
     element_t *ringbuffer;
 public:
-    uint32_t pointer;
+    union
+    {
+        uint32_t pointer;
+        uint32_t head;
+        uint32_t tail;
+    };
     const uint32_t MASK;
 
     locklessqueue_t() : MASK(SIZE - 1), pointer(0), ringbuffer(nullptr)
@@ -29,6 +36,8 @@ public:
 
     inline void init(void *baseaddr)
     {
+        //assert((sizeof(element_t)==16));
+        //printf("%u\n", sizeof(element_t));
         pointer = 0;
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
     }
@@ -92,11 +101,20 @@ public:
         return true;
     }
 
-    inline void peek(int loc, T &output)
+    inline std::tuple<bool, bool> peek(int loc, T &output)
     {
         loc = loc & MASK;
         SW_BARRIER;
         output = ringbuffer[loc].data;
+        return std::make_tuple(ringbuffer[loc].isvalid, ringbuffer[loc].isdel);
+    }
+
+    inline void set(int loc, T &input)
+    {
+        SW_BARRIER;
+        loc = loc & MASK;
+        ringbuffer[loc].data = input;
+        SW_BARRIER;
     }
 
     inline void del(int loc)

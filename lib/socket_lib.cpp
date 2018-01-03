@@ -215,22 +215,23 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         idx = data->adjlist[idx_peer_fd].buffer_idx = thread_buf->newbuffer(key, loc);
 
     //wait for ACK from peer
-    volatile interprocess_t *buffer;
+    interprocess_t *buffer;
     interprocess_t::queue_t::element element;
     buffer = &thread_buf->buffer[idx].data;
     bool isFind = false;
     while (true)
     {
         SW_BARRIER;
-        buffer->q[1].peek(buffer->q[1].tail, element);
+        bool ele_isvalid, ele_isdel;
+        std::tie(ele_isvalid, ele_isdel) = buffer->q[1].peek(buffer->q[1].tail, element);
         //printf("head peek %d\n", buffer->q[1].tail);
         SW_BARRIER;
-        for (unsigned int i = buffer->q[1].tail; element.isvalid; ++i)
+        for (unsigned int i = buffer->q[1].tail; ele_isvalid; ++i)
         {
-            if (!element.isvalid || element.isdel)
+            if (!ele_isvalid || ele_isdel)
             {
                 //printf("%d peeked\n", i+1);
-                buffer->q[1].peek((i+1) & INTERPROCESS_Q_MASK, element);
+                std::tie(ele_isvalid, ele_isdel) = buffer->q[1].peek((i+1) & INTERPROCESS_Q_MASK, element);
                 continue;
             }
             if (element.command == interprocess_t::cmd::NEW_FD)
@@ -304,8 +305,6 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 
     interprocess_t *buffer = &sock_data->buffer[idx].data;
     interprocess_t::queue_t::element inter_element;
-    inter_element.isdel = 0;
-    inter_element.isvalid = 1;
     inter_element.command = interprocess_t::cmd::NEW_FD;
     inter_element.data_fd_notify.fd = idx_nfd;
     if (idx_nfd == 0) FATAL("error!");
@@ -379,8 +378,6 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         }
         total_size += iov[i].iov_len;
         interprocess_t::queue_t::element ele;
-        ele.isvalid = 1;
-        ele.isdel = 0;
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
         ele.data_fd_rw.fd = peer_fd;
         ele.data_fd_rw.pointer = startloc;
@@ -408,11 +405,13 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf(int target_fd, 
     SW_BARRIER;
     while (true)
     {  //for same fd(buffer), iterate each available slot
-        volatile auto ele = buffer->q[1].data->data[pointer];
+        interprocess_t::queue_t::element ele;
+        bool ele_isvalid, ele_isdel;
+        std::tie(ele_isvalid, ele_isdel) = buffer->q[1].peek(pointer, ele);
         SW_BARRIER;
-        if (!ele.isvalid)
+        if (!ele_isvalid)
             break;
-        if (!ele.isdel)
+        if (!ele_isdel)
         {
             if (ele.command == interprocess_t::cmd::CLOSE_FD)
             {
@@ -485,7 +484,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     }
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    volatile interprocess_t *buffer_has_blk(nullptr);
+    interprocess_t *buffer_has_blk(nullptr);
     int loc_has_blk(-1);
     bool isFind(false);
     do //if blocking infinate loop
@@ -528,8 +527,9 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         return -1;
     } else {
         //printf("found blk loc %d\n", loc_has_blk);
-        auto ele = &buffer_has_blk->q[1].data->data[loc_has_blk];
-        short blk = buffer_has_blk->b[1].popdata(ele->data_fd_rw.pointer, ret, (uint8_t *) buf);
+        interprocess_t::queue_t::element ele;
+        buffer_has_blk->q[1].peek(loc_has_blk, ele);
+        short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
         if (blk == -1)
         {
             SW_BARRIER;
@@ -537,7 +537,8 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
             SW_BARRIER;
         } else
         {
-            ele->data_fd_rw.pointer = blk;
+            ele.data_fd_rw.pointer = blk;
+            buffer_has_blk->q[1].set(loc_has_blk, ele);
         }
     }
     return ret;

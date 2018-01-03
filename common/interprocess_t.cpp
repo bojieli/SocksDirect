@@ -94,6 +94,7 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
     size -= sizeleft;
     return current_loc;
 }
+/*
 
 interprocess_t::queue_t::queue_t(data_t *_data) : head(0)
 {
@@ -184,7 +185,7 @@ bool interprocess_t::queue_t::isempty()
         tmp_tail++;
     }
     return isempty;
-}
+} */
 
 void interprocess_t::init(key_t shmem_key, int loc)
 {

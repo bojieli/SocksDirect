@@ -25,7 +25,7 @@ static void* reader(void* param)
     interprocess_t::queue_t::element element;
     while (1)
     {
-        interprocess_r.q[1].pop(element);
+        while(!interprocess_r.q[1].pop_nb(element));
         if (*(int*)element.raw != counter)
             FATAL("data error");
         ++counter;
@@ -133,7 +133,7 @@ int main()
         }
         for (int i = 0; i < INTERPROCESS_SLOTS_IN_QUEUE; ++i)
         {
-            interprocess_r.q[1].pop(element);
+            interprocess_r.q[1].pop_nb(element);
             if (element.data_fd_rw.fd != test_data[i])
                 FATAL("Queue data error");
         }
