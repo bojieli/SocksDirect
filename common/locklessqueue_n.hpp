@@ -22,6 +22,15 @@ public:
     };
 private:
     element_t *ringbuffer;
+private:
+    inline void atomic_copy16(element_t *dst, element_t *src)
+    {
+        asm volatile ( "movdqa (%0),%%xmm0\n"
+                       "movaps %%xmm0,(%1)\n"
+                       : /* no output registers */
+                       : "r" (src), "r" (dst)
+                       : "xmm0" );
+    }
 public:
     union
     {
@@ -57,12 +66,10 @@ public:
         //fillup element
         element_t ele;
         ele.data = data;
-        ele.isvalid = false;
+        ele.isvalid = true;
         ele.isdel = false;
         SW_BARRIER;
-        ringbuffer[local_ptr] = ele;
-        SW_BARRIER;
-        ringbuffer[local_ptr].isvalid = true;
+        atomic_copy16(&ringbuffer[local_ptr], &ele);
         SW_BARRIER;
         pointer++;
         return true;
@@ -83,10 +90,13 @@ public:
     {
         int local_ptr = pointer & MASK;
         SW_BARRIER;
-        if (!ringbuffer[local_ptr].isvalid)
+        element_t ele;
+        atomic_copy16(&ele, &ringbuffer[local_ptr]);
+        SW_BARRIER;
+        if (!ele.isvalid)
             return false;
         SW_BARRIER;
-        data = ringbuffer[local_ptr].data;
+        data = ele.data;
         SW_BARRIER;
         ringbuffer[local_ptr].isvalid = false;
         SW_BARRIER;
@@ -104,9 +114,12 @@ public:
     inline std::tuple<bool, bool> peek(int loc, T &output)
     {
         loc = loc & MASK;
+        element_t ele;
+        atomic_copy16(&ele, &ringbuffer[loc]);
         SW_BARRIER;
-        output = ringbuffer[loc].data;
-        return std::make_tuple(ringbuffer[loc].isvalid, ringbuffer[loc].isdel);
+        output = ele.data;
+        SW_BARRIER;
+        return std::make_tuple(ele.isvalid, ele.isdel);
     }
 
     inline void set(int loc, T &input)
