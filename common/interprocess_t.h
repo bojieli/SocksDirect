@@ -73,9 +73,7 @@ public:
                 fd_rw_t data_fd_rw;
                 close_t close_fd;
             };
-            unsigned char isvalid;
             unsigned char command;
-            unsigned char isdel; //set to 1 when data is deleted
         };
 
         class data_t
@@ -91,7 +89,7 @@ public:
             uint8_t tail;
         };
 
-        queue_t() : data(nullptr), head(0)
+        /*queue_t() : data(nullptr), head(0)
         {}
 
         queue_t(data_t *_data);
@@ -108,10 +106,10 @@ public:
 
         void del(int location) volatile;
 
-        bool isempty();
+        bool isempty();*/
     };
 
-    queue_t q[2];
+    locklessqueue_t<queue_t::element, 256> q[2], q_emergency[2];
     buffer_t b[2];
     locklessqueue_t<int, 2048> b_avail[2];
 
