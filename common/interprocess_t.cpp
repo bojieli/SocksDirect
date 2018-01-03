@@ -94,98 +94,6 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
     size -= sizeleft;
     return current_loc;
 }
-/*
-
-interprocess_t::queue_t::queue_t(data_t *_data) : head(0)
-{
-    data = _data;
-}
-
-void interprocess_t::queue_t::init(data_t *_data)
-{
-    data = _data;
-    head = 0;
-}
-
-void interprocess_t::queue_t::push(element &input) 
-{
-    element *head_ptr = &data->data[head & INTERPROCESS_Q_MASK];
-    //is full?
-    while (head_ptr->isvalid)
-            SW_BARRIER;
-    input.isvalid = 1;
-    input.isdel = 0;
-    *head_ptr = input;
-    SW_BARRIER;
-    head++;
-}
-
-void interprocess_t::queue_t::clear() 
-{
-    memset(static_cast<void *>(data->data), 0, sizeof(data->data));
-}
-
-void interprocess_t::queue_t::pop(element &output)
-{
-    element *tail_ptr = &data->data[tail & INTERPROCESS_Q_MASK];
-    //is empty?
-    while (!tail_ptr->isvalid)
-            SW_BARRIER;
-    output = *tail_ptr;
-    SW_BARRIER;
-    tail_ptr->isvalid = 0;
-    SW_BARRIER;
-    tail++;
-    while (data->data[tail & INTERPROCESS_Q_MASK].isvalid
-           && data->data[tail & INTERPROCESS_Q_MASK].isdel)
-    {
-        SW_BARRIER;
-        tail++;
-    }
-}
-
-void interprocess_t::queue_t::peek(int location, element &output) volatile
-{
-    SW_BARRIER;
-    output = data->data[location];
-    SW_BARRIER;
-}
-
-void interprocess_t::queue_t::del(int location) volatile
-{
-    location = location & INTERPROCESS_Q_MASK;
-    data->data[location].isdel = 1;
-    SW_BARRIER;
-    if ((data->data[tail & INTERPROCESS_Q_MASK].isvalid) && (tail == location))
-    {
-        data->data[location].isvalid = 0;
-        ++tail;
-        SW_BARRIER;
-        while (data->data[tail & INTERPROCESS_Q_MASK].isvalid
-            && data->data[tail & INTERPROCESS_Q_MASK].isdel)
-        {
-            data->data[tail & INTERPROCESS_Q_MASK].isvalid = 0;
-            ++tail;
-            SW_BARRIER;
-        }
-    }
-}
-
-bool interprocess_t::queue_t::isempty()
-{
-    uint8_t tmp_tail = tail;
-    bool isempty = true;
-    while (data->data[tmp_tail & INTERPROCESS_Q_MASK].isvalid)
-    {
-        if (!data->data[tmp_tail & INTERPROCESS_Q_MASK].isdel)
-        {
-            isempty = false;
-            break;
-        }
-        tmp_tail++;
-    }
-    return isempty;
-} */
 
 void interprocess_t::init(key_t shmem_key, int loc)
 {
@@ -213,10 +121,10 @@ void interprocess_t::init(void *baseaddr, int loc)
     b_avail[0].setpointer(0);
     memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
 
-    q[my_loc].init(reinterpret_cast<queue_t::data_t *>(memory));
-    memory += sizeof(queue_t::data_t);
-    q[peer_loc].init(reinterpret_cast<queue_t::data_t *>(memory));
-    memory += sizeof(queue_t::data_t);
+    q[my_loc].init(memory);
+    memory += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
+    q[peer_loc].init(memory);
+    memory += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
 
     b[my_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[my_loc]);
     memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;

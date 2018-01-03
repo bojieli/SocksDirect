@@ -75,49 +75,19 @@ public:
             };
             unsigned char command;
         };
-
-        class data_t
-        {
-        public:
-            element data[INTERPROCESS_SLOTS_IN_QUEUE];
-        };
-
-        data_t *data;
-        union
-        {
-            uint8_t head;
-            uint8_t tail;
-        };
-
-        /*queue_t() : data(nullptr), head(0)
-        {}
-
-        queue_t(data_t *_data);
-
-        void init(data_t *data);
-
-        void clear()  ;
-
-        void pop(element &data);
-
-        void push(element &data)  ;
-
-        void peek(int location, element &data) volatile ;
-
-        void del(int location) volatile;
-
-        bool isempty();*/
     };
 
-    locklessqueue_t<queue_t::element, 256> q[2], q_emergency[2];
+    locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE> q[2], q_emergency[2];
     buffer_t b[2];
     locklessqueue_t<int, 2048> b_avail[2];
 
     static int get_sharedmem_size()
     {
-        return (2 * sizeof(queue_t::data_t)
-                + 2 * locklessqueue_t<int, 2048>::getmemsize() +
-                2 * locklessqueue_t<int, 256>::getmemsize());
+        return (
+                2 * locklessqueue_t<int, 2 * INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize() +
+                2 * locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize() +
+                2 * sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER
+                );
     }
 
     void init(key_t shmem_key, int loc);
