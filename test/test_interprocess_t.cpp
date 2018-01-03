@@ -147,7 +147,7 @@ int main()
     interprocess_r.q[1].del(2);
     interprocess_r.q[1].del(1);
     interprocess_r.q[1].del(0);
-    if (interprocess_r.q[1].tail != 3)
+    if ((interprocess_r.q[1].tail & (INTERPROCESS_SLOTS_IN_QUEUE-1)) != 3)
         FATAL("queue pointer error");
 
     printf("interprocess queue test success\n");
