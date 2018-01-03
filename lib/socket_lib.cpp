@@ -221,17 +221,15 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     bool isFind = false;
     while (true)
     {
-        SW_BARRIER;
-        bool ele_isvalid, ele_isdel;
-        std::tie(ele_isvalid, ele_isdel) = buffer->q[1].peek(buffer->q[1].tail, element);
         //printf("head peek %d\n", buffer->q[1].tail);
-        SW_BARRIER;
-        for (unsigned int i = buffer->q[1].tail; ele_isvalid; ++i)
+        for (unsigned int i = buffer->q[1].tail; ; i++)
         {
-            if (!ele_isvalid || ele_isdel)
-            {
-                //printf("%d peeked\n", i+1);
-                std::tie(ele_isvalid, ele_isdel) = buffer->q[1].peek((i+1) & INTERPROCESS_Q_MASK, element);
+            bool ele_isvalid, ele_isdel;
+            std::tie(ele_isvalid, ele_isdel) = buffer->q[1].peek(i, element);
+            if (!ele_isvalid) {
+                break;
+            }
+            if (ele_isdel) {
                 continue;
             }
             if (element.command == interprocess_t::cmd::NEW_FD)
@@ -239,15 +237,10 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
                 data->adjlist[idx_peer_fd].fd = element.data_fd_notify.fd;
                 DEBUG("peer fd: %d\n",element.data_fd_notify.fd);
                 SW_BARRIER;
-                buffer->q[1].del(i & INTERPROCESS_Q_MASK);
+                buffer->q[1].del(i);
                 isFind = true;
                 break;
             }
-            SW_BARRIER;
-            //printf("%d peeked\n", i+1);
-            buffer->q[1].peek((i+1) & INTERPROCESS_Q_MASK, element);
-            SW_BARRIER;
-            //printf("Failed!\n");
         }
         if (isFind) break;
         //printf("not found\n");
@@ -307,7 +300,6 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     interprocess_t::queue_t::element inter_element;
     inter_element.command = interprocess_t::cmd::NEW_FD;
     inter_element.data_fd_notify.fd = idx_nfd;
-    if (idx_nfd == 0) FATAL("error!");
     //printf("currfd: %d\n", curr_fd);
     SW_BARRIER;
     buffer->q[0].push(inter_element);
@@ -444,11 +436,12 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf(int target_fd, 
                         adjlist_ptr = next_adjlist_ptr;
                     }
                     return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
-                } else
-                {
-                    if (!thread_data->fds.isvalid(ele.close_fd.peer_fd)) buffer->q[1].del(pointer);
+                } else {
+                    if (!thread_data->fds.isvalid(ele.close_fd.peer_fd))
+                        buffer->q[1].del(pointer);
                 }
             }
+
             if (ele.command == interprocess_t::cmd::DATA_TRANSFER &&
                 ele.data_fd_rw.fd == target_fd)
             {
