@@ -30,6 +30,7 @@ int main()
     uint8_t buffer[1024];
     recvfrom(init_fd, buffer, 1024, 0, NULL, NULL);
     int counter=0;
+    int last_counter = 0;
     struct timespec tv_begin;
     clock_gettime(CLOCK_REALTIME, &tv_begin);
     while (1)
@@ -42,8 +43,10 @@ int main()
         if (counter % 100000 == 0) {
             struct timespec tv_end;
             clock_gettime(CLOCK_REALTIME, &tv_end);
-            unsigned long diff = (tv_end.tv_sec - tv_begin.tv_sec) * 1e9 + (tv_end.tv_nsec - tv_begin.tv_nsec);
-            printf ("counter=%d, tput=%lf /s\n", counter, (double)counter * 1e9 / diff);
+            unsigned long time_diff = (tv_end.tv_sec - tv_begin.tv_sec) * 1e9 + (tv_end.tv_nsec - tv_begin.tv_nsec);
+            printf ("counter=%d, tput=%lf /s\n", counter, (double)(counter - last_counter) * 1e9 / time_diff);
+            last_counter = counter;
+            tv_begin = tv_end;
         }
     }
 }
