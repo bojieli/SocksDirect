@@ -115,8 +115,9 @@ public:
 
     static int get_sharedmem_size()
     {
-        return (2 * sizeof(queue_t::data_t) + 2 * sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER
-                + 2 * locklessqueue_t<int, 2048>::getmemsize());
+        return (2 * sizeof(queue_t::data_t)
+                + 2 * locklessqueue_t<int, 2048>::getmemsize() +
+                2 * locklessqueue_t<int, 256>::getmemsize());
     }
 
     void init(key_t shmem_key, int loc);

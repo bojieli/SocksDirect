@@ -212,13 +212,20 @@ void interprocess_t::init(void *baseaddr, int loc)
     b_avail[1].setpointer(INTERPROCESS_SLOTS_IN_BUFFER);
     b_avail[0].setpointer(0);
     memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
+
     q[my_loc].init(reinterpret_cast<queue_t::data_t *>(memory));
     memory += sizeof(queue_t::data_t);
     q[peer_loc].init(reinterpret_cast<queue_t::data_t *>(memory));
     memory += sizeof(queue_t::data_t);
+
     b[my_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[my_loc]);
     memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
     b[peer_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[peer_loc]);
+    memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
+
+    q_emergency[my_loc].init(memory);
+    memory += locklessqueue_t<queue_t::element, 256>::getmemsize();
+    q_emergency[peer_loc].init(memory);
 }
 
 void interprocess_t::monitor_init(void *baseaddr) {
