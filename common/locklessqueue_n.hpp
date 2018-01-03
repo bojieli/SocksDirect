@@ -41,12 +41,12 @@ public:
     const uint32_t MASK;
 
     locklessqueue_t() : MASK(SIZE - 1), pointer(0), ringbuffer(nullptr)
-    {}
+    {
+        assert((sizeof(element_t)==16));
+    }
 
     inline void init(void *baseaddr)
     {
-        //assert((sizeof(element_t)==16));
-        //printf("%u\n", sizeof(element_t));
         pointer = 0;
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
     }
