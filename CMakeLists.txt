@@ -8,7 +8,7 @@ add_library(ipc SHARED common/helper.c common/metaqueue.cpp lib/setup_sock_lib.c
         lib/lib_internal.h common/setup_sock.h common/darray.hpp)
 target_link_libraries(ipc dl pthread tcmalloc)
 add_executable(monitor common/helper.c common/metaqueue.cpp monitor/setup_sock_monitor.c monitor/process.cpp monitor/sock_monitor.cpp
-        monitor/main.cpp common/interprocess_t.cpp common/setup_sock.h common/locklessqueue_n.hpp)
+        monitor/main.cpp common/interprocess_t.cpp common/setup_sock.h common/locklessqueue_n.hpp common/adjlist_t.hpp)
 target_link_libraries(monitor pthread tcmalloc)
 add_executable(test_attach test/test_attach.c)
 add_executable(test_attach_old test/test_attach_old.c)
@@ -45,3 +45,5 @@ target_link_libraries(lat_sock_onetime_server ipc)
 add_executable(demo_cpu_util test/demo_cpu_util.c common/util.c)
 add_executable(test_locklessqueue_n test/test_locklessqueue_n.cpp common/helper.c)
 target_link_libraries(test_locklessqueue_n pthread)
+add_executable(test_adjlist test/test_adjlist.cpp)
+
