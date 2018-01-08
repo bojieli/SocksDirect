@@ -62,7 +62,7 @@ public:
     iterator add_element(int key_idx, const T2 &input);
     iterator del_element(iterator iter);
     iterator begin(int key_idx);
-    void init(uint32_t size);
+    void init(uint32_t size, const T1& input);
 };
 
 
@@ -126,9 +126,10 @@ adjlist<T1, initsizet1, T2, initsizet2>::add_element(int key_idx, const T2 &inpu
     return ret;
 }
 template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
-inline void adjlist<T1, initsizet1, T2, initsizet2>::init(uint32_t size)
+inline void adjlist<T1, initsizet1, T2, initsizet2>::init(uint32_t size, const T1& input)
 {
     index_t ele;
+    ele.data = input;
     ele.pointer = -1;
     for (int i=0;i<size;++i)
         index.add(ele);

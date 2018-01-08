@@ -7,15 +7,12 @@ typedef struct
 {
     int peer_fd;
     int peer_qid;
-    int next;
 } monitor_sock_adjlist_t;
 typedef struct
 {
     int is_listening;
     int is_blocking;
     int is_addrreuse;
-    int current_pointer;
-    int adjlist_pointer;
 } monitor_sock_node_t;
 typedef struct
 {
@@ -29,6 +26,7 @@ extern "C"
 extern void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid);
 extern void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid);
 extern void close_handler(metaqueue_ctl_element *req_body, int qid);
+extern void sock_monitor_init();
 void sock_resource_gc();
 #ifdef __cplusplus
 }

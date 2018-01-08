@@ -124,6 +124,7 @@ int main()
 {
     pin_thread(4);
     setup_sock_monitor_init();
+    sock_monitor_init();
     process_init();
     event_loop();
     return 0;

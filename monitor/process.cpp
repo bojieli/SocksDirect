@@ -74,7 +74,7 @@ void process_chk_remove()
         struct stat sb;
         if (!(stat(dirstr, &sb) == 0 && S_ISDIR(sb.st_mode)))
         {
-            DEBUG("thread %d in process %d exits", process[i].tid, process[i].pid);
+            DEBUG("thread %d in process %d not exits", process[i].tid, process[i].pid);
             process_del(i);
         }
     }

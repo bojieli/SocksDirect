@@ -12,7 +12,7 @@ adjlist<int, 100, int, 100> adjlist1;
 int main()
 {
     //init all the index, mark them valid, otherwise please use adjlist1.add_key to add an index
-    adjlist1.init(100);
+    adjlist1.init(100, 0);
     adjlist1[2] = 3;
     printf("value in the key 2: %d\n", adjlist1[2]);
 
