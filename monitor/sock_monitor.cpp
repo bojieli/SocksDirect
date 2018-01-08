@@ -6,7 +6,7 @@
 #include <sys/shm.h>
 #include "../common/interprocess_t.h"
 #include "../common/darray.hpp"
-
+#include "../common/adjlist_t.hpp"
 struct Hash4InterBuf
 {
     std::size_t operator()(const std::pair<int, int> &key) const
@@ -17,9 +17,20 @@ struct Hash4InterBuf
 };
 
 static std::unordered_map<std::pair<int, int>, interprocess_buf_map_t, Hash4InterBuf> interprocess_buf_idx;
-static monitor_sock_node_t ports[65536];
-darray_t<monitor_sock_adjlist_t, 1000> listen_adjlist;
+//static monitor_sock_node_t ports[65536];
+//darray_t<monitor_sock_adjlist_t, 1000> listen_adjlist;
+static adjlist<monitor_sock_node_t, 65536, monitor_sock_adjlist_t, 1000> ports;
 static int current_q_counter = 0;
+
+void sock_monitor_init()
+{
+    monitor_sock_node_t init_val;
+    init_val.is_listening = 0;
+    init_val.is_blocking = 1;
+    init_val.is_addrreuse = 0;
+    ports.init(65536, init_val);
+
+}
 
 void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid)
 {
@@ -34,16 +45,12 @@ void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_
     if (!ports[port].is_listening)
     {
         ports[port].is_listening = 1;
-        ports[port].adjlist_pointer = -1;
         ports[port].is_addrreuse = req_body->req_listen.is_reuseaddr;
     }
     monitor_sock_adjlist_t new_listen_fd;
     new_listen_fd.peer_qid=qid;
-    new_listen_fd.next=ports[port].adjlist_pointer;
     new_listen_fd.peer_fd=-1;
-    unsigned int idx_new_fd=listen_adjlist.add(new_listen_fd);
-    ports[port].adjlist_pointer = idx_new_fd;
-    ports[port].current_pointer = idx_new_fd;
+    ports.add_element(port, new_listen_fd);
     res_body->resp_command.res_code = RES_SUCCESS;
     res_body->command = RES_SUCCESS;
 }
@@ -59,10 +66,10 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
         return;
     }
     int peer_qid;
-    peer_qid = listen_adjlist[ports[port].current_pointer].peer_qid;
-    ports[port].current_pointer = listen_adjlist[ports[port].current_pointer].next;
-    if (ports[port].current_pointer == -1) ports[port].current_pointer = ports[port].adjlist_pointer;
-
+    auto iter = ports.begin(port);
+    monitor_sock_adjlist_t adjdata = *iter;
+    peer_qid = adjdata.peer_qid;
+    iter.next();
 
     key_t shm_key;
     int loc;
@@ -109,31 +116,24 @@ void close_handler(metaqueue_ctl_element *req_body, int qid)
     unsigned short port=req_body->req_close.port;
     if (!ports[port].is_listening)
         return;
-    int prev_idx=-1;
-    for (int idx=ports[port].adjlist_pointer;idx!=-1;prev_idx=idx,idx=listen_adjlist[idx].next)
+    for (auto iter=ports.begin(port);!iter.end();)
     {
         monitor_sock_adjlist_t listen_elem;
-        listen_elem=listen_adjlist[idx];
+        listen_elem=*iter;
         if (listen_elem.peer_qid==qid)
         {
             DEBUG("Process %d close port %hu", qid, port);
-            //this is the first on the adjlist
-            if (prev_idx == -1)
+            iter = ports.del_element(iter);
+            if (ports.begin(port).end())
             {
-                ports[port].adjlist_pointer = 
-                        ports[port].current_pointer = listen_adjlist[idx].next;
-                if (ports[port].adjlist_pointer == -1)
-                {
-                    ports[port].is_listening = 0;
-                }
-            } else
-            {
-                listen_adjlist[prev_idx].next = listen_adjlist[idx].next;
-                if (ports[port].current_pointer == idx)
-                    ports[port].current_pointer = ports[port].adjlist_pointer;
+                DEBUG("port %d no live processes.", port);
+                ports[port].is_listening = 0;
             }
-            listen_adjlist.del(idx);
+            //this is the first on the adjlist
             break;
+        } else
+        {
+            iter = iter.next();
         }
     }
 }
@@ -146,43 +146,25 @@ void sock_resource_gc()
     {
         if (!ports[i].is_listening) continue;
         int prev_listen_adjlist=-1;
-        int curr_listen_ptr=ports[i].adjlist_pointer;
-        while (true)
+        for (auto iter = ports.begin(i); !iter.end();)
         {
             monitor_sock_adjlist_t curr_listen_proc;
-            curr_listen_proc = listen_adjlist[curr_listen_ptr];
-            listen_adjlist.del(curr_listen_ptr);
+            curr_listen_proc = *iter;
             if (!process_isexist(curr_listen_proc.peer_qid))
             {
                 DEBUG("port %d qid %d not exists", i, curr_listen_proc.peer_qid);
-                if (ports[i].current_pointer == curr_listen_ptr)
-                    ports[i].current_pointer = curr_listen_proc.next;
-                if (prev_listen_adjlist == -1) // it is the first one on adjlist
+                iter = ports.del_element(iter);
+                if (ports.begin(i).end())
                 {
-                    ports[i].adjlist_pointer = curr_listen_proc.next;
-                    if (curr_listen_proc.next == -1) //it is the last one
-                    {
-                        ports[i].is_listening=false;
-                        break;
-                    }
-                    curr_listen_ptr = curr_listen_proc.next;
-                    continue;
-                } else
-                {
-                    listen_adjlist[prev_listen_adjlist].next = curr_listen_proc.next;
-                    curr_listen_ptr = curr_listen_proc.next;
-                    continue;
+                    DEBUG("All process on port %d die", i);
+                    ports[i].is_listening = 0;
                 }
+            } else
+            {
+                iter = iter.next();
             }
-            
-            //nothing happens
-            prev_listen_adjlist = curr_listen_ptr;
-            curr_listen_ptr = curr_listen_proc.next;
-            if (curr_listen_ptr == -1) break;
         }
-        
-        if (ports[i].current_pointer == -1)
-            ports[i].current_pointer = ports[i].adjlist_pointer; 
+
     }
 }
 
