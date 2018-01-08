@@ -17,8 +17,7 @@ typedef struct
     int uniq_shared_id;
     void *uniq_shared_base_addr;
     //0 is to monitor 1 is from monitor
-    metaqueue_data *metaqueue;
-    metaqueue_meta_t metaqueue_metadata[2];
+    metaqueue_t metaqueue;
     d_file_struc_t fds;
     d_fd_list_t adjlist;
 } thread_data_t;
