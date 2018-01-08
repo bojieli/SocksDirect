@@ -5,97 +5,86 @@
 #ifndef IPC_DIRECT_METAQUEUE_H
 #define IPC_DIRECT_METAQUEUE_H
 
-#ifdef __cplusplus
-extern "C"
-{
-#endif
-
 #include <stdint.h>
 #include <sys/types.h>
+#include "locklessqueue_n.hpp"
 
 #define MAX_METAQUEUE_SIZE 256
 #define METAQUEUE_MASK ((MAX_METAQUEUE_SIZE)-1)
+
 typedef struct __attribute__((packed))
 {
-    unsigned short command;
-    pid_t pid;
-    int data;
-} command_t;
-typedef struct __attribute__((packed))
-{
-    unsigned short command;
     unsigned short port;
     unsigned short is_reuseaddr;
 } command_sock_listen_t;
+
 typedef struct __attribute__((packed))
 {
-    unsigned short command;
     unsigned short port;
     int fd;
 } command_sock_connect_t;
+
 typedef struct __attribute__((packed))
 {
-    unsigned short command;
+    int res_code;
+    int err_code;
+} command_resp_t;
+
+typedef struct __attribute__((packed))
+{
     key_t shm_key;
     int fd;
     unsigned short port;
     int8_t loc;
-} res_sock_connect_t;
+} resp_sock_connect_t;
+
 typedef struct __attribute__((packed))
 {
-    unsigned short command;
-    int data;
-} res_error_t;
-typedef struct __attribute__((packed))
-{
-    unsigned short command;
     unsigned short port;
     int listen_fd;
-} close_t;
+} command_sock_close_t;
+
 typedef struct __attribute__((packed))
 {
-    union __attribute__((packed))
+    union __attribute__((packed)) {
+        u_char raw[12];
+        command_sock_close_t req_close;
+        command_sock_connect_t req_connect;
+        resp_sock_connect_t resp_connect;
+        command_resp_t resp_command;
+        command_sock_listen_t req_listen;
+        long test_payload;
+    };
+    unsigned short command;
+} metaqueue_ctl_element;
+
+class metaqueue_t
+{
+public:
+    locklessqueue_t<metaqueue_ctl_element, 256> q[2];
+    locklessqueue_t<metaqueue_ctl_element, 256> q_emergency[2];
+    int get_sharememsize()
     {
-        unsigned char raw[15];
-        command_t command;
-        command_sock_listen_t sock_listen_command;
-        command_sock_connect_t sock_connect_command;
-        res_sock_connect_t sock_connect_res;
-        res_error_t res_error;
-        close_t res_close;
-    } data;
-    unsigned char is_valid;
-} metaqueue_element;
-typedef struct
-{
-    metaqueue_element data[MAX_METAQUEUE_SIZE];
-} metaqueue_data;
-typedef struct
-{
-    uint32_t pointer;
-} metaqueue_meta_t;
-typedef struct
-{
-    unsigned char is_other_side_blocking;
-} shared_mem_meta_struc;
-typedef struct
-{
-    metaqueue_data *data;
-    metaqueue_meta_t *meta;
-} metaqueue_pack;
+        return (q[0].getmemsize() * 2 + q_emergency[1].getmemsize() * 2);
+    }
+    void init_memlayout(uint8_t * baseaddr, int loc) //0: use the lower part to send
+    {
+        q[loc].init(baseaddr);
+        baseaddr += q[0].getmemsize();
+        q[1 - loc].init(baseaddr);
+        baseaddr += q[1].getmemsize();
+        q_emergency[loc].init(baseaddr);
+        baseaddr += q[1].getmemsize();
+        q_emergency[1 - loc].init(baseaddr);
+    }
+    void mem_init()
+    {
+        q[0].init_mem();
+        q[1].init_mem();
+        q_emergency[0].init_mem();
+        q_emergency[1].init_mem();
+    }
 
+};
 
-void metaqueue_push(metaqueue_pack q_pack, metaqueue_element *data);
-
-void metaqueue_pop(metaqueue_pack q_pack, metaqueue_element *data);
-
-int metaqueue_isempty(metaqueue_pack q_pack);
-
-void metaqueue_init_meta(metaqueue_pack q_pack);
-
-void metaqueue_init_data(metaqueue_pack q_pack);
-
-#ifdef __cplusplus
-}
-#endif
 #endif //IPC_DIRECT_METAQUEUE_H

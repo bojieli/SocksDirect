@@ -10,13 +10,12 @@ extern "C"
 #endif
 
 #include <sys/socket.h>
-#include "../common/metaqueue.h"
 #include "../common/helper.h"
 
 
 extern void ipclib_sendmsg(int command, int data);
 
-void ipclib_recvmsg(metaqueue_element *data);
+//void ipclib_recvmsg(metaqueue_element *data);
 
 extern pid_t fork();
 

@@ -86,27 +86,26 @@ int listen(int socket, int backlog) __THROW
 {
     if (socket < FD_DELIMITER) return ORIG(listen, (socket, backlog));
     socket = MAX_FD_ID - socket;
-    metaqueue_element data2m, data_from_m;
+    metaqueue_ctl_element data2m, data_from_m;
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    data2m.is_valid = 1;
-    data2m.data.sock_listen_command.command = REQ_LISTEN;
+    data2m.command = REQ_LISTEN;
     if (!data->fds.isvalid(socket))
     {
         errno = EBADF;
         return -1;
     }
     data->fds[socket].type = USOCKET_TCP_LISTEN;
-    data2m.data.sock_listen_command.is_reuseaddr = data->fds[socket].property.is_addrreuse;
-    data2m.data.sock_listen_command.port = data->fds[socket].property.tcp.port;
-    metaqueue_pack q_pack;
-    q_pack.data = &data->metaqueue[0];
-    q_pack.meta = &data->metaqueue_metadata[0];
-    metaqueue_push(q_pack, &data2m);
-    q_pack.data = &data->metaqueue[1];
-    q_pack.meta = &data->metaqueue_metadata[1];
-    metaqueue_pop(q_pack, &data_from_m);
-    if (data_from_m.data.res_error.command == RES_ERROR) return -1;
+    data2m.req_listen.is_reuseaddr = data->fds[socket].property.is_addrreuse;
+    data2m.req_listen.port = data->fds[socket].property.tcp.port;
+    metaqueue_t * q = &(data->metaqueue);
+    q->q[0].push(data2m);
+    while (!q->q[1].pop_nb(data_from_m));
+    if (data_from_m.command == RES_ERROR)
+    {
+        return -1;
+        errno = data_from_m.resp_command.err_code;
+    }
     else return 0;
 }
 
@@ -139,14 +138,11 @@ int close(int fildes)
 
     if (data->fds[fildes].type == USOCKET_TCP_LISTEN)
     {
-        metaqueue_element ele;
-        ele.data.command.command=REQ_CLOSE;
-        ele.data.res_close.port=data->fds[fildes].property.tcp.port;
-        ele.data.res_close.listen_fd=fildes;
-        metaqueue_pack q_pack;
-        q_pack.data = &data->metaqueue[0];
-        q_pack.meta = &data->metaqueue_metadata[0];
-        metaqueue_push(q_pack, &ele);
+        metaqueue_ctl_element ele;
+        ele.command = REQ_CLOSE;
+        ele.req_close.port=data->fds[fildes].property.tcp.port;
+        ele.req_close.listen_fd=fildes;
+        data->metaqueue.q[0].push(ele);
     }
     data->fds[fildes].property.tcp.isopened=false;
     data->fds.del(fildes);
@@ -179,22 +175,17 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     port = ntohs(((struct sockaddr_in *) address)->sin_port);
 
     //send to monitor and get respone
-    metaqueue_element req_data, res_data;
-    req_data.data.sock_connect_command.command = REQ_CONNECT;
-    req_data.data.sock_connect_command.fd = socket;
-    req_data.data.sock_connect_command.port = port;
-    metaqueue_pack q_pack;
-    q_pack.data = &data->metaqueue[0];
-    q_pack.meta = &data->metaqueue_metadata[0];
-    metaqueue_push(q_pack, &req_data);
-    q_pack.data = &data->metaqueue[1];
-    q_pack.meta = &data->metaqueue_metadata[1];
-    metaqueue_pop(q_pack, &res_data);
-    if (res_data.data.sock_connect_res.command != RES_SUCCESS)
+    metaqueue_ctl_element req_data, res_data;
+    req_data.command = REQ_CONNECT;
+    req_data.req_connect.fd = socket;
+    req_data.req_connect.port = port;
+    data->metaqueue.q[0].push(req_data);
+    while (!data->metaqueue.q[1].pop_nb(res_data));
+    if (res_data.command != RES_SUCCESS)
         return -1;
     //printf("%d\n", res_data.data.sock_connect_res.shm_key);
-    key_t key = res_data.data.sock_connect_res.shm_key;
-    int loc = res_data.data.sock_connect_res.loc;
+    key_t key = res_data.resp_connect.shm_key;
+    int loc = res_data.resp_connect.loc;
 
     //init buffer
     thread_sock_data_t *thread_buf;
@@ -209,7 +200,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     idx_peer_fd = data->adjlist.add(peer_fd);
     data->fds[socket].peer_fd_ptr = idx_peer_fd;
     data->fds[socket].next_op_fd = idx_peer_fd;
-    if ((idx = thread_buf->isexist(res_data.data.sock_connect_res.shm_key)) != -1)
+    if ((idx = thread_buf->isexist(key)) != -1)
         data->adjlist[idx_peer_fd].buffer_idx = idx;
     else
         idx = data->adjlist[idx_peer_fd].buffer_idx = thread_buf->newbuffer(key, loc);
@@ -256,23 +247,21 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     thread_sock_data_t *sock_data;
     sock_data = reinterpret_cast<thread_sock_data_t *>(pthread_getspecific(pthread_sock_key));
-    metaqueue_pack q_pack;
-    q_pack.data = &data->metaqueue[1];
-    q_pack.meta = &data->metaqueue_metadata[1];
-    metaqueue_element element;
-    metaqueue_pop(q_pack, &element);
-    if (element.data.command.command != RES_NEWCONNECTION)
+
+    metaqueue_ctl_element element;
+    while (!data->metaqueue.q[1].pop_nb(element));
+    if (element.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
     if (!data->fds.isvalid(sockfd) || data->fds[sockfd].type != USOCKET_TCP_LISTEN)
     {
         errno = EBADF;
         return -1;
     }
-    if (element.data.sock_connect_res.port != data->fds[sockfd].property.tcp.port)
+    if (element.resp_connect.port != data->fds[sockfd].property.tcp.port)
         FATAL("Incorrect accept order for different ports");
-    key_t key = element.data.sock_connect_res.shm_key;
-    int loc = element.data.sock_connect_res.loc;
-    auto peer_fd = element.data.sock_connect_res.fd;
+    key_t key = element.resp_connect.shm_key;
+    int loc = element.resp_connect.loc;
+    auto peer_fd = element.resp_connect.fd;
     DEBUG("Accept new connection, key %d, loc %d", key, loc);
     file_struc_t nfd;
     fd_list_t npeerfd;

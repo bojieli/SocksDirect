@@ -26,9 +26,9 @@ typedef struct
 extern "C"
 {
 #endif
-extern void listen_handler(metaqueue_element *req_body, metaqueue_element *res_body, int qid);
-extern void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, int qid);
-extern void close_handler(metaqueue_element *req_body, int qid);
+extern void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid);
+extern void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid);
+extern void close_handler(metaqueue_ctl_element *req_body, int qid);
 void sock_resource_gc();
 #ifdef __cplusplus
 }

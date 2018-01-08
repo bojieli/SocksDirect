@@ -55,37 +55,37 @@ static void thr_test_handler(long cnt_recv)
 }
 
 inline
-static void ping_handler(metaqueue_element *req_body, metaqueue_element *res_body)
+static void ping_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body)
 {
     *res_body = *req_body;
-    (*res_body).data.command.data = ~req_body->data.command.data;
+    (*res_body).test_payload = ~req_body->test_payload;
 }
 
 inline
-static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res, int qid)
+static void event_processer(metaqueue_t *q, int qid)
 {
-    metaqueue_element req_body;
-    metaqueue_element res_body;
-    metaqueue_pop(q_pack_req, &req_body);
-    switch (req_body.data.command.command)
+    metaqueue_ctl_element req_body;
+    metaqueue_ctl_element res_body;
+    while (!q->q[1].pop_nb(req_body));
+    switch (req_body.command)
     {
         case REQ_THRTEST:
-            thr_test_handler(req_body.data.command.data);
+            thr_test_handler(*(long *)req_body.raw);
             break;
         case REQ_THRTEST_INIT:
             thr_test_init_handler();
             break;
         case REQ_PING:
             ping_handler(&req_body, &res_body);
-            metaqueue_push(q_pack_res, &res_body);
+            q->q[0].push(res_body);
             break;
         case REQ_LISTEN:
             listen_handler(&req_body, &res_body, qid);
-            metaqueue_push(q_pack_res, &res_body);
+            q->q[0].push(res_body);
             break;
         case REQ_CONNECT:
             connect_handler(&req_body, &res_body, qid);
-            metaqueue_push(q_pack_res, &res_body);
+            q->q[0].push(res_body);
             break;
         case REQ_CLOSE:
             close_handler(&req_body, qid);
@@ -99,16 +99,15 @@ static void event_processer(metaqueue_pack q_pack_req, metaqueue_pack q_pack_res
 static void event_loop()
 {
     unsigned int round = 0;
-    while (1)
+    while (true)
     {
        for (int i=process_iterator_init();i!=-1;i=process_iterator_next(i))
        {
-           metaqueue_pack q_pack_req, q_pack_res;
-           q_pack_req = process_getrequesthandler_byqid(i);
-           q_pack_res = process_getresponsehandler_byqid(i);
+           metaqueue_t * q;
+           q = process_gethandler_byqid(i);
            //if empty continue
-           if (!metaqueue_isempty(q_pack_req))
-               event_processer(q_pack_req, q_pack_res, i);
+           if (!q->q[1].isempty())
+               event_processer(q, i);
        }
         ++round;
         if ((round & 0xFFFF) == 0)

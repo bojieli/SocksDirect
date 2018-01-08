@@ -21,19 +21,21 @@ static monitor_sock_node_t ports[65536];
 darray_t<monitor_sock_adjlist_t, 1000> listen_adjlist;
 static int current_q_counter = 0;
 
-void listen_handler(metaqueue_element *req_body, metaqueue_element *res_body, int qid)
+void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid)
 {
-    unsigned short port = req_body->data.sock_listen_command.port;
+    unsigned short port = req_body->req_listen.port;
     if (ports[port].is_listening && !ports[port].is_addrreuse)
     {
-        res_body->data.res_error.command = RES_ERROR;
+        res_body->command = RES_ERROR;
+        res_body->resp_command.res_code = RES_ERROR;
+        res_body->resp_command.err_code = EADDRINUSE;
         return;
     }
     if (!ports[port].is_listening)
     {
         ports[port].is_listening = 1;
         ports[port].adjlist_pointer = -1;
-        ports[port].is_addrreuse = req_body->data.sock_listen_command.is_reuseaddr;
+        ports[port].is_addrreuse = req_body->req_listen.is_reuseaddr;
     }
     monitor_sock_adjlist_t new_listen_fd;
     new_listen_fd.peer_qid=qid;
@@ -42,16 +44,18 @@ void listen_handler(metaqueue_element *req_body, metaqueue_element *res_body, in
     unsigned int idx_new_fd=listen_adjlist.add(new_listen_fd);
     ports[port].adjlist_pointer = idx_new_fd;
     ports[port].current_pointer = idx_new_fd;
-    res_body->data.command.command = RES_SUCCESS;
+    res_body->resp_command.res_code = RES_SUCCESS;
+    res_body->command = RES_SUCCESS;
 }
 
-void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, int qid)
+void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid)
 {
     unsigned short port;
-    port = req_body->data.sock_connect_command.port;
+    port = req_body->req_connect.port;
     if (!ports[port].is_listening)
     {
-        res_body->data.res_error.command = RES_ERROR;
+        res_body->resp_command.res_code = RES_ERROR;
+        res_body->command = RES_ERROR;
         return;
     }
     int peer_qid;
@@ -86,25 +90,23 @@ void connect_handler(metaqueue_element *req_body, metaqueue_element *res_body, i
         shm_key = interprocess_buf_idx[std::pair<int, int>(qid, peer_qid)].buffer_key;
         loc = interprocess_buf_idx[std::pair<int, int>(qid, peer_qid)].loc;
     }
-    res_body->data.sock_connect_res.shm_key = shm_key;
-    res_body->data.sock_connect_res.loc = loc;
-    res_body->data.sock_connect_res.command = RES_SUCCESS;
-    metaqueue_element res_to_listener;
-    res_to_listener.is_valid = 1;
-    res_to_listener.data.sock_connect_res.command = RES_NEWCONNECTION;
-    res_to_listener.data.sock_connect_res.shm_key = shm_key;
-    res_to_listener.data.sock_connect_res.loc = !loc;
-    res_to_listener.data.sock_connect_res.fd = req_body->data.sock_connect_command.fd;
-    res_to_listener.data.sock_connect_res.port = port;
-    metaqueue_pack q_pack;
-    q_pack = process_getresponsehandler_byqid(peer_qid);
-    metaqueue_push(q_pack, &res_to_listener);
+    res_body->resp_connect.shm_key = shm_key;
+    res_body->resp_connect.loc = loc;
+    res_body->command = RES_SUCCESS;
+    metaqueue_ctl_element res_to_listener;
+    res_to_listener.command = RES_NEWCONNECTION;
+    res_to_listener.resp_connect.shm_key = shm_key;
+    res_to_listener.resp_connect.loc = !loc;
+    res_to_listener.resp_connect.fd = req_body->req_connect.fd;
+    res_to_listener.resp_connect.port = port;
+    metaqueue_t * q2listener = process_gethandler_byqid(peer_qid);
+    q2listener->q[0].push(res_to_listener);
 }
 #undef DEBUGON
 #define DEBUGON 1
-void close_handler(metaqueue_element *req_body, int qid)
+void close_handler(metaqueue_ctl_element *req_body, int qid)
 {
-    unsigned short port=req_body->data.res_close.port;
+    unsigned short port=req_body->req_close.port;
     if (!ports[port].is_listening)
         return;
     int prev_idx=-1;

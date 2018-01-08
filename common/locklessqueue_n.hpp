@@ -38,7 +38,7 @@ public:
         uint32_t head;
         uint32_t tail;
     };
-    const uint32_t MASK;
+    uint32_t MASK;
 
     locklessqueue_t() : MASK(SIZE - 1), pointer(0), ringbuffer(nullptr)
     {
@@ -48,6 +48,7 @@ public:
     inline void init(void *baseaddr)
     {
         pointer = 0;
+        MASK = SIZE - 1;
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
     }
 
