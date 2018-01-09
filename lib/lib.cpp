@@ -14,7 +14,7 @@ void connect_monitor()
 {
     ctl_struc result;
     setup_sock_connect(&result);
-    thread_data_t *data = (thread_data_t *) malloc(sizeof(thread_data_t));
+    thread_data_t *data = new thread_data_t;
     pthread_setspecific(pthread_key, (void *) data);
     data->uniq_shared_id = shmget(result.key, data->metaqueue.get_sharememsize(), 0777);
     //printf("%d\n", uniq_shared_id);

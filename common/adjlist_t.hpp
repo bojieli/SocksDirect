@@ -57,11 +57,13 @@ private:
     friend class adjlist_iterator_t<T1, initsizet1, T2, initsizet2>;
 public:
     int add_key(const T1 &input);
+    void del_key(unsigned int key_idx);
     inline T1 & operator[](unsigned int i);
     typedef adjlist_iterator_t<T1, initsizet1, T2, initsizet2> iterator;
     iterator add_element(int key_idx, const T2 &input);
     iterator del_element(iterator iter);
     iterator begin(int key_idx);
+    bool is_keyvalid(int key_idx);
     void init(uint32_t size, const T1& input);
 };
 
@@ -76,6 +78,13 @@ inline int adjlist<T1, initsizet1, T2, initsizet2>::add_key(const T1 &input)
     int n_idx_idx = index.add(new_idx);
     return n_idx_idx;
 }
+
+template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
+inline void adjlist<T1, initsizet1, T2, initsizet2>::del_key(unsigned int key_idx)
+{
+    index.del(key_idx);
+}
+
 template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
 inline T1 & adjlist<T1, initsizet1, T2, initsizet2>::operator[](unsigned int i)
 {
@@ -131,8 +140,15 @@ inline void adjlist<T1, initsizet1, T2, initsizet2>::init(uint32_t size, const T
     index_t ele;
     ele.data = input;
     ele.pointer = -1;
+    index.init();
     for (int i=0;i<size;++i)
         index.add(ele);
+}
+
+template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
+inline bool adjlist<T1, initsizet1, T2, initsizet2>::is_keyvalid(int key_idx)
+{
+    return index.isvalid(key_idx);
 }
 
 template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
