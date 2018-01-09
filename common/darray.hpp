@@ -66,7 +66,6 @@ public:
         highest_possible = 0;
         total_num = 0;
         size = INITSIZE;
-        data.resize(0);
         data.resize(INITSIZE);
     }
     inline T & operator[](unsigned int i)

@@ -8,6 +8,7 @@
 #include "../common/metaqueue.h"
 #include "socket_lib.h"
 #include "../common/darray.hpp"
+#include "../common/adjlist_t.hpp"
 
 typedef darray_t<file_struc_t, MAX_FD_OWN_NUM> d_file_struc_t;
 typedef darray_t<fd_list_t, MAX_FD_PEER_NUM> d_fd_list_t;
@@ -18,8 +19,9 @@ typedef struct
     void *uniq_shared_base_addr;
     //0 is to monitor 1 is from monitor
     metaqueue_t metaqueue;
-    d_file_struc_t fds;
-    d_fd_list_t adjlist;
+    adjlist<file_struc_t, MAX_FD_OWN_NUM, fd_list_t, MAX_FD_PEER_NUM> fds;
+    //d_file_struc_t fds;
+    //d_fd_list_t adjlist;
 } thread_data_t;
 
 

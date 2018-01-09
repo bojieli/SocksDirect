@@ -33,14 +33,11 @@ typedef struct
 typedef struct
 {
     int type;
-    int peer_fd_ptr;
-    int next_op_fd;
     socket_property_t property;
 } file_struc_t;
 typedef struct
 {
     int fd;
-    int next;
     int buffer_idx;
     short is_ready;
 } fd_list_t;

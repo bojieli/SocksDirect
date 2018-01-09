@@ -13,7 +13,7 @@ extern "C"
 #include "../common/helper.h"
 
 
-extern void ipclib_sendmsg(int command, int data);
+//extern void ipclib_sendmsg(int command, int data);
 
 //void ipclib_recvmsg(metaqueue_element *data);
 
