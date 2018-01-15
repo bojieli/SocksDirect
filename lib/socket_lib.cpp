@@ -46,7 +46,8 @@ void usocket_init()
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     file_struc_t _fd;
-    data->fds.init(0,_fd);
+    data->fds_datawithrd.init(0,_fd);
+    data->fds_wr.init(0, 0);
     auto *thread_sock_data = new thread_sock_data_t;
     thread_sock_data->bufferhash = new std::unordered_map<key_t, int>;
     for (int i = 0; i < BUFFERNUM; ++i) thread_sock_data->buffer[i].isvalid = false;
@@ -63,7 +64,7 @@ int socket(int domain, int type, int protocol) __THROW
     nfd.property.is_addrreuse = 0;
     nfd.property.is_blocking = 1;
     nfd.property.tcp.isopened = false;
-    unsigned int idx_nfd=data->fds.add_key(nfd);
+    unsigned int idx_nfd=data->fds_datawithrd.add_key(nfd);
     int ret = MAX_FD_ID - idx_nfd;
     return ret;
 }
@@ -76,7 +77,7 @@ int bind(int socket, const struct sockaddr *address, socklen_t address_len) __TH
     thread_data_t *data = nullptr;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     port = ntohs(((struct sockaddr_in *) address)->sin_port);
-    data->fds[socket].property.tcp.port = port;
+    data->fds_datawithrd[socket].property.tcp.port = port;
     return 0;
 }
 
@@ -88,14 +89,14 @@ int listen(int socket, int backlog) __THROW
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     data2m.command = REQ_LISTEN;
-    if (!data->fds.is_keyvalid(socket))
+    if (!data->fds_datawithrd.is_keyvalid(socket))
     {
         errno = EBADF;
         return -1;
     }
-    data->fds[socket].type = USOCKET_TCP_LISTEN;
-    data2m.req_listen.is_reuseaddr = data->fds[socket].property.is_addrreuse;
-    data2m.req_listen.port = data->fds[socket].property.tcp.port;
+    data->fds_datawithrd[socket].type = USOCKET_TCP_LISTEN;
+    data2m.req_listen.is_reuseaddr = data->fds_datawithrd[socket].property.is_addrreuse;
+    data2m.req_listen.port = data->fds_datawithrd[socket].property.tcp.port;
     metaqueue_t * q = &(data->metaqueue);
     q->q[0].push(data2m);
     while (!q->q[1].pop_nb(data_from_m));
@@ -113,15 +114,15 @@ int close(int fildes)
     fildes = MAX_FD_ID - fildes;
     thread_data_t *data = NULL;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (!data->fds.is_keyvalid(fildes))
+    if (!data->fds_datawithrd.is_keyvalid(fildes))
     {
         errno = EBADF;
         return -1;
     }
-    if (data->fds[fildes].type == USOCKET_TCP_CONNECT)
+    if (data->fds_datawithrd[fildes].type == USOCKET_TCP_CONNECT)
     {
         thread_sock_data_t* sock_data=GET_THREAD_SOCK_DATA();
-        for (auto iter = data->fds.begin(fildes); !iter.end(); )
+        for (auto iter = data->fds_datawithrd.begin(fildes); !iter.end(); )
         {
             fd_list_t peer_adj_item = *iter;
             interprocess_t *interprocess;
@@ -129,22 +130,22 @@ int close(int fildes)
             interprocess_t::queue_t::element ele;
             ele.command=interprocess_t::cmd::CLOSE_FD;
             ele.close_fd.req_fd=fildes;
-            ele.close_fd.peer_fd=peer_adj_item.fd;
+            ele.close_fd.peer_fd=data->fds_datawithrd[fildes].peer_fd;
             interprocess->q[0].push(ele);
-            iter = data->fds.del_element(iter);
+            iter = data->fds_datawithrd.del_element(iter);
         }
     }
 
-    if (data->fds[fildes].type == USOCKET_TCP_LISTEN)
+    if (data->fds_datawithrd[fildes].type == USOCKET_TCP_LISTEN)
     {
         metaqueue_ctl_element ele;
         ele.command = REQ_CLOSE;
-        ele.req_close.port=data->fds[fildes].property.tcp.port;
+        ele.req_close.port=data->fds_datawithrd[fildes].property.tcp.port;
         ele.req_close.listen_fd=fildes;
         data->metaqueue.q[0].push(ele);
     }
-    data->fds[fildes].property.tcp.isopened=false;
-    data->fds.del_key(fildes);
+    data->fds_datawithrd[fildes].property.tcp.isopened=false;
+    data->fds_datawithrd.del_key(fildes);
     return 0;
 }
 
@@ -161,14 +162,14 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         FATAL("Only support TCP connection");
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (!data->fds.is_keyvalid(socket))
+    if (!data->fds_datawithrd.is_keyvalid(socket))
     {
         errno = EBADF;
         return -1;
     }
-    if (data->fds[socket].property.tcp.isopened) close(socket);
-    data->fds[socket].type = USOCKET_TCP_CONNECT;
-    data->fds[socket].property.tcp.isopened=true;
+    if (data->fds_datawithrd[socket].property.tcp.isopened) close(socket);
+    data->fds_datawithrd[socket].type = USOCKET_TCP_CONNECT;
+    data->fds_datawithrd[socket].property.tcp.isopened=true;
     unsigned short port;
     port = ntohs(((struct sockaddr_in *) address)->sin_port);
 
@@ -193,12 +194,12 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     int idx;
     fd_list_t peer_fd;
     unsigned int idx_peer_fd;
-    peer_fd.fd = -1;
+    peer_fd.child[0] = peer_fd.child[1] = -1;
     if ((idx = thread_buf->isexist(key)) != -1)
         peer_fd.buffer_idx = idx;
     else
         idx = peer_fd.buffer_idx = thread_buf->newbuffer(key, loc);
-    auto peerfd_iter = data->fds.add_element(socket, peer_fd);
+    auto peerfd_iter = data->fds_datawithrd.add_element(socket, peer_fd);
 
     //wait for ACK from peer
     interprocess_t *buffer;
@@ -220,7 +221,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             }
             if (element.command == interprocess_t::cmd::NEW_FD)
             {
-                peerfd_iter->fd = element.data_fd_notify.fd;
+                data->fds_datawithrd[socket].peer_fd = element.data_fd_notify.fd;
                 DEBUG("peer fd: %d\n",element.data_fd_notify.fd);
                 SW_BARRIER;
                 buffer->q[1].del(i);
@@ -247,12 +248,12 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     while (!data->metaqueue.q[1].pop_nb(element));
     if (element.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
-    if (!data->fds.is_keyvalid(sockfd) || data->fds[sockfd].type != USOCKET_TCP_LISTEN)
+    if (!data->fds_datawithrd.is_keyvalid(sockfd) || data->fds_datawithrd[sockfd].type != USOCKET_TCP_LISTEN)
     {
         errno = EBADF;
         return -1;
     }
-    if (element.resp_connect.port != data->fds[sockfd].property.tcp.port)
+    if (element.resp_connect.port != data->fds_datawithrd[sockfd].property.tcp.port)
         FATAL("Incorrect accept order for different ports");
     key_t key = element.resp_connect.shm_key;
     int loc = element.resp_connect.loc;
@@ -265,15 +266,14 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     nfd.property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
     nfd.type = USOCKET_TCP_CONNECT;
     nfd.property.tcp.isopened = true;
-    auto idx_nfd=data->fds.add_key(nfd);
-    npeerfd.fd = peer_fd;
-    npeerfd.is_ready = 1;
+    auto idx_nfd=data->fds_datawithrd.add_key(nfd);
+    data->fds_datawithrd[idx_nfd].peer_fd = peer_fd;
     int idx;
     if ((idx = sock_data->isexist(key)) != -1)
         npeerfd.buffer_idx = idx;
     else
         idx = npeerfd.buffer_idx = sock_data->newbuffer(key, loc);
-    data->fds.add_element(idx_nfd, npeerfd);
+    data->fds_datawithrd.add_element(idx_nfd, npeerfd);
 
     interprocess_t *buffer = &sock_data->buffer[idx].data;
     interprocess_t::queue_t::element inter_element;
@@ -293,7 +293,7 @@ int setsockopt(int socket, int level, int option_name, const void *option_value,
     {
         thread_data_t *thread;
         thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-        thread->fds[socket].property.is_addrreuse = *reinterpret_cast<const int *>(option_value);
+        thread->fds_datawithrd[socket].property.is_addrreuse = *reinterpret_cast<const int *>(option_value);
     }
     return 0;
 }
@@ -307,14 +307,14 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
     ORIG(ioctl, (fildes, request, argp));
     fildes = MAX_FD_ID - fildes;
     thread_data_t *thread_data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (!thread_data->fds.is_keyvalid(fildes))
+    if (!thread_data->fds_datawithrd.is_keyvalid(fildes))
     {
         errno = EBADF;
         return -1;
     }
 
     if (request == FIONBIO)
-        thread_data->fds[fildes].property.is_blocking = 0;
+        thread_data->fds_datawithrd[fildes].property.is_blocking = 0;
     return 0;
 }
 
@@ -324,19 +324,19 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     fd = MAX_FD_ID - fd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds.begin(fd).end() || thread_data->fds[fd].type != USOCKET_TCP_CONNECT
-            || !thread_data->fds[fd].property.tcp.isopened)
+    if (thread_data->fds_datawithrd.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
+            || !thread_data->fds_datawithrd[fd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
     }
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    auto iter = thread_data->fds.begin(fd);
+    auto iter = thread_data->fds_datawithrd.begin(fd);
     iter = iter.next();
     interprocess_t *buffer = &thread_sock_data->
             buffer[iter->buffer_idx].data;
-    int peer_fd = iter->fd;
+    int peer_fd = thread_data->fds_datawithrd[fd].peer_fd;
 
     size_t total_size(0);
     for (int i = 0; i < iovcnt; ++i)
@@ -389,21 +389,21 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
             if (ele.command == interprocess_t::cmd::CLOSE_FD)
             {
                 if (ele.close_fd.peer_fd == target_fd &&
-                    ele.close_fd.req_fd == iter->fd)
+                    ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
                 {
                     buffer->q[1].del(pointer);
                     DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
                     
-                    iter = thread_data->fds.del_element(iter);
+                    iter = thread_data->fds_datawithrd.del_element(iter);
                     if (iter.end())
                     {
                         DEBUG("Destroyed self fd %d.", target_fd);
-                        thread_data->fds.del_key(target_fd);
+                        thread_data->fds_datawithrd.del_key(target_fd);
                         return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
                     }
                     return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
                 } else {
-                    if (!thread_data->fds.is_keyvalid(ele.close_fd.peer_fd))
+                    if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
                         buffer->q[1].del(pointer);
                 }
             }
@@ -434,8 +434,8 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     sockfd = MAX_FD_ID - sockfd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds.begin(sockfd).end() || thread_data->fds[sockfd].type != USOCKET_TCP_CONNECT
-            || !thread_data->fds[sockfd].property.tcp.isopened)
+    if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
+            || !thread_data->fds_datawithrd[sockfd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
@@ -448,7 +448,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     do //if blocking infinate loop
     {
         int prev_adjlist_ptr=-1;
-        auto iter = thread_data->fds.begin(sockfd);
+        auto iter = thread_data->fds_datawithrd.begin(sockfd);
         while (true) //iterate different peer fd
         {
             int ret_loc(-1);
@@ -475,7 +475,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
             if (isFind) break; //Get the requested block
         }
         if (isFind) break;
-    } while (thread_data->fds[sockfd].property.is_blocking);
+    } while (thread_data->fds_datawithrd[sockfd].property.is_blocking);
     int ret(len);
     if (!isFind)
     {

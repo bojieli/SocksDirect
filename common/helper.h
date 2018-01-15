@@ -44,10 +44,15 @@ enum
     RES_NEWCONNECTION
 };
 
+#define FD_STATES_CLOSE_FLG_NRD_REQ 0x1
+#define FD_STATES_CLOSE_FLG_NWR_REQ 0x2
+#define FD_STATES_CLOSE_FLG_NRD_RES 0x4
+#define FD_STATES_CLOSE_FLG_NWR_RES 0x8
+#define FD_STATES_FORKPAUSED 0x16
+
 //configuration
 #define SHM_NAME "/ipcd_shmem"
 #define SHM_INTERPROCESS_NAME "/ipcd_interprocess_shmem"
-#define ALLQ_NUM 4
 #define SOCK_FILENAME "/tmp/ipcd.sock"
 #ifdef __cplusplus
 extern "C"
