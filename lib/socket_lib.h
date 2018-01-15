@@ -9,7 +9,7 @@ extern "C"
 {
 #endif
 #define MAX_FD_ID 0x7FFFFFFF
-#define MAX_FD_OWN_NUM 1000
+#define  MAX_FD_OWN_NUM 1000
 #define MAX_FD_PEER_NUM 1000
 #define FD_DELIMITER 0x3FFFFFFF
 enum
@@ -33,13 +33,14 @@ typedef struct
 typedef struct
 {
     int type;
+    int peer_fd;
     socket_property_t property;
 } file_struc_t;
 typedef struct
 {
-    int fd;
     int buffer_idx;
-    short is_ready;
+    short status;
+    int child[2];
 } fd_list_t;
 void usocket_init();
 #ifdef __cplusplus
