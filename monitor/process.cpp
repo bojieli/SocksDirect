@@ -85,4 +85,8 @@ bool process_isexist(int qid)
     return process.isvalid(qid);
 }
 
+pid_t process_gettid(int qid)
+{
+    return process[qid].tid;
+}
 #undef DEBUGON

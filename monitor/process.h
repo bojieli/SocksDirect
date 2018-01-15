@@ -41,4 +41,6 @@ extern int process_iterator_next(int prev);
 
 void process_chk_remove();
 
+extern pid_t process_gettid(int qid);
+
 #endif //IPC_DIRECT_PROCESS_H
