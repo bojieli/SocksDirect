@@ -7,16 +7,18 @@
 #include <sys/shm.h>
 #include <pthread.h>
 #include "lib_internal.h"
+#include "../common/setup_sock.h"
 
 pthread_key_t pthread_key;
 
-void connect_monitor()
+static void connect_monitor()
 {
     ctl_struc result;
     setup_sock_connect(&result);
     thread_data_t *data = new thread_data_t;
     pthread_setspecific(pthread_key, (void *) data);
     data->uniq_shared_id = shmget(result.key, data->metaqueue.get_sharememsize(), 0777);
+    data->token = result.token;
     //printf("%d\n", uniq_shared_id);
     if (data->uniq_shared_id == -1)
         FATAL("Failed to open the shared memory, errno: %d", errno);
@@ -89,9 +91,15 @@ struct wrapper_arg
 
 static void *wrapper(void *arg)
 {
+    thread_data_t backup_thread_data = *GET_THREAD_DATA();
+    thread_sock_data_t backup_thread_sock_data = *GET_THREAD_SOCK_DATA();
     struct wrapper_arg *warg = (wrapper_arg *)arg;
     connect_monitor();
     usocket_init();
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    *thread_data = backup_thread_data;
+    *thread_sock_data = backup_thread_sock_data;
     void *(*func)(void *) = warg->func;
     arg = warg->arg;
     free(warg);

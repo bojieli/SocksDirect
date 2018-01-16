@@ -16,6 +16,7 @@ typedef struct
     void *uniq_shared_base_addr;
     //0 is to monitor 1 is from monitor
     metaqueue_t metaqueue;
+    uint64_t token;
     adjlist<file_struc_t, MAX_FD_OWN_NUM, fd_list_t, MAX_FD_PEER_NUM> fds_datawithrd;
     adjlist<int, MAX_FD_OWN_NUM, fd_list_t, MAX_FD_PEER_NUM> fds_wr;
     darray_t<fd_list_t, MAX_FD_PEER_NUM> rd_tree, wr_tree;

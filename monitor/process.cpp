@@ -11,20 +11,24 @@
 #include "../common/metaqueue.h"
 #include "../common/darray.hpp"
 #include <sys/stat.h>
+#include <unordered_map>
+#include <cstdlib>
 
 static darray_t<process_sturc, MAX_PROCESS_NUM> process;
+static std::unordered_map<pid_t, int> tidmap;
 
 void process_init()
 {
     process.init();
 }
 
-key_t process_add(pid_t pid, pid_t tid)
+std::tuple<key_t, uint64_t> process_add(pid_t pid, pid_t tid)
 {
     process_sturc curr_proc;
     int id=process.add(curr_proc);
     curr_proc.tid = tid;
     curr_proc.pid = pid;
+    curr_proc.token = (uint64_t)rand();
     if ((curr_proc.uniq_shmem_id = ftok(SHM_NAME, id + 2)) < 0)
         FATAL("Failed to get the key of shared memory, errno: %d", errno);
     int shm_id = shmget(curr_proc.uniq_shmem_id, (size_t)process[id].metaqueue.get_sharememsize(), IPC_CREAT | 0777);
@@ -38,7 +42,8 @@ key_t process_add(pid_t pid, pid_t tid)
     curr_proc.metaqueue.mem_init();
     key_t ret_val = curr_proc.uniq_shmem_id;
     process[id]=curr_proc;
-    return ret_val;
+    tidmap[tid] = id;
+    return std::make_tuple(ret_val, curr_proc.token);
 }
 
 metaqueue_t * process_gethandler_byqid(int qid)
@@ -75,6 +80,7 @@ void process_chk_remove()
         if (!(stat(dirstr, &sb) == 0 && S_ISDIR(sb.st_mode)))
         {
             DEBUG("thread %d in process %d not exits", process[i].tid, process[i].pid);
+            tidmap.erase(process[i].tid);
             process_del(i);
         }
     }
@@ -88,5 +94,10 @@ bool process_isexist(int qid)
 pid_t process_gettid(int qid)
 {
     return process[qid].tid;
+}
+
+void fork_handler(metaqueue_ctl_element *req_body, int qid)
+{
+    
 }
 #undef DEBUGON

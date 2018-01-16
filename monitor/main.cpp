@@ -7,7 +7,9 @@
 #include "process.h"
 #include "sock_monitor.h"
 #include "../common/metaqueue.h"
+#include "../common/setup_sock.h"
 #include<time.h>
+#include <tuple>
 
 #undef DEBUGON
 #define DEBUGON 1
@@ -18,7 +20,7 @@ static void try_accept_new_proc()
     int fd;
     if ((fd = setup_sock_accept(&data)) != -1)
     {
-        data.key = process_add(data.pid, data.tid);
+        std::tie(data.key,data.token) = process_add(data.pid, data.tid);
         DEBUG("process id: %d, thread id: %d", data.pid, data.tid);
         setup_sock_send(fd, &data);
         DEBUG("Ack sent!");
@@ -89,6 +91,9 @@ static void event_processer(metaqueue_t *q, int qid)
             break;
         case REQ_CLOSE:
             close_handler(&req_body, qid);
+            break;
+        case REQ_FORK:
+            fork_handler(&req_body, qid);
             break;
         case REQ_NOP:
         default:

@@ -100,7 +100,11 @@ public:
     {
         NEW_FD=2,
         DATA_TRANSFER,
-        CLOSE_FD
+        CLOSE_FD,
+        CLOSE_REQ_NORD,
+        CLOSE_REQ_NOWR,
+        CLOSE_ACK_NORD,
+        CLOSE_ACK_NOWR
     };
 };
 

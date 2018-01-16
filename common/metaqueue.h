@@ -46,16 +46,39 @@ typedef struct __attribute__((packed))
 
 typedef struct __attribute__((packed))
 {
+    pid_t old_tid;
+    uint64_t token;
+} command_fork_t;
+
+typedef struct __attribute__((packed))
+{
+    key_t oldshmemkey;
+    key_t newshmemkey;
+    bool iseof;
+} resp_fork_t;
+
+typedef struct __attribute__((packed))
+{
+    key_t oldshmemkey;
+    key_t newshmemkey[2];
+    bool iseof;
+} resp_push_fork_t;
+
+typedef struct __attribute__((packed))
+{
     union __attribute__((packed)) {
-        u_char raw[12];
+        u_char raw[13];
         command_sock_close_t req_close;
         command_sock_connect_t req_connect;
         resp_sock_connect_t resp_connect;
         command_resp_t resp_command;
         command_sock_listen_t req_listen;
+        command_fork_t req_fork;
+        resp_fork_t resp_fork;
+        resp_push_fork_t push_fork;
         long test_payload;
     };
-    unsigned short command;
+    unsigned char command;
 } metaqueue_ctl_element;
 
 class metaqueue_t
