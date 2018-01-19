@@ -41,7 +41,7 @@ int setup_sock_accept(ctl_struc *result)
             FATAL("Failed to accept a new attach request");
     }
     int len_recvd = 0;
-    void *pointer = result;
+    uint8_t *pointer = (uint8_t *)result;
     while (len_recvd < sizeof(ctl_struc))
     {
         ssize_t bytes = recv(peer_fd, pointer, sizeof(ctl_struc), MSG_WAITALL);
