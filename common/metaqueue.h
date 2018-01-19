@@ -54,14 +54,12 @@ typedef struct __attribute__((packed))
 {
     key_t oldshmemkey;
     key_t newshmemkey;
-    bool iseof;
 } resp_fork_t;
 
 typedef struct __attribute__((packed))
 {
     key_t oldshmemkey;
     key_t newshmemkey[2];
-    bool iseof;
 } resp_push_fork_t;
 
 typedef struct __attribute__((packed))

@@ -7,22 +7,55 @@
 #include "../common/interprocess_t.h"
 #include "../common/darray.hpp"
 #include "../common/adjlist_t.hpp"
-struct Hash4InterBuf
+/*struct Hash4InterBuf
 {
     std::size_t operator()(const std::pair<int, int> &key) const
     {
         using std::hash;
         return hash<int>()(key.first) ^ (hash<int>()(key.second) << 16);
     }
-};
-typedef std::unordered_map<int, interprocess_buf_map_t> per_proc_map_t;
-typedef std::unordered_map<int, per_proc_map_t> interprocess_buf_hashtable_t;
+};*/
 //static std::unordered_map<std::pair<int, int>, interprocess_buf_map_t, Hash4InterBuf> interprocess_buf_idx;
 static interprocess_buf_hashtable_t interprocess_buf_idx;
 //static monitor_sock_node_t ports[65536];
 //darray_t<monitor_sock_adjlist_t, 1000> listen_adjlist;
 static adjlist<monitor_sock_node_t, 65536, monitor_sock_adjlist_t, 1000> ports;
 static int current_q_counter = 0;
+
+const per_proc_map_t * buff_get_handler(pid_t tid)
+{
+    if (interprocess_buf_idx.find(tid) == interprocess_buf_idx.end())
+        return nullptr;
+    return &interprocess_buf_idx[tid];
+}
+
+key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc)
+{
+    key_t shm_key;
+    if ((shm_key = ftok(SHM_INTERPROCESS_NAME, current_q_counter)) < 0)
+        FATAL("Failed to get the key of shared memory, errno: %d", errno);
+    ++current_q_counter;
+    int shm_id = shmget(shm_key, interprocess_t::get_sharedmem_size(), IPC_CREAT | 0777);
+    if (shm_id == -1)
+        FATAL("Failed to open the shared memory, errno: %s", strerror(errno));
+    void *baseaddr = shmat(shm_id, NULL, 0);
+    if (baseaddr == (void *) -1)
+        FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
+
+    interprocess_t::monitor_init(baseaddr);
+    interprocess_buf_idx[tid_from][tid_to].loc = loc;
+    interprocess_buf_idx[tid_from][tid_to].buffer_key = shm_key;
+
+    interprocess_buf_idx[tid_to][tid_from].loc = !loc;
+    interprocess_buf_idx[tid_to][tid_from].buffer_key = shm_key;
+};
+
+void buffer_del(pid_t tid_from, pid_t tid_to)
+{
+    interprocess_buf_idx[tid_from].erase(tid_to);
+    interprocess_buf_idx[tid_to].erase(tid_from);
+}
+
 
 void sock_monitor_init()
 {
