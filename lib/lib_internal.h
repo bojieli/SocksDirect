@@ -17,6 +17,7 @@ typedef struct
     //0 is to monitor 1 is from monitor
     metaqueue_t metaqueue;
     uint64_t token;
+    uint64_t old_token; //store the old token before fork
     adjlist<file_struc_t, MAX_FD_OWN_NUM, fd_list_t, MAX_FD_PEER_NUM> fds_datawithrd;
     adjlist<int, MAX_FD_OWN_NUM, fd_list_t, MAX_FD_PEER_NUM> fds_wr;
     darray_t<fd_list_t, MAX_FD_PEER_NUM> rd_tree, wr_tree;
