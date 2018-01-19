@@ -134,7 +134,7 @@ void fork_handler(metaqueue_ctl_element *req_body, int qid)
         int peer_tid = iter->first;
         interprocess_buf_map_t old_buffer_info = iter->second;
         //Delete the old one
-        buffer_del(old_tid, peer_tid);
+        //buffer_del(old_tid, peer_tid);
         //Create the new buffer
         key_t shm_key4nproc = buffer_new(new_tid, peer_tid, old_buffer_info.loc);
         key_t shm_key4oldproc = buffer_new(old_tid, peer_tid, old_buffer_info.loc);

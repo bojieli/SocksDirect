@@ -47,4 +47,8 @@ add_executable(demo_cpu_util test/demo_cpu_util.c common/util.c)
 add_executable(test_locklessqueue_n test/test_locklessqueue_n.cpp common/helper.c)
 target_link_libraries(test_locklessqueue_n pthread)
 add_executable(test_adjlist test/test_adjlist.cpp)
+add_executable(test_fork_client test/test_fork_client.c)
+target_link_libraries(test_fork_client ipc)
+add_executable(test_fork_server test/test_fork_server.c)
+target_link_libraries(test_fork_server ipc)
 
