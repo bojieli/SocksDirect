@@ -7,7 +7,7 @@
 
 #include <cstdint>
 #include <vector>
-#include "stdio.h"
+#include <stdio.h>
 
 template<class T, uint32_t INITSIZE>
 class darray_t

@@ -28,6 +28,12 @@ int main()
     uint8_t buffer[1024];
     unsigned int counter = 0;
     //int connect_fd=accept4(fd, NULL, 0, 0);
+    struct iovec iovec1;
+    iovec1.iov_len = 16;
+    iovec1.iov_base = (void *) &buffer;
+    for (int i = 0; i < 1024; ++i) buffer[i] = (uint8_t) (i % 256);
+    struct timespec prev_time;
+    clock_gettime(CLOCK_REALTIME, &prev_time);
     while (1)
     {
         int connect_fd = accept4(fd, NULL, NULL, SOCK_NONBLOCK);
@@ -51,12 +57,18 @@ int main()
                 FATAL("length error");
             if (*(int *)buffer != counter)
             {
-                auto thread_sock_data = GET_THREAD_SOCK_DATA();
                 FATAL("data error should: %p, recvd: %p", counter, *(int *)buffer);
             }
             ++counter;
             if (counter % 1000000 == 0)
-                printf("Read %u\n", counter);
+            {
+                struct timespec curr_time;
+                clock_gettime(CLOCK_REALTIME, &curr_time);
+                unsigned long time_diff = (curr_time.tv_sec - prev_time.tv_sec) * 1e9 + (curr_time.tv_nsec - prev_time.tv_nsec);
+                printf ("counter=%d, tput=%lf /s\n", counter, (double)(1000000) * 1e9 / time_diff);
+                prev_time = curr_time;
+            }
+            writev(connect_fd, &iovec1, 1);
         }
     }
 }

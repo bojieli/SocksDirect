@@ -31,9 +31,12 @@ int main()
     while (1)
     {
         *(int *)buffer = counter;
-        ++counter;
         if (writev(fd, &iovec1, 1) == -1)
             FATAL("write failed");
+        int len = recvfrom(fd, (void *) buffer, 1024, 0, NULL, NULL);
+        if (len != 16)
+            FATAL("Ack failed");
+        ++counter;
         //if (counter % 128==0)
         //    printf("write 128\n");
     }

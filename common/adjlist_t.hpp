@@ -65,6 +65,8 @@ public:
     iterator begin(int key_idx);
     bool is_keyvalid(int key_idx);
     void init(uint32_t size, const T1& input);
+    int hiter_begin();
+    int hiter_next(int prev);
 };
 
 
@@ -230,4 +232,17 @@ inline T2* adjlist_iterator_t<T1, initsizet1, T2, initsizet2>::operator->()
 {
     return &(adj->_adjlist[curr_ptr].adjdata);
 };
+
+template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
+inline int adjlist<T1, initsizet1, T2, initsizet2>::hiter_begin()
+{
+    return index.iterator_init();
+}
+
+template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
+inline int adjlist<T1, initsizet1, T2, initsizet2>::hiter_next(int prev)
+{
+    return index.iterator_next(prev);
+}
+
 #endif //IPC_DIRECT_ADJLIST_T_HPP

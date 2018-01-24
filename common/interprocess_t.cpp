@@ -98,7 +98,7 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
 void interprocess_t::init(key_t shmem_key, int loc)
 {
     int mem_id;
-    mem_id = shmget(shmem_key, 2 * sizeof(get_sharedmem_size()), 0777);
+    mem_id = shmget(shmem_key, sizeof(get_sharedmem_size()), 0777);
     //printf("%d\n", uniq_shared_id);
     if (mem_id == -1)
         FATAL("Failed to open the shared memory, errno: %d", errno);
@@ -145,8 +145,9 @@ void interprocess_t::monitor_init(void *baseaddr) {
     tmp.init(baseaddr, 0);
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
         tmp.b_avail[0].push(i);
+    tmp.init(baseaddr, 1);
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
-        tmp.b_avail[1].push(i);
+        tmp.b_avail[0].push(i);
     pthread_mutexattr_t mutexattr;
     pthread_mutexattr_init(&mutexattr);
     pthread_mutexattr_setpshared(&mutexattr, PTHREAD_PROCESS_SHARED);
