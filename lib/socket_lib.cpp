@@ -65,6 +65,8 @@ int socket(int domain, int type, int protocol) __THROW
     nfd.property.is_blocking = 1;
     nfd.property.tcp.isopened = false;
     unsigned int idx_nfd=data->fds_datawithrd.add_key(nfd);
+    unsigned int idx_nfd_wr = data->fds_wr.add_key(0);
+    //assert(idx_nfd == idx_nfd_wr);
     int ret = MAX_FD_ID - idx_nfd;
     return ret;
 }
@@ -146,6 +148,7 @@ int close(int fildes)
     }
     data->fds_datawithrd[fildes].property.tcp.isopened=false;
     data->fds_datawithrd.del_key(fildes);
+    data->fds_wr.del_key(fildes);
     return 0;
 }
 
@@ -195,11 +198,13 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     fd_list_t peer_fd;
     unsigned int idx_peer_fd;
     peer_fd.child[0] = peer_fd.child[1] = -1;
+    peer_fd.status = 0;
     if ((idx = thread_buf->isexist(key)) != -1)
         peer_fd.buffer_idx = idx;
     else
         idx = peer_fd.buffer_idx = thread_buf->newbuffer(key, loc);
     auto peerfd_iter = data->fds_datawithrd.add_element(socket, peer_fd);
+    data->fds_wr.add_element(socket, peer_fd);
 
     //wait for ACK from peer
     interprocess_t *buffer;
@@ -267,13 +272,17 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     nfd.type = USOCKET_TCP_CONNECT;
     nfd.property.tcp.isopened = true;
     auto idx_nfd=data->fds_datawithrd.add_key(nfd);
+    data->fds_wr.add_key(0);
     data->fds_datawithrd[idx_nfd].peer_fd = peer_fd;
     int idx;
     if ((idx = sock_data->isexist(key)) != -1)
         npeerfd.buffer_idx = idx;
     else
         idx = npeerfd.buffer_idx = sock_data->newbuffer(key, loc);
+    npeerfd.child[0] = npeerfd.child[1] = -1;
+    npeerfd.status = 0;
     data->fds_datawithrd.add_element(idx_nfd, npeerfd);
+    data->fds_wr.add_element(idx_nfd, npeerfd);
 
     interprocess_t *buffer = &sock_data->buffer[idx].data;
     interprocess_t::queue_t::element inter_element;
@@ -324,7 +333,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     fd = MAX_FD_ID - fd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds_datawithrd.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
+    if (thread_data->fds_wr.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
             || !thread_data->fds_datawithrd[fd].property.tcp.isopened)
     {
         errno = EBADF;
@@ -332,7 +341,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     }
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    auto iter = thread_data->fds_datawithrd.begin(fd);
+    auto iter = thread_data->fds_wr.begin(fd);
     iter = iter.next();
     interprocess_t *buffer = &thread_sock_data->
             buffer[iter->buffer_idx].data;
