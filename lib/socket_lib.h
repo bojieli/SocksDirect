@@ -66,7 +66,7 @@ public:
     public:
         interprocess_t data;
         bool isvalid;
-
+        int loc;
         buffer_t() : isvalid(false)
         {}
     } buffer[BUFFERNUM];

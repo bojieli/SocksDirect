@@ -52,6 +52,13 @@ typedef struct __attribute__((packed))
 
 typedef struct __attribute__((packed))
 {
+    key_t shmem;
+    int req_fd;
+    int peer_fd;
+} command_relay_recv_t;
+
+typedef struct __attribute__((packed))
+{
     key_t oldshmemkey;
     key_t newshmemkey;
 } resp_fork_t;
@@ -72,6 +79,7 @@ typedef struct __attribute__((packed))
         command_resp_t resp_command;
         command_sock_listen_t req_listen;
         command_fork_t req_fork;
+        command_relay_recv_t req_relay_recv;
         resp_fork_t resp_fork;
         resp_push_fork_t push_fork;
         long test_payload;

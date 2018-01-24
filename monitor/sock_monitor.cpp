@@ -21,6 +21,7 @@ static interprocess_buf_hashtable_t interprocess_buf_idx;
 //darray_t<monitor_sock_adjlist_t, 1000> listen_adjlist;
 static adjlist<monitor_sock_node_t, 65536, monitor_sock_adjlist_t, 1000> ports;
 static int current_q_counter = 0;
+std::unordered_map<key_t, std::pair<int, int>> interprocess_key2tid;
 
 const per_proc_map_t * buff_get_handler(pid_t tid)
 {
@@ -48,10 +49,16 @@ key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc)
 
     interprocess_buf_idx[tid_to][tid_from].loc = !loc;
     interprocess_buf_idx[tid_to][tid_from].buffer_key = shm_key;
+
+    interprocess_key2tid[shm_key] = std::make_pair(tid_from, tid_to);
+    
+    return shm_key;
 };
 
 void buffer_del(pid_t tid_from, pid_t tid_to)
 {
+    key_t buffer_key = interprocess_buf_idx[tid_from][tid_to].buffer_key;
+    interprocess_key2tid.erase(buffer_key);
     interprocess_buf_idx[tid_from].erase(tid_to);
     interprocess_buf_idx[tid_to].erase(tid_from);
 }
@@ -111,27 +118,10 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
     per_proc_map_t * per_proc_map = &interprocess_buf_idx[process_gettid(qid)];
     if (per_proc_map->find(process_gettid(peer_qid)) == per_proc_map->end())
     {
-        if ((shm_key = ftok(SHM_INTERPROCESS_NAME, current_q_counter)) < 0)
-            FATAL("Failed to get the key of shared memory, errno: %d", errno);
-        ++current_q_counter;
-        int shm_id = shmget(shm_key, interprocess_t::get_sharedmem_size(), IPC_CREAT | 0777);
-        if (shm_id == -1)
-            FATAL("Failed to open the shared memory, errno: %s", strerror(errno));
-        void *baseaddr = shmat(shm_id, NULL, 0);
-        if (baseaddr == (void *) -1)
-            FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
-
-        interprocess_t::monitor_init(baseaddr);
-
-        pid_t hash_tid = process_gettid(peer_qid);
-        (*per_proc_map)[hash_tid].loc = 0;
-        (*per_proc_map)[hash_tid].buffer_key = shm_key;
-
-        per_proc_map_t* per_proc_map_r = &interprocess_buf_idx[process_gettid(peer_qid)];
-        pid_t hash_tid_r = process_gettid(qid);
-        (*per_proc_map_r)[hash_tid_r].loc = 1;
-        (*per_proc_map_r)[hash_tid_r].buffer_key = shm_key;
         loc = 0;
+        pid_t selftid = process_gettid(qid);
+        pid_t peertid = process_gettid(peer_qid);
+        shm_key = buffer_new(selftid, peertid, loc);
     } else
     {
         shm_key = (*per_proc_map)[process_gettid(peer_qid)].buffer_key;

@@ -29,8 +29,29 @@ static void after_fork_father()
             break;
         }
         if (fork_res.command == RES_FORK)
+        {
             DEBUG("Father: Old key: %u, New key: %u", fork_res.resp_fork.oldshmemkey, fork_res.resp_fork.newshmemkey);
-
+            int old_buffer_id = (*(thread_sock_data->bufferhash))[fork_res.resp_fork.oldshmemkey];
+            int loc = thread_sock_data->buffer[old_buffer_id].loc;
+            int new_buffer_id = thread_sock_data->newbuffer(fork_res.resp_fork.newshmemkey, loc);
+            //first process read side
+            
+            //iterate all the fd
+            for (int fd = thread_data->fds_datawithrd.hiter_begin(); 
+                 fd!=-1; 
+                 fd = thread_data->fds_datawithrd.hiter_next(fd))
+            {
+                for (auto iter = thread_data->fds_datawithrd.begin(fd); !iter.end(); iter.next())
+                {
+                    if (iter->buffer_idx == old_buffer_id)
+                    {
+                        DEBUG("Matched for fd %d", fd);
+                        iter->status |= FD_STATUS_FORKED;
+                        iter->child[0] = new_buffer_id;
+                    }
+                }
+            }
+        }
     }
 }
 #undef DEBUGON

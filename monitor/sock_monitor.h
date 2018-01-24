@@ -24,6 +24,7 @@ typedef std::unordered_map<int, per_proc_map_t> interprocess_buf_hashtable_t;
 extern const per_proc_map_t * buff_get_handler(pid_t tid);
 extern key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc);
 extern void buffer_del(pid_t tid_from, pid_t tid_to);
+extern std::unordered_map<key_t, std::pair<int, int>> interprocess_key2tid;
 #ifdef __cplusplus
 extern "C"
 {
