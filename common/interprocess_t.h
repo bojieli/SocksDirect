@@ -80,13 +80,14 @@ public:
     locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE> q[2], q_emergency[2];
     buffer_t b[2];
     locklessqueue_t<int, 2048> b_avail[2];
-
+    pthread_mutex_t * rd_mutex;
     static int get_sharedmem_size()
     {
         return (
                 2 * locklessqueue_t<int, 2 * INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize() +
                 2 * locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize() +
-                2 * sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER
+                2 * locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize() +
+                2 * sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER + sizeof(pthread_mutex_t)
                 );
     }
 

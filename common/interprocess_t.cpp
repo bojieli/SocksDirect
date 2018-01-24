@@ -134,6 +134,9 @@ void interprocess_t::init(void *baseaddr, int loc)
     q_emergency[my_loc].init(memory);
     memory += locklessqueue_t<queue_t::element, 256>::getmemsize();
     q_emergency[peer_loc].init(memory);
+    memory += locklessqueue_t<queue_t::element, 256>::getmemsize();
+    
+    rd_mutex = (pthread_mutex_t *)memory;
 }
 
 void interprocess_t::monitor_init(void *baseaddr) {
@@ -144,5 +147,10 @@ void interprocess_t::monitor_init(void *baseaddr) {
         tmp.b_avail[0].push(i);
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
         tmp.b_avail[1].push(i);
+    pthread_mutexattr_t mutexattr;
+    pthread_mutexattr_init(&mutexattr);
+    pthread_mutexattr_setpshared(&mutexattr, PTHREAD_PROCESS_SHARED);
+    if (pthread_mutex_init(tmp.rd_mutex, &mutexattr) != 0)
+        FATAL("Error to init mutex");
 }
 
