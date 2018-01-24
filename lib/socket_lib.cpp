@@ -29,6 +29,7 @@ inline int thread_sock_data_t::isexist(key_t key)
 
 int thread_sock_data_t::newbuffer(key_t key, int loc)
 {
+    buffer[lowest_available].loc = loc;
     buffer[lowest_available].isvalid = true;
     buffer[lowest_available].data.init(key, loc);
     (*bufferhash)[key]=lowest_available;
