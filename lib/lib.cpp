@@ -7,6 +7,7 @@
 #include <sys/shm.h>
 #include <pthread.h>
 #include "lib_internal.h"
+#include "fork.h"
 #include "../common/setup_sock.h"
 
 pthread_key_t pthread_key;
@@ -14,6 +15,8 @@ pthread_key_t pthread_key;
 #undef DEBUGON
 
 #define DEBUGON 1
+
+
 
 static void after_fork_father()
 {
@@ -34,6 +37,10 @@ static void after_fork_father()
             int old_buffer_id = (*(thread_sock_data->bufferhash))[fork_res.resp_fork.oldshmemkey];
             int loc = thread_sock_data->buffer[old_buffer_id].loc;
             int new_buffer_id = thread_sock_data->newbuffer(fork_res.resp_fork.newshmemkey, loc);
+            fd_list_t tmp_fd_list_ele;
+            tmp_fd_list_ele.child[0] = tmp_fd_list_ele.child[1] = - 1;
+            tmp_fd_list_ele.buffer_idx = new_buffer_id;
+            tmp_fd_list_ele.status = 0;
             //first process read side
             
             //iterate all the fd
@@ -47,7 +54,24 @@ static void after_fork_father()
                     {
                         DEBUG("Matched for fd %d", fd);
                         iter->status |= FD_STATUS_FORKED;
-                        iter->child[0] = new_buffer_id;
+                        iter->child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                    } else
+                    {
+                        //search for the subtree of current adjlist element
+                        int ret(-1);
+                        if (iter->child[0] != -1)
+                        {
+                            ret = fork_traverse_rd_tree(iter->child[0], old_buffer_id);
+                        }
+                        //not found in the left side, try right side
+                        if ((ret == -1) && (iter->child[1] != -1))
+                            ret = fork_traverse_rd_tree(iter->child[1], old_buffer_id);
+                        //if found
+                        if (ret != -1)
+                        {
+                            thread_data->rd_tree[ret].status |= FD_STATUS_FORKED;
+                            thread_data->rd_tree[ret].child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                        }
                     }
                 }
             }

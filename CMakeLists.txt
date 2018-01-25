@@ -5,7 +5,7 @@ if (COMMAND cmake_policy)
     cmake_policy(SET CMP0003 NEW)
 endif (COMMAND cmake_policy)
 add_library(ipc SHARED common/helper.c lib/setup_sock_lib.cpp lib/socket_lib.cpp lib/lib.cpp common/interprocess_t.cpp
-        lib/lib_internal.h common/setup_sock.h common/darray.hpp common/locklessqueue_n.hpp)
+        lib/lib_internal.h common/setup_sock.h common/darray.hpp common/locklessqueue_n.hpp lib/fork.cpp)
 target_link_libraries(ipc dl pthread tcmalloc)
 add_executable(monitor common/helper.c monitor/setup_sock_monitor.cpp monitor/process.cpp monitor/sock_monitor.cpp
         monitor/main.cpp common/interprocess_t.cpp common/setup_sock.h common/locklessqueue_n.hpp common/adjlist_t.hpp
