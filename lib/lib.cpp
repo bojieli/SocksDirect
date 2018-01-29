@@ -37,7 +37,7 @@ static void after_fork_father()
             int old_buffer_id = (*(thread_sock_data->bufferhash))[fork_res.resp_fork.oldshmemkey];
             int loc = thread_sock_data->buffer[old_buffer_id].loc;
             int new_buffer_id = thread_sock_data->newbuffer(fork_res.resp_fork.newshmemkey, loc);
-            fd_list_t tmp_fd_list_ele;
+            fd_rd_list_t tmp_fd_list_ele;
             tmp_fd_list_ele.child[0] = tmp_fd_list_ele.child[1] = - 1;
             tmp_fd_list_ele.buffer_idx = new_buffer_id;
             tmp_fd_list_ele.status = 0;
@@ -48,6 +48,7 @@ static void after_fork_father()
                  fd!=-1; 
                  fd = thread_data->fds_datawithrd.hiter_next(fd))
             {
+                bool isFind(false);
                 for (auto iter = thread_data->fds_datawithrd.begin(fd); !iter.end(); iter.next())
                 {
                     if (iter->buffer_idx == old_buffer_id)
@@ -55,6 +56,7 @@ static void after_fork_father()
                         DEBUG("Matched for fd %d", fd);
                         iter->status |= FD_STATUS_FORKED;
                         iter->child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                        isFind = true;
                     } else
                     {
                         //search for the subtree of current adjlist element
@@ -69,11 +71,15 @@ static void after_fork_father()
                         //if found
                         if (ret != -1)
                         {
+                            isFind = true;
                             thread_data->rd_tree[ret].status |= FD_STATUS_FORKED;
                             thread_data->rd_tree[ret].child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
                         }
                     }
                 }
+                
+                if (isFind) 
+                    thread_data->fds_datawithrd[fd].property.status |= FD_STATUS_FORKED;
             }
         }
     }

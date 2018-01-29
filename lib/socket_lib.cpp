@@ -15,7 +15,58 @@
 #include <sys/ioctl.h>
 
 pthread_key_t pthread_sock_key;
+#undef DEBUGON
+#define DEBUGON 1
+void res_push_fork_handler(metaqueue_ctl_element ele)
+{
+    key_t old_shmem_key, n_shmem_key[2];
+    old_shmem_key = ele.push_fork.oldshmemkey;
+    n_shmem_key[0] = ele.push_fork.newshmemkey[0];
+    n_shmem_key[1] = ele.push_fork.newshmemkey[1];
+    thread_data_t *thread_data = GET_THREAD_DATA();
+    thread_sock_data_t *thread_sock_data = GET_THREAD_SOCK_DATA();
+    int old_buffer_id = (*(thread_sock_data->bufferhash))[old_shmem_key];
+    int loc = thread_sock_data->buffer[old_buffer_id].loc;
+    int new_buffer_id[2];
+    //add new buffer to the buffer list and change the hashmap
+    new_buffer_id[0] = thread_sock_data->newbuffer(n_shmem_key[0], loc);
+    new_buffer_id[1] = thread_sock_data->newbuffer(n_shmem_key[1], loc);
 
+    //process all the write request first (writer, no fork side)
+    for (int fd = thread_data->fds_wr.hiter_begin();
+         fd!=-1;
+         fd = thread_data->fds_wr.hiter_next(fd))
+    {
+        file_struc_wr_t * curr_wr_handle_list = &thread_data->fds_wr[fd];
+        for (int id_in_fd = curr_wr_handle_list->iterator_init(); id_in_fd != -1; id_in_fd = curr_wr_handle_list->iterator_next(id_in_fd))
+        {
+            if ((*curr_wr_handle_list)[id_in_fd].buffer_idx == old_buffer_id)
+            {
+                //match the old buffer, then create two new candicate into the list
+                DEBUG("Add two candidate");
+                fd_vec_t n_candicate[2];
+                n_candicate[0].parent_id_in_v = n_candicate[1].parent_id_in_v = id_in_fd;
+                n_candicate[0].buffer_idx = new_buffer_id[0];
+                n_candicate[1].buffer_idx = new_buffer_id[1];
+                n_candicate[0].status = n_candicate[1].status = 0;
+            }
+        }
+    }
+}
+
+void monitor2proc_hook()
+{
+    thread_data_t *thread_data = GET_THREAD_DATA();
+    thread_sock_data_t *thread_sock_data = GET_THREAD_SOCK_DATA();
+    metaqueue_ctl_element ele;
+    while (thread_data->metaqueue.q_emergency[1].pop_nb(ele))
+    {
+        if (ele.command == RES_PUSH_FORK) res_push_fork_handler(ele);
+    }
+}
+
+#undef DEBUGON
+#define DEBUGON 0
 
 inline int thread_sock_data_t::isexist(key_t key)
 {
@@ -46,9 +97,10 @@ void usocket_init()
 {
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    file_struc_t _fd;
+    file_struc_rd_t _fd;
     data->fds_datawithrd.init(0,_fd);
-    data->fds_wr.init(0, 0);
+    file_struc_wr_t _fd_wr;
+    data->fds_wr.init(0, _fd_wr);
     auto *thread_sock_data = new thread_sock_data_t;
     thread_sock_data->bufferhash = new std::unordered_map<key_t, int>;
     for (int i = 0; i < BUFFERNUM; ++i) thread_sock_data->buffer[i].isvalid = false;
@@ -61,12 +113,13 @@ int socket(int domain, int type, int protocol) __THROW
     if ((domain != AF_INET) || (type != SOCK_STREAM)) return ORIG(socket, (domain, type, protocol));
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    file_struc_t nfd;
+    file_struc_rd_t nfd;
     nfd.property.is_addrreuse = 0;
     nfd.property.is_blocking = 1;
     nfd.property.tcp.isopened = false;
     unsigned int idx_nfd=data->fds_datawithrd.add_key(nfd);
-    unsigned int idx_nfd_wr = data->fds_wr.add_key(0);
+    file_struc_wr_t nfd_wr;
+    unsigned int idx_nfd_wr = data->fds_wr.add_key(nfd_wr);
     //assert(idx_nfd == idx_nfd_wr);
     int ret = MAX_FD_ID - idx_nfd;
     return ret;
@@ -127,7 +180,7 @@ int close(int fildes)
         thread_sock_data_t* sock_data=GET_THREAD_SOCK_DATA();
         for (auto iter = data->fds_datawithrd.begin(fildes); !iter.end(); )
         {
-            fd_list_t peer_adj_item = *iter;
+            fd_rd_list_t peer_adj_item = *iter;
             interprocess_t *interprocess;
             interprocess = &sock_data->buffer[peer_adj_item.buffer_idx].data;
             interprocess_t::queue_t::element ele;
@@ -196,16 +249,25 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     if (thread_buf == nullptr)
         FATAL("Failed to get thread specific data.");
     int idx;
-    fd_list_t peer_fd;
+    fd_rd_list_t peer_fd_rd;
     unsigned int idx_peer_fd;
-    peer_fd.child[0] = peer_fd.child[1] = -1;
-    peer_fd.status = 0;
+    peer_fd_rd.child[0] = peer_fd_rd.child[1] = -1;
+    peer_fd_rd.status = 0;
     if ((idx = thread_buf->isexist(key)) != -1)
-        peer_fd.buffer_idx = idx;
+        peer_fd_rd.buffer_idx = idx;
     else
-        idx = peer_fd.buffer_idx = thread_buf->newbuffer(key, loc);
-    auto peerfd_iter = data->fds_datawithrd.add_element(socket, peer_fd);
-    data->fds_wr.add_element(socket, peer_fd);
+        idx = peer_fd_rd.buffer_idx = thread_buf->newbuffer(key, loc);
+    auto peerfd_iter = data->fds_datawithrd.add_element(socket, peer_fd_rd);
+    fd_wr_list_t peer_fd_wr;
+    fd_vec_t wr_vec_ele;
+    wr_vec_ele.buffer_idx = peer_fd_rd.buffer_idx;
+    wr_vec_ele.status = 0;
+    wr_vec_ele.parent_id_in_v = -1;
+    int wr_idx_in_vec = data->fds_wr[socket].add(wr_vec_ele);
+    peer_fd_wr.status = 0;
+    peer_fd_wr.id_in_v = wr_idx_in_vec;
+    peer_fd_wr.buffer_idx = peer_fd_rd.buffer_idx;
+    data->fds_wr.add_element(socket, peer_fd_wr);
 
     //wait for ACK from peer
     interprocess_t *buffer;
@@ -265,25 +327,40 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     int loc = element.resp_connect.loc;
     auto peer_fd = element.resp_connect.fd;
     DEBUG("Accept new connection, key %d, loc %d", key, loc);
-    file_struc_t nfd;
-    fd_list_t npeerfd;
+    file_struc_rd_t nfd_rd;
+    fd_rd_list_t npeerfd_rd;
 
-    nfd.property.is_addrreuse = 0;
-    nfd.property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
-    nfd.type = USOCKET_TCP_CONNECT;
-    nfd.property.tcp.isopened = true;
-    auto idx_nfd=data->fds_datawithrd.add_key(nfd);
-    data->fds_wr.add_key(0);
+    nfd_rd.property.is_addrreuse = 0;
+    nfd_rd.property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
+    nfd_rd.type = USOCKET_TCP_CONNECT;
+    nfd_rd.property.tcp.isopened = true;
+    auto idx_nfd=data->fds_datawithrd.add_key(nfd_rd);
+
+
     data->fds_datawithrd[idx_nfd].peer_fd = peer_fd;
     int idx;
     if ((idx = sock_data->isexist(key)) != -1)
-        npeerfd.buffer_idx = idx;
+        npeerfd_rd.buffer_idx = idx;
     else
-        idx = npeerfd.buffer_idx = sock_data->newbuffer(key, loc);
-    npeerfd.child[0] = npeerfd.child[1] = -1;
-    npeerfd.status = 0;
-    data->fds_datawithrd.add_element(idx_nfd, npeerfd);
-    data->fds_wr.add_element(idx_nfd, npeerfd);
+        idx = npeerfd_rd.buffer_idx = sock_data->newbuffer(key, loc);
+    npeerfd_rd.child[0] = npeerfd_rd.child[1] = -1;
+    npeerfd_rd.status = 0;
+    data->fds_datawithrd.add_element(idx_nfd, npeerfd_rd);
+
+    file_struc_wr_t nfd_wr;
+    fd_wr_list_t npeerfd_wr;
+    fd_vec_t nfd_wr_vec_ele;
+    nfd_wr_vec_ele.buffer_idx = idx;
+    nfd_wr_vec_ele.status = 0;
+    nfd_wr_vec_ele.parent_id_in_v = -1;
+    npeerfd_wr.id_in_v = nfd_wr.add(nfd_wr_vec_ele);
+    npeerfd_wr.buffer_idx = idx;
+    npeerfd_wr.status = 0;
+
+    data->fds_wr.add_key(nfd_wr);
+
+    data->fds_wr.add_element(idx_nfd, npeerfd_wr);
+
 
     interprocess_t *buffer = &sock_data->buffer[idx].data;
     interprocess_t::queue_t::element inter_element;
@@ -341,6 +418,8 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         return -1;
     }
 
+    monitor2proc_hook();
+    
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     auto iter = thread_data->fds_wr.begin(fd);
     iter = iter.next();
@@ -378,7 +457,7 @@ enum ITERATE_FD_IN_BUFFER_STATE
 #define DEBUGON 0
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         (int target_fd, 
-         adjlist<file_struc_t, MAX_FD_OWN_NUM, fd_list_t, MAX_FD_PEER_NUM>::iterator& iter,
+         adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator& iter,
          int &loc_in_buffer_has_blk)
 {
     thread_data_t *thread_data = GET_THREAD_DATA();
@@ -450,6 +529,8 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         errno = EBADF;
         return -1;
     }
+
+    monitor2proc_hook();
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     interprocess_t *buffer_has_blk(nullptr);
