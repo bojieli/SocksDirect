@@ -4,6 +4,7 @@
 
 #ifndef IPC_DIRECT_SOCKET_LIB_H
 #define IPC_DIRECT_SOCKET_LIB_H
+#include "../common/darray.hpp"
 #ifdef __cplusplus
 extern "C"
 {
@@ -29,19 +30,36 @@ typedef struct
             bool isopened;
         } tcp;
     };
+    int status;
 } socket_property_t;
 typedef struct
 {
     int type;
     int peer_fd;
     socket_property_t property;
-} file_struc_t;
+} file_struc_rd_t;
+
 typedef struct
 {
     int buffer_idx;
     short status;
     int child[2];
-} fd_list_t;
+} fd_rd_list_t;
+
+typedef struct
+{
+    int buffer_idx;
+    short status;
+    int id_in_v;
+} fd_wr_list_t;
+
+typedef struct
+{
+    int buffer_idx;
+    int parent_id_in_v;
+    short status;
+} fd_vec_t;
+typedef darray_t<fd_vec_t, 10> file_struc_wr_t;
 void usocket_init();
 #ifdef __cplusplus
 }

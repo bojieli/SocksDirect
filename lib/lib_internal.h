@@ -18,9 +18,9 @@ typedef struct
     metaqueue_t metaqueue;
     uint64_t token;
     uint64_t old_token; //store the old token before fork
-    adjlist<file_struc_t, MAX_FD_OWN_NUM, fd_list_t, MAX_FD_PEER_NUM> fds_datawithrd;
-    adjlist<int, MAX_FD_OWN_NUM, fd_list_t, MAX_FD_PEER_NUM> fds_wr;
-    darray_t<fd_list_t, MAX_FD_PEER_NUM> rd_tree, wr_tree;
+    adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM> fds_datawithrd;
+    adjlist<file_struc_wr_t, MAX_FD_OWN_NUM, fd_wr_list_t, MAX_FD_PEER_NUM> fds_wr;
+    darray_t<fd_rd_list_t, MAX_FD_PEER_NUM> rd_tree;
     //d_file_struc_t fds;
     //d_fd_list_t adjlist;
 } thread_data_t;

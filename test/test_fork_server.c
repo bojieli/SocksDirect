@@ -23,6 +23,9 @@ int main()
         FATAL("listen failed");
     printf("listen succeed\n");
     int init_fd = accept4(fd, NULL, NULL, 0);
+    char buffer[100];
+    sleep(1);
+    write(init_fd, buffer, 1);
     while(1);
 
 }
