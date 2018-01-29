@@ -31,6 +31,8 @@ int main()
     } else
     {
         printf("Parent\n");
+        //try to take over
+        read(init_fd, buffer, 1);
         while(1);
     }
     close(init_fd);

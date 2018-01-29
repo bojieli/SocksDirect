@@ -85,6 +85,7 @@ public:
         interprocess_t data;
         bool isvalid;
         int loc;
+        key_t shmemkey;
         buffer_t() : isvalid(false)
         {}
     } buffer[BUFFERNUM];

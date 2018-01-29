@@ -83,6 +83,7 @@ int thread_sock_data_t::newbuffer(key_t key, int loc)
     buffer[lowest_available].loc = loc;
     buffer[lowest_available].isvalid = true;
     buffer[lowest_available].data.init(key, loc);
+    buffer[lowest_available].shmemkey = key;
     (*bufferhash)[key]=lowest_available;
     ++total_num;
     if (total_num == BUFFERNUM)
@@ -513,12 +514,68 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
     return ITERATE_FD_IN_BUFFER_STATE::NOTFIND;
 }
 
+#undef DEBUGON
+#define DEBUGON 1
+
+void recv_takeover_traverse(int myfd, int idx, bool valid)
+{
+    //whether itself is the leaf
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    if ((thread_data->rd_tree[idx].child[0] == -1) &&
+        (thread_data->rd_tree[idx].child[1] == -1))
+    {
+        //itself is the child
+        if (valid)
+        {
+            metaqueue_ctl_element ele;
+            ele.command = REQ_RELAY_RECV;
+            ele.req_relay_recv.shmem = thread_sock_data->buffer[thread_data->rd_tree[idx].buffer_idx].shmemkey;
+            ele.req_relay_recv.req_fd = myfd;
+            ele.req_relay_recv.peer_fd = thread_data->fds_datawithrd[myfd].peer_fd;
+            thread_data->metaqueue.q[0].push(ele);
+            DEBUG("Send takeover message for key %u, my fd %d, peer fd %d", ele.req_relay_recv.shmem,
+            ele.req_relay_recv.req_fd, ele.req_relay_recv.peer_fd);
+        }
+    } else
+    {
+        //it is not the leaf of the tree
+        
+        //first test whether it is needed to send takeover message
+        bool istakeover(valid);
+        istakeover = istakeover || ((thread_data->rd_tree[idx].status & FD_STATUS_FORKED) && 
+                                    !(thread_data->rd_tree[idx].status & FD_STATUS_RECV_REQ));
+        //if it has the left child
+        if (thread_data->rd_tree[idx].child[0] != -1)
+            recv_takeover_traverse(myfd, thread_data->rd_tree[idx].child[0], istakeover);
+        if (thread_data->rd_tree[idx].child[1] != -1)
+            recv_takeover_traverse(myfd, thread_data->rd_tree[idx].child[1], istakeover);
+    }
+}
+
+void send_recv_takeover_req(int fd)
+{
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    // iterate all the fd in the read adjlist
+    for (auto iter = thread_data->fds_datawithrd.begin(fd); !iter.end(); iter.next())
+    {
+        if (iter->child[0] != -1)
+            recv_takeover_traverse(fd, iter->child[0], 
+                                   (iter->status & FD_STATUS_FORKED) && !(iter->status & FD_STATUS_RECV_REQ));
+        if (iter->child[1] != -1)
+            recv_takeover_traverse(fd, iter->child[1],
+                                   (iter->status & FD_STATUS_FORKED) && !(iter->status & FD_STATUS_RECV_REQ));
+    }
+}
+
 
 #undef DEBUGON
 #define DEBUGON 0
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen)
 {
+    //test whether fd exists
     if (sockfd < FD_DELIMITER) return ORIG(recvfrom, (sockfd, buf, len, flags, src_addr, addrlen));
     sockfd = MAX_FD_ID - sockfd;
 
@@ -529,8 +586,17 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         errno = EBADF;
         return -1;
     }
-
+    
+    //hook for all the process
     monitor2proc_hook();
+    
+    //send recv relay message
+    if ((thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_FORKED) && 
+            !(thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RECV_REQ))
+    {
+        send_recv_takeover_req(sockfd);
+        thread_data->fds_datawithrd[sockfd].property.status &= FD_STATUS_RECV_REQ;
+    }
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     interprocess_t *buffer_has_blk(nullptr);
