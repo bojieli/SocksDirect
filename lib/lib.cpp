@@ -38,7 +38,7 @@ static void after_fork_father()
             int loc = thread_sock_data->buffer[old_buffer_id].loc;
             int new_buffer_id = thread_sock_data->newbuffer(fork_res.resp_fork.newshmemkey, loc);
             fd_rd_list_t tmp_fd_list_ele;
-            tmp_fd_list_ele.child[0] = tmp_fd_list_ele.child[1] = - 1;
+            tmp_fd_list_ele.child[0] = tmp_fd_list_ele.child[1] = -1;
             tmp_fd_list_ele.buffer_idx = new_buffer_id;
             tmp_fd_list_ele.status = 0;
             //first process read side
@@ -97,6 +97,7 @@ static void after_fork_child(pid_t oldtid)
     fork_req.req_fork.old_tid = oldtid;
     thread_data->metaqueue.q[0].push(fork_req);
     //receive all the fork request
+    /*
     while (true)
     {
         metaqueue_ctl_element fork_resp;
@@ -111,6 +112,8 @@ static void after_fork_child(pid_t oldtid)
         if (fork_resp.command == RES_FORK)
             DEBUG("Child: Old key: %u, New key: %u", fork_resp.resp_fork.oldshmemkey, fork_resp.resp_fork.newshmemkey);
     }
+     */
+    after_fork_father();
 }
 
 #undef DEBUGON
