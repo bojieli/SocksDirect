@@ -5,6 +5,7 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <assert.h>
 #include "../common/helper.h"
 #include "../lib/lib.h"
 
@@ -32,7 +33,13 @@ int main()
     {
         printf("Parent\n");
         //try to take over
+        sleep(1);
         read(init_fd, buffer, 1);
+        assert(buffer[0] == 1);
+        sleep(2);
+        read(init_fd, buffer, 1);
+        assert(buffer[0] == 2);
+        printf("Fin\n");
         while(1);
     }
     close(init_fd);

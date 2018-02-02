@@ -47,4 +47,6 @@ extern pid_t process_gettid(int qid);
 
 extern void fork_handler(metaqueue_ctl_element *req_body, int qid);
 
+extern void recv_takeover_handler(metaqueue_ctl_element *req_body, int qid);
+
 #endif //IPC_DIRECT_PROCESS_H

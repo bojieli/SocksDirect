@@ -95,6 +95,10 @@ static void event_processer(metaqueue_t *q, int qid)
         case REQ_FORK:
             fork_handler(&req_body, qid);
             break;
+        case REQ_RELAY_RECV_ACK:
+        case REQ_RELAY_RECV:
+            recv_takeover_handler(&req_body, qid);
+            break;
         case REQ_NOP:
         default:
             break;

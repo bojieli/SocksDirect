@@ -161,4 +161,28 @@ void fork_handler(metaqueue_ctl_element *req_body, int qid)
     //send to old fork process
     process_gethandler_byqid(tidmap[old_tid])->q[0].push(resp_fin);
 }
+
+#undef DEBUGON
+#define DEBUGON 1
+
+void recv_takeover_handler(metaqueue_ctl_element *req_body, int qid)
+{
+    key_t shmem_key = req_body->req_relay_recv.shmem;
+    if (interprocess_key2tid.find(shmem_key) == interprocess_key2tid.end())
+        FATAL("Takeover message cannot forward since key %u not find", shmem_key);
+    std::pair<pid_t, pid_t> tid_pair = interprocess_key2tid[shmem_key];
+    int dest_qid;
+    //itself is the first one
+    if (process[qid].tid == tid_pair.first)
+        dest_qid = tidmap[tid_pair.second];
+    else
+        dest_qid = tidmap[tid_pair.first];
+    if (req_body->command == REQ_RELAY_RECV)
+        DEBUG("relay takeover message for key %u from %d to %d", shmem_key, qid, dest_qid);
+    else
+        DEBUG("relay takeover ack message for key %u from %d to %d", shmem_key, qid, dest_qid);
+    process[dest_qid].metaqueue.q_emergency[0].push(*req_body);
+}
+
+
 #undef DEBUGON

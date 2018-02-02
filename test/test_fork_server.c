@@ -24,8 +24,13 @@ int main()
     printf("listen succeed\n");
     int init_fd = accept4(fd, NULL, NULL, 0);
     char buffer[100];
-    sleep(1);
+    sleep(2);
+    buffer[0] = 1;
     write(init_fd, buffer, 1);
+    sleep(2);
+    buffer[0] = 2;
+    write(init_fd, buffer, 1);
+    printf("Fin\n");
     while(1);
 
 }
