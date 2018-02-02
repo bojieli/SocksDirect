@@ -54,7 +54,9 @@ static void after_fork_father()
                     if (iter->buffer_idx == old_buffer_id)
                     {
                         DEBUG("Matched for fd %d", fd);
-                        iter->status |= FD_STATUS_FORKED;
+                        iter->status |= FD_STATUS_RD_RECV_FORKED;
+                        iter->status &= ~FD_STATUS_RECV_REQ;
+                        iter->status &= ~FD_STATUS_RECV_ACK;
                         iter->child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
                         isFind = true;
                     } else
@@ -72,14 +74,20 @@ static void after_fork_father()
                         if (ret != -1)
                         {
                             isFind = true;
-                            thread_data->rd_tree[ret].status |= FD_STATUS_FORKED;
+                            thread_data->rd_tree[ret].status |= FD_STATUS_RD_RECV_FORKED;
+                            iter->status &= ~FD_STATUS_RECV_REQ;
+                            iter->status &= ~FD_STATUS_RECV_ACK;
                             thread_data->rd_tree[ret].child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
                         }
                     }
                 }
-                
-                if (isFind) 
-                    thread_data->fds_datawithrd[fd].property.status |= FD_STATUS_FORKED;
+
+                if (isFind)
+                {
+                    thread_data->fds_datawithrd[fd].property.status |= FD_STATUS_RD_RECV_FORKED;
+                    thread_data->fds_datawithrd[fd].property.status &= ~FD_STATUS_RECV_REQ;
+                    thread_data->fds_datawithrd[fd].property.status &= ~FD_STATUS_RECV_ACK;
+                }
             }
         }
     }

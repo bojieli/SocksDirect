@@ -13,6 +13,7 @@
 #include "lib_internal.h"
 #include "../common/metaqueue.h"
 #include <sys/ioctl.h>
+#include "fork.h"
 
 pthread_key_t pthread_sock_key;
 #undef DEBUGON
@@ -49,8 +50,156 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
                 n_candicate[0].buffer_idx = new_buffer_id[0];
                 n_candicate[1].buffer_idx = new_buffer_id[1];
                 n_candicate[0].status = n_candicate[1].status = 0;
+                curr_wr_handle_list->add(n_candicate[0]);
+                curr_wr_handle_list->add(n_candicate[1]);
             }
         }
+    }
+}
+
+void recv_takeover_req_handler(metaqueue_ctl_element ele)
+{
+    int myfd = ele.req_relay_recv.peer_fd;
+    int peerfd = ele.req_relay_recv.req_fd;
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    int match_key_id = (*(thread_sock_data->bufferhash))[ele.req_relay_recv.shmem];
+    file_struc_wr_t * curr_adjlist_h = &thread_data->fds_wr[myfd];
+    for (int bufferidx_in_list = curr_adjlist_h->iterator_init();
+         bufferidx_in_list != -1;
+         bufferidx_in_list = curr_adjlist_h->iterator_next(bufferidx_in_list))
+    {
+        //if the shmem key not match, continue
+        if (match_key_id != (*curr_adjlist_h)[bufferidx_in_list].buffer_idx)
+            continue;
+        //First put itself in the adjlist
+        fd_vec_t buffer = curr_adjlist_h->operator[](bufferidx_in_list);
+
+        fd_wr_list_t n_adjlist_ele;
+        n_adjlist_ele.buffer_idx = buffer.buffer_idx;
+        n_adjlist_ele.status = 0;
+        n_adjlist_ele.id_in_v = bufferidx_in_list;
+
+        thread_data->fds_wr.add_element(myfd, n_adjlist_ele);
+        DEBUG("New buffer id %d in candidate list idx %d promote to adjlist", match_key_id, bufferidx_in_list);
+
+        //iterate remove the parent
+        for (int par_idx = (*curr_adjlist_h)[bufferidx_in_list].parent_id_in_v;
+             par_idx != -1;
+             par_idx = (*curr_adjlist_h)[par_idx].parent_id_in_v)
+        {
+            if (curr_adjlist_h->isvalid(par_idx))
+            {
+                //search the adjlist first
+                for (auto iter = thread_data->fds_wr.begin(myfd); !iter.end();)
+                {
+                    if (iter->id_in_v == par_idx)
+                    {
+                        //remove it from the list
+                        iter = thread_data->fds_wr.del_element(iter);
+                        DEBUG("Parent in adjlist with loc %d removed", par_idx);
+                    } else
+                    {
+                        iter = iter.next();
+                    }
+                }
+                DEBUG("Parent at loc %d removed", par_idx);
+                curr_adjlist_h->del(par_idx);
+            }
+        }
+    }
+
+
+    //send ack to the back to monitor
+    ele.command = REQ_RELAY_RECV_ACK;
+    thread_data->metaqueue.q[0].push(ele);
+
+}
+
+bool takeover_ack_traverse_rd_tree(int curr_idx, int match_bid)
+{
+    if (curr_idx==-1)
+        return true;
+    thread_data_t *tdata = GET_THREAD_DATA();
+    fd_rd_list_t curr_node = tdata->rd_tree[curr_idx];
+    if (!(curr_node.status | FD_STATUS_RECV_REQ)) return true;
+    if (curr_node.status | FD_STATUS_RECV_ACK) return true;
+    if (match_bid == curr_node.buffer_idx)
+    {
+        tdata->rd_tree[curr_idx].status |= FD_STATUS_RECV_ACK;
+        return true;
+    }
+    bool ret(true);
+    bool isleaf(true);
+    if (tdata->rd_tree[curr_idx].child[0] != -1)
+    {
+        ret = ret && takeover_ack_traverse_rd_tree(tdata->rd_tree[curr_idx].child[0], match_bid);
+        isleaf = false;
+    }
+    if (tdata->rd_tree[curr_idx].child[1] != -1)
+    {
+        ret = ret && takeover_ack_traverse_rd_tree(tdata->rd_tree[curr_idx].child[1], match_bid);
+        isleaf = false;
+    }
+    if (!isleaf)
+    {
+        if (ret)
+            tdata->rd_tree[curr_idx].status |= FD_STATUS_RECV_ACK;
+        return ret;
+    } else
+    {
+        return false;
+    }
+
+}
+
+
+
+void recv_takeover_ack_handler(metaqueue_ctl_element ele)
+{
+    key_t shmem_key = ele.req_relay_recv.shmem;
+    int myfd = ele.req_relay_recv.req_fd;
+    int peerfd = ele.req_relay_recv.peer_fd;
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    int match_buffer_idx = (*thread_sock_data->bufferhash)[shmem_key];
+    //get the handler of the current adjlist
+    auto curr_adjlist_h = &(thread_data->fds_datawithrd[myfd]);
+    for (auto iter = thread_data->fds_datawithrd.begin(myfd); !iter.end();)
+    {
+        bool match_ret(true);
+        //first try the left tree
+        if (iter->child[0] != -1)
+        {
+            match_ret = match_ret && takeover_ack_traverse_rd_tree(iter->child[0], match_buffer_idx);
+        }
+        if (iter->child[1] != -1)
+        {
+            match_ret = match_ret && takeover_ack_traverse_rd_tree(iter->child[1], match_buffer_idx);
+        }
+        if (match_ret)
+        {
+            iter->status |= FD_STATUS_RECV_ACK;
+            DEBUG("Acked for %d fd", myfd);
+
+            if (iter->status & FD_STATUS_RD_RECV_FORKED) //it is itself fork
+            {
+                //check wthether it is empty
+                if (thread_sock_data->buffer[iter->buffer_idx].data.q[1].isempty())
+                {
+                    //remove itself and add its children
+                    if (iter->child[0] != -1)
+                        thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[0]]);
+                    if (iter->child[1] != -1)
+                        thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[1]]);
+
+                    //remove itself from adjlist
+                    iter = thread_data->fds_datawithrd.del_element(iter);
+                    continue;
+                }
+            }
+        }
+        iter=iter.next();
     }
 }
 
@@ -61,7 +210,18 @@ void monitor2proc_hook()
     metaqueue_ctl_element ele;
     while (thread_data->metaqueue.q_emergency[1].pop_nb(ele))
     {
-        if (ele.command == RES_PUSH_FORK) res_push_fork_handler(ele);
+        switch (ele.command)
+        {
+            case RES_PUSH_FORK:
+                res_push_fork_handler(ele);
+                break;
+            case REQ_RELAY_RECV:
+                recv_takeover_req_handler(ele);
+                break;
+            case REQ_RELAY_RECV_ACK:
+                recv_takeover_ack_handler(ele);
+                break;
+        }
     }
 }
 
@@ -420,7 +580,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     }
 
     monitor2proc_hook();
-    
+
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     auto iter = thread_data->fds_wr.begin(fd);
     iter = iter.next();
@@ -540,10 +700,10 @@ void recv_takeover_traverse(int myfd, int idx, bool valid)
     } else
     {
         //it is not the leaf of the tree
-        
+
         //first test whether it is needed to send takeover message
         bool istakeover(valid);
-        istakeover = istakeover || ((thread_data->rd_tree[idx].status & FD_STATUS_FORKED) && 
+        istakeover = istakeover || ((thread_data->rd_tree[idx].status & FD_STATUS_RD_RECV_FORKED) &&
                                     !(thread_data->rd_tree[idx].status & FD_STATUS_RECV_REQ));
         //if it has the left child
         if (thread_data->rd_tree[idx].child[0] != -1)
@@ -561,11 +721,11 @@ void send_recv_takeover_req(int fd)
     for (auto iter = thread_data->fds_datawithrd.begin(fd); !iter.end(); iter.next())
     {
         if (iter->child[0] != -1)
-            recv_takeover_traverse(fd, iter->child[0], 
-                                   (iter->status & FD_STATUS_FORKED) && !(iter->status & FD_STATUS_RECV_REQ));
+            recv_takeover_traverse(fd, iter->child[0],
+                                   (iter->status & FD_STATUS_RD_RECV_FORKED) && !(iter->status & FD_STATUS_RECV_REQ));
         if (iter->child[1] != -1)
             recv_takeover_traverse(fd, iter->child[1],
-                                   (iter->status & FD_STATUS_FORKED) && !(iter->status & FD_STATUS_RECV_REQ));
+                                   (iter->status & FD_STATUS_RD_RECV_FORKED) && !(iter->status & FD_STATUS_RECV_REQ));
     }
 }
 
@@ -586,12 +746,12 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         errno = EBADF;
         return -1;
     }
-    
+
     //hook for all the process
     monitor2proc_hook();
-    
+
     //send recv relay message
-    if ((thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_FORKED) && 
+    if ((thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RD_RECV_FORKED) &&
             !(thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RECV_REQ))
     {
         send_recv_takeover_req(sockfd);
@@ -632,6 +792,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
             if (isFind) break; //Get the requested block
         }
         if (isFind) break;
+        monitor2proc_hook();
     } while (thread_data->fds_datawithrd[sockfd].property.is_blocking);
     int ret(len);
     if (!isFind)

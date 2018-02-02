@@ -46,6 +46,7 @@ enum
     RES_FORK,
     RES_PUSH_FORK,
     REQ_RELAY_RECV,
+    REQ_RELAY_RECV_ACK,
     FIN_FORK
 };
 
@@ -55,7 +56,8 @@ enum
 #define FD_STATUS_CLOSE_FLG_NWR_RES 8
 #define FD_STATUS_RECV_REQ 16
 #define FD_STATUS_RECV_ACK 32
-#define FD_STATUS_FORKED 64
+#define FD_STATUS_RD_RECV_FORKED 64
+#define FD_STATUS_RD_SND_FORKED 128
 
 //configuration
 #define SHM_NAME "/ipcd_shmem"
