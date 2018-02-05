@@ -176,6 +176,8 @@ adjlist<T1, initsizet1, T2, initsizet2>::del_element(iterator iter)
         _adjlist.del(curr_ptr);
         if (index[iter.idx].pointer == curr_ptr)
             index[iter.idx].pointer = next_ptr;
+        if (iter.start_ptr == curr_ptr)
+            iter.start_ptr = next_ptr;
         ret = iter;
         ret.curr_ptr = next_ptr;
         return ret;
