@@ -51,4 +51,9 @@ add_executable(test_fork_client test/test_fork_client.c)
 target_link_libraries(test_fork_client ipc)
 add_executable(test_fork_server test/test_fork_server.c)
 target_link_libraries(test_fork_server ipc)
+add_executable(test_fork_client_2 test/test_fork_client_2.c)
+target_link_libraries(test_fork_client_2 ipc)
+add_executable(test_fork_server_2 test/test_fork_server_2.c)
+target_link_libraries(test_fork_server_2 ipc)
+
 
