@@ -236,6 +236,7 @@ void recv_takeover_ack_handler(metaqueue_ctl_element ele)
                 //check wthether it is empty
                 if (thread_sock_data->buffer[iter->buffer_idx].data.q[1].isempty())
                 {
+                    DEBUG("Queue for fd %d is empty, children %d %d", myfd, iter->child[0], iter->child[1]);
                     //remove itself and add its children
                     if (iter->child[0] != -1)
                         thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[0]]);
@@ -676,7 +677,8 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
     thread_data_t * thread_data = GET_THREAD_DATA();
     if (thread_sock_data->buffer[iter->buffer_idx].data.q[1].isempty())
     {
-        if (iter->status & FD_STATUS_RD_SND_FORKED) //it is forked by the receiver side
+        if ((iter->status & FD_STATUS_RD_SND_FORKED) //it is forked by the receiver side
+            || (iter->status & (FD_STATUS_RD_RECV_FORKED | FD_STATUS_RECV_ACK))) // it is forked by the sender side and ACK of takeover message is received
         {
             //remove itself and add its children
             if (iter->child[0] != -1)
