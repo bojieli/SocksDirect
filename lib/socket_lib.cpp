@@ -55,6 +55,55 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
             }
         }
     }
+    
+    //read side, itself not fork
+    //connect the new buffer to the tree
+    
+    //first iterate all the fd
+    for (int fd = thread_data->fds_datawithrd.hiter_begin(); 
+         fd!=-1;
+         fd = thread_data->fds_wr.hiter_next(fd))
+    {
+        for (auto iter = thread_data->fds_datawithrd.begin(fd); !iter.end(); iter = iter.next())
+        {
+            if (iter->buffer_idx == old_buffer_id)
+            {
+                DEBUG("Matched for fd %d in Adjlist", fd);
+                iter->status |= FD_STATUS_RD_SND_FORKED;
+
+                fd_rd_list_t tmp_fd_list_ele;
+                tmp_fd_list_ele.child[0] = tmp_fd_list_ele.child[1] = -1;
+                tmp_fd_list_ele.buffer_idx = new_buffer_id[0];
+                tmp_fd_list_ele.status = 0;
+                iter->child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                tmp_fd_list_ele.buffer_idx = new_buffer_id[1];
+                iter->child[1] = thread_data->rd_tree.add(tmp_fd_list_ele);
+            } else
+            {
+                int ret(-1);
+                if (iter->child[0] != -1)
+                {
+                    ret = fork_traverse_rd_tree(iter->child[0], old_buffer_id);
+                }
+                if ((ret == -1) && (iter->child[1] != -1))
+                    ret = fork_traverse_rd_tree(iter->child[1], old_buffer_id);
+
+                if (ret != -1)
+                {
+                    DEBUG("Matched for fd %d in candidate tree with idx %d", fd, ret);
+                    thread_data->rd_tree[ret].status |= FD_STATUS_RD_SND_FORKED;
+
+                    fd_rd_list_t tmp_fd_list_ele;
+                    tmp_fd_list_ele.child[0] = tmp_fd_list_ele.child[1] = -1;
+                    tmp_fd_list_ele.buffer_idx = new_buffer_id[0];
+                    tmp_fd_list_ele.status = 0;
+                    thread_data->rd_tree[ret].child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                    tmp_fd_list_ele.buffer_idx = new_buffer_id[1];
+                    thread_data->rd_tree[ret].child[1] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                }
+            }
+        }
+    }
 }
 
 void recv_takeover_req_handler(metaqueue_ctl_element ele)
@@ -614,6 +663,36 @@ enum ITERATE_FD_IN_BUFFER_STATE
     NOTFIND,
     ALLCLOSED
 };
+
+#undef DEBUGON
+#define DEBUGON 1
+adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator recv_empty_hook
+        (
+                adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator iter,
+                int myfd
+        )
+{
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    if (thread_sock_data->buffer[iter->buffer_idx].data.q[1].isempty())
+    {
+        if (iter->status & FD_STATUS_RD_SND_FORKED) //it is forked by the receiver side
+        {
+            //remove itself and add its children
+            if (iter->child[0] != -1)
+                thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[0]]);
+            if (iter->child[1] != -1)
+                thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[1]]);
+
+            //remove itself from adjlist
+            iter = thread_data->fds_datawithrd.del_element(iter);
+            return iter;
+        }
+    } else
+    {
+        return iter.next();
+    }
+};
 #undef DEBUGON
 #define DEBUGON 0
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
@@ -679,7 +758,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         else
             ++pointer;
     }
-    iter = iter.next();
+    iter = recv_empty_hook(iter, target_fd);
     if (islockrequired)
         pthread_mutex_unlock(buffer->rd_mutex);
     return ITERATE_FD_IN_BUFFER_STATE::NOTFIND;

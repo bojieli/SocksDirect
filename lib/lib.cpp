@@ -89,6 +89,38 @@ static void after_fork_father()
                     thread_data->fds_datawithrd[fd].property.status &= ~FD_STATUS_RECV_ACK;
                 }
             }
+            
+            //deal with the write side
+            //directly replace the old one with the new one
+            //first iterate and replace
+            for (int fd = thread_data->fds_wr.hiter_begin();
+                 fd!=-1;
+                 fd = thread_data->fds_wr.hiter_next(fd))
+            {
+                //first iterate adjlist
+                for (auto iter = thread_data->fds_wr.begin(fd); !iter.end(); iter=iter.next())
+                {
+                    if (iter->buffer_idx == old_buffer_id)
+                    {
+                        DEBUG("Write Fork case: find old buffer idx in adjlist for fd %d", fd);
+                        iter->status = 0;
+                        iter->buffer_idx = new_buffer_id;
+                    }
+                }
+                
+                //then iterate candidate list
+                for (int idx = thread_data->fds_wr[fd].iterator_init(); 
+                     idx != -1;
+                     idx=thread_data->fds_wr[fd].iterator_next(idx))
+                {
+                    if (thread_data->fds_wr[fd][idx].buffer_idx == old_buffer_id)
+                    {
+                        DEBUG("Write Fork case: find old buffer idx in candidate for fd %d", fd);
+                        thread_data->fds_wr[fd][idx].status = 0;
+                        thread_data->fds_wr[fd][idx].buffer_idx = new_buffer_id;
+                    }
+                }
+            }
         }
     }
 }
