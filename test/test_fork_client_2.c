@@ -31,7 +31,7 @@ int main()
         printf("Child\n");
         buffer[0] = 3;
         write(init_fd, buffer, 1);
-        printf("Child FIN");
+        printf("Child FIN\n");
         while(1);
     } else
     {
