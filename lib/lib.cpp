@@ -186,8 +186,71 @@ void after_exec()
     usocket_init();
 }
 
+static bool recv_takeover_check(int idx)
+{
+    //whether itself is the leaf
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    bool ret(true);
+    if (thread_data->rd_tree[idx].status | FD_STATUS_RECV_REQ)
+        ret = (bool)(thread_data->rd_tree[idx].status | FD_STATUS_RECV_ACK);
+    
+    //clear the label if current is finished
+    if (ret)
+    {
+        thread_data->rd_tree[idx].status &= ~FD_STATUS_RECV_REQ;
+        thread_data->rd_tree[idx].status &= ~FD_STATUS_RECV_ACK;
+    }
+    
+    if (thread_data->rd_tree[idx].child[0] != -1)
+        ret = ret && recv_takeover_check(thread_data->rd_tree[idx].child[0]);
+
+    if (thread_data->rd_tree[idx].child[1] != -1)
+        ret = ret && recv_takeover_check(thread_data->rd_tree[idx].child[1]);
+    
+    return ret;
+    
+}
+
+
+static bool before_fork_blocking_chk()
+{
+    //before fork, the program needs to check whether all the ack is received for the read side
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    bool isblocking(false);
+    for (int fd = thread_data->fds_datawithrd.hiter_begin();
+            fd != -1;
+            fd = thread_data->fds_datawithrd.hiter_next(fd))
+    {
+        if (thread_data->fds_datawithrd[fd].property.status & FD_STATUS_RECV_REQ)
+        {
+            //iterate all the adjlist of this fd
+            for (auto iter = thread_data->fds_datawithrd.begin(fd); !iter.end(); iter = iter.next())
+            {
+                if (iter->status & FD_STATUS_RECV_REQ)
+                {
+                    isblocking = isblocking && (bool)(iter->status & FD_STATUS_RECV_ACK);
+                }
+                if (iter->child[0] != -1)
+                    isblocking = isblocking && recv_takeover_check(iter->child[0]);
+                if (iter->child[1] != -1)
+                    isblocking = isblocking && recv_takeover_check(iter->child[1]);
+            }
+        }
+    }
+    return isblocking;
+}
+
+void before_fork_blocking()
+{
+    while (before_fork_blocking_chk())
+        monitor2proc_hook();
+}
+
 pid_t fork()
 {
+    before_fork_blocking();
     thread_data_t * thread_data = GET_THREAD_DATA();
     pid_t oldtid = gettid();
     thread_data->old_token = thread_data->token;

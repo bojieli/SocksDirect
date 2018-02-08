@@ -769,7 +769,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
 #undef DEBUGON
 #define DEBUGON 1
 
-void recv_takeover_traverse(int myfd, int idx, bool valid)
+static void recv_takeover_traverse(int myfd, int idx, bool valid)
 {
     //whether itself is the leaf
     thread_data_t * thread_data = GET_THREAD_DATA();

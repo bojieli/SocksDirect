@@ -97,6 +97,7 @@ public:
 
     int newbuffer(key_t key, int loc);
 };
+void monitor2proc_hook();
 
 #endif
 #endif //IPC_DIRECT_SOCKET_LIB_H
