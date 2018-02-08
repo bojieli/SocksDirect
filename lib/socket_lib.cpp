@@ -233,15 +233,15 @@ void recv_takeover_ack_handler(metaqueue_ctl_element ele)
 
             if (iter->status & FD_STATUS_RD_RECV_FORKED) //it is itself fork
             {
-                //check wthether it is empty
+                //check whether it is empty
                 if (thread_sock_data->buffer[iter->buffer_idx].data.q[1].isempty())
                 {
                     DEBUG("Queue for fd %d is empty, children %d %d", myfd, iter->child[0], iter->child[1]);
                     //remove itself and add its children
                     if (iter->child[0] != -1)
-                        thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[0]]);
+                        iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[0]]);
                     if (iter->child[1] != -1)
-                        thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[1]]);
+                        iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[1]]);
 
                     //remove itself from adjlist
                     iter = thread_data->fds_datawithrd.del_element(iter);
@@ -682,9 +682,9 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
         {
             //remove itself and add its children
             if (iter->child[0] != -1)
-                thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[0]]);
+                iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[0]]);
             if (iter->child[1] != -1)
-                thread_data->fds_datawithrd.add_element(myfd, thread_data->rd_tree[iter->child[1]]);
+                iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[1]]);
 
             //remove itself from adjlist
             iter = thread_data->fds_datawithrd.del_element(iter);

@@ -27,6 +27,8 @@ int main()
     char buffer[100];
     sleep(2);
     buffer[0] = 1;
+    buffer[1] = 20;
+    write(init_fd, buffer, 2);
     write(init_fd, buffer, 1);
     sleep(2);
     buffer[0] = 2;

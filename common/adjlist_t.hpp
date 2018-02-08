@@ -61,6 +61,7 @@ public:
     inline T1 & operator[](unsigned int i);
     typedef adjlist_iterator_t<T1, initsizet1, T2, initsizet2> iterator;
     iterator add_element(int key_idx, const T2 &input);
+    iterator add_element_at(iterator iter, int key_idx, const T2 &input);
     iterator del_element(iterator iter);
     iterator begin(int key_idx);
     bool is_keyvalid(int key_idx);
@@ -136,6 +137,55 @@ adjlist<T1, initsizet1, T2, initsizet2>::add_element(int key_idx, const T2 &inpu
     }
     return ret;
 }
+
+template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
+inline adjlist_iterator_t<T1, initsizet1, T2, initsizet2>
+adjlist<T1, initsizet1, T2, initsizet2>::add_element_at(iterator iter, int key_idx, const T2 &input)
+{
+    iterator ret(this, key_idx);
+    if (!index.isvalid(key_idx))
+    {
+        ret.isvalid = false;
+        return ret;
+    }
+
+    //prepare the ret value
+    ret.isvalid = true;
+    ret.idx = key_idx;
+
+    int ptr = index[key_idx].pointer;
+
+    //it is the first element for the designated key
+    if (ptr == -1)
+    {
+        adj_element_t ele;
+        ele.adjdata = input;
+        ele.next = -1;
+        int n_adjele_idx = _adjlist.add(ele);
+        //Link the next to itself to build a circle
+        _adjlist[n_adjele_idx].next = n_adjele_idx;
+        index[key_idx].pointer = n_adjele_idx;
+        //settle the ret
+        ret.start_ptr = ret.curr_ptr = n_adjele_idx;
+        ret.prev_ptr = -1;
+    } else //it is not the first element for the designated key
+    {
+        int prev_ptr = ptr;
+        adj_element_t ele;
+        ele.adjdata = input;
+        ele.next = _adjlist[iter.curr_ptr].next;
+        int n_adjele_idx = _adjlist.add(ele);
+        _adjlist[iter.curr_ptr].next = n_adjele_idx;
+        //settle the ret
+        ret = iter;
+        if (ele.next == ret.curr_ptr)
+        {
+            ret.prev_ptr = n_adjele_idx;
+        }
+    }
+    return ret;
+}
+
 template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
 inline void adjlist<T1, initsizet1, T2, initsizet2>::init(uint32_t size, const T1& input)
 {
