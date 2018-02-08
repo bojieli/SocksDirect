@@ -26,6 +26,8 @@ int main()
     int init_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (connect(init_fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("Failed to connect");
+    //Put something before the fork
+    read(init_fd, buffer, 1);
     if (fork() == 0)
     {
         printf("Child\n");
@@ -38,6 +40,8 @@ int main()
         printf("Parent\n");
         //try to take over
         sleep(1);
+        read(init_fd, buffer, 1);
+        assert(buffer[0] == 20);
         read(init_fd, buffer, 1);
         assert(buffer[0] == 1);
         sleep(2);
