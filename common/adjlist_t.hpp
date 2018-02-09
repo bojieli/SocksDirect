@@ -13,13 +13,15 @@ template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
 class adjlist_iterator_t
 {
 private:
-    int idx;
     int curr_ptr;
     int prev_ptr;
     int start_ptr;
-    bool isvalid;
     using adjlist_type=adjlist<T1, initsizet1, T2, initsizet2>;
     adjlist_type *adj;
+
+    int idx;
+    bool isvalid;
+
     friend class adjlist<T1, initsizet1, T2, initsizet2>;
 public:
     adjlist_iterator_t(adjlist_type *_adj, int _idx):
@@ -123,7 +125,7 @@ adjlist<T1, initsizet1, T2, initsizet2>::add_element(int key_idx, const T2 &inpu
         index[key_idx].pointer = n_adjele_idx;
         //settle the ret
         ret.start_ptr = ret.curr_ptr = n_adjele_idx;
-        ret.prev_ptr = -1;
+        ret.prev_ptr = n_adjele_idx;
     } else //it is not the first element for the designated key
     {
         int prev_ptr = ptr;
@@ -167,7 +169,7 @@ adjlist<T1, initsizet1, T2, initsizet2>::add_element_at(iterator iter, int key_i
         index[key_idx].pointer = n_adjele_idx;
         //settle the ret
         ret.start_ptr = ret.curr_ptr = n_adjele_idx;
-        ret.prev_ptr = -1;
+        ret.prev_ptr = n_adjele_idx;
     } else //it is not the first element for the designated key
     {
         int prev_ptr = ptr;
