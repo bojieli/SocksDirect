@@ -31,6 +31,21 @@ private:
                        : "r" (src), "r" (dst)
                        : "xmm0" );
     }
+
+    inline bool atomic_set_bit(bool* ptr)
+    {
+        bool ret;
+        asm (
+        "mov $0, %%al\n"
+        "mov $1, %%cl\n"
+        "lock; cmpxchg %%cl, (%2)\n"
+        "mov %%al, %0"
+        :"=r"(ret), "+m"(*ptr)
+        :"r"(ptr)
+        :"al","cl","memory"
+        );
+        return !ret;
+    }
 public:
     union
     {
@@ -134,7 +149,8 @@ public:
     inline void del(int loc)
     {
         loc = loc & MASK;
-        ringbuffer[loc].isdel=true;
+        bool issuccess = atomic_set_bit(&ringbuffer[loc].isdel);
+        if (!issuccess) return;
         SW_BARRIER;
         if ((ringbuffer[pointer & MASK].isvalid) && (loc == (pointer & MASK)))
         {
