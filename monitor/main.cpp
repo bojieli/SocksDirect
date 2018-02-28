@@ -131,7 +131,7 @@ static void event_loop()
 
 int main()
 {
-    pin_thread(4);
+    pin_thread(14);
     setup_sock_monitor_init();
     sock_monitor_init();
     process_init();

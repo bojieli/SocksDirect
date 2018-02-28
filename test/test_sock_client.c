@@ -10,6 +10,7 @@
 
 int main()
 {
+    pin_thread(0);
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) FATAL("Failed to create fd");
@@ -33,9 +34,9 @@ int main()
         *(int *)buffer = counter;
         if (writev(fd, &iovec1, 1) == -1)
             FATAL("write failed");
-        int len = recvfrom(fd, (void *) buffer, 1024, 0, NULL, NULL);
-        if (len != 16)
-            FATAL("Ack failed");
+        //int len = recvfrom(fd, (void *) buffer, 1024, 0, NULL, NULL);
+        //if (len != 16)
+        //   FATAL("Ack failed");
         ++counter;
         //if (counter % 128==0)
         //    printf("write 128\n");
