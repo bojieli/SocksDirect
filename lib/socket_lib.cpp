@@ -706,7 +706,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     interprocess_t *buffer = &(thread_sock_data->buffer[iter->buffer_idx].data);
     uint8_t pointer = buffer->q[1].tail;
-    bool islockrequired = (bool)(iter->status | FD_STATUS_RD_RECV_FORKED);
+    bool islockrequired = (bool)(iter->status & FD_STATUS_RD_RECV_FORKED);
     if (islockrequired)
         pthread_mutex_lock(buffer->rd_mutex);
     SW_BARRIER;
