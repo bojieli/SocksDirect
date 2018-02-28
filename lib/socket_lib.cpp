@@ -690,10 +690,8 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
             iter = thread_data->fds_datawithrd.del_element(iter);
             return iter;
         }
-    } else
-    {
-        return iter.next();
     }
+    return iter.next();
 };
 #undef DEBUGON
 #define DEBUGON 0
