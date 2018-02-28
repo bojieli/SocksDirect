@@ -114,6 +114,8 @@ public:
         SW_BARRIER;
         data = ele.data;
         SW_BARRIER;
+
+        /*
         ringbuffer[local_ptr].isvalid = false;
         SW_BARRIER;
         pointer++;
@@ -123,7 +125,8 @@ public:
             SW_BARRIER;
             ringbuffer[pointer & MASK].isvalid = false;
             pointer++;
-        }
+        }*/
+        del(local_ptr);
         return true;
     }
 
