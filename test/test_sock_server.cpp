@@ -11,6 +11,7 @@
 
 int main()
 {
+    pin_thread(2);
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) FATAL("Failed to create fd");
@@ -68,7 +69,7 @@ int main()
                 printf ("counter=%d, tput=%lf /s\n", counter, (double)(1000000) * 1e9 / time_diff);
                 prev_time = curr_time;
             }
-            writev(connect_fd, &iovec1, 1);
+            //writev(connect_fd, &iovec1, 1);
         }
     }
 }
