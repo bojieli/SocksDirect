@@ -698,10 +698,9 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         (int target_fd, 
          adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator& iter,
-         int &loc_in_buffer_has_blk)
+         int &loc_in_buffer_has_blk, thread_data_t *thread_data, thread_sock_data_t *thread_sock_data)
 {
-    thread_data_t *thread_data = GET_THREAD_DATA();
-    auto thread_sock_data = GET_THREAD_SOCK_DATA();
+    
     interprocess_t *buffer = &(thread_sock_data->buffer[iter->buffer_idx].data);
     uint8_t pointer = buffer->q[1].tail;
     bool islockrequired = (bool)(iter->status & FD_STATUS_RD_RECV_FORKED);
@@ -861,7 +860,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
             int ret_loc(-1);
             bool isFin(false);
             interprocess_t *buffer = &(thread_sock_data->buffer[iter->buffer_idx].data);
-            ITERATE_FD_IN_BUFFER_STATE ret_state = recvfrom_iter_fd_in_buf(sockfd, iter, ret_loc);
+            ITERATE_FD_IN_BUFFER_STATE ret_state = recvfrom_iter_fd_in_buf(sockfd, iter, ret_loc, thread_data, thread_sock_data);
             switch (ret_state)
             {
                 case ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED:
