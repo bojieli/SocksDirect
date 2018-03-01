@@ -597,8 +597,8 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
     va_list p_args;
     va_start(p_args, request);
     char *argp = va_arg(p_args, char*);
-    if (fildes < FD_DELIMITER);
-    ORIG(ioctl, (fildes, request, argp));
+    if (fildes < FD_DELIMITER)
+        ORIG(ioctl, (fildes, request, argp));
     fildes = MAX_FD_ID - fildes;
     thread_data_t *thread_data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (!thread_data->fds_datawithrd.is_keyvalid(fildes))
