@@ -109,7 +109,6 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
 void recv_takeover_req_handler(metaqueue_ctl_element ele)
 {
     int myfd = ele.req_relay_recv.peer_fd;
-    int peerfd = ele.req_relay_recv.req_fd;
     thread_data_t * thread_data = GET_THREAD_DATA();
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     int match_key_id = (*(thread_sock_data->bufferhash))[ele.req_relay_recv.shmem];
@@ -213,7 +212,6 @@ void recv_takeover_ack_handler(metaqueue_ctl_element ele)
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     int match_buffer_idx = (*thread_sock_data->bufferhash)[shmem_key];
     //get the handler of the current adjlist
-    auto curr_adjlist_h = &(thread_data->fds_datawithrd[myfd]);
     for (auto iter = thread_data->fds_datawithrd.begin(myfd); !iter.end();)
     {
         bool match_ret(true);
@@ -256,7 +254,6 @@ void recv_takeover_ack_handler(metaqueue_ctl_element ele)
 void monitor2proc_hook()
 {
     thread_data_t *thread_data = GET_THREAD_DATA();
-    thread_sock_data_t *thread_sock_data = GET_THREAD_SOCK_DATA();
     metaqueue_ctl_element ele;
     while (thread_data->metaqueue.q_emergency[1].pop_nb(ele))
     {
@@ -330,7 +327,7 @@ int socket(int domain, int type, int protocol) __THROW
     nfd.property.tcp.isopened = false;
     unsigned int idx_nfd=data->fds_datawithrd.add_key(nfd);
     file_struc_wr_t nfd_wr;
-    unsigned int idx_nfd_wr = data->fds_wr.add_key(nfd_wr);
+    data->fds_wr.add_key(nfd_wr);
     //assert(idx_nfd == idx_nfd_wr);
     int ret = MAX_FD_ID - idx_nfd;
     return ret;
@@ -461,7 +458,6 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         FATAL("Failed to get thread specific data.");
     int idx;
     fd_rd_list_t peer_fd_rd;
-    unsigned int idx_peer_fd;
     peer_fd_rd.child[0] = peer_fd_rd.child[1] = -1;
     peer_fd_rd.status = 0;
     if ((idx = thread_buf->isexist(key)) != -1)
@@ -853,7 +849,6 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     bool isFind(false);
     do //if blocking infinate loop
     {
-        int prev_adjlist_ptr=-1;
         auto iter = thread_data->fds_datawithrd.begin(sockfd);
         while (true) //iterate different peer fd
         {

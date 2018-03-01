@@ -129,30 +129,12 @@ static void after_fork_father()
 static void after_fork_child(pid_t oldtid)
 {
     thread_data_t* thread_data = GET_THREAD_DATA();
-    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     metaqueue_ctl_element fork_req;
     fork_req.command = REQ_FORK;
     fork_req.req_fork.token = thread_data->old_token;
     //printf("old token %lu\n", thread_data->old_token);
     fork_req.req_fork.old_tid = oldtid;
     thread_data->metaqueue.q[0].push(fork_req);
-    //receive all the fork request
-    /*
-    while (true)
-    {
-        metaqueue_ctl_element fork_resp;
-        while(!thread_data->metaqueue.q[1].pop_nb(fork_resp));
-        if (fork_resp.command == FIN_FORK)
-        {
-            DEBUG("Child: FORK FIN");
-            break;
-        }
-        if (fork_resp.command == RES_ERROR)
-            FATAL("Receive error from monitor during fork, err: %d", fork_resp.resp_command.err_code);
-        if (fork_resp.command == RES_FORK)
-            DEBUG("Child: Old key: %u, New key: %u", fork_resp.resp_fork.oldshmemkey, fork_resp.resp_fork.newshmemkey);
-    }
-     */
     after_fork_father();
 }
 
@@ -190,7 +172,6 @@ static bool recv_takeover_check(int idx)
 {
     //whether itself is the leaf
     thread_data_t * thread_data = GET_THREAD_DATA();
-    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     bool ret(true);
     if (thread_data->rd_tree[idx].status | FD_STATUS_RECV_REQ)
         ret = (bool)(thread_data->rd_tree[idx].status | FD_STATUS_RECV_ACK);
@@ -217,7 +198,6 @@ static bool before_fork_blocking_chk()
 {
     //before fork, the program needs to check whether all the ack is received for the read side
     thread_data_t * thread_data = GET_THREAD_DATA();
-    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     bool isblocking(false);
     for (int fd = thread_data->fds_datawithrd.hiter_begin();
             fd != -1;

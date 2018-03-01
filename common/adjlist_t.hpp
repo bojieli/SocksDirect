@@ -25,12 +25,12 @@ private:
     friend class adjlist<T1, initsizet1, T2, initsizet2>;
 public:
     adjlist_iterator_t(adjlist_type *_adj, int _idx):
-            adj(_adj),
-            idx(_idx),
-            isvalid(false),
             curr_ptr(-1),
             prev_ptr(-1),
-            start_ptr(-1)
+            start_ptr(-1),
+            adj(_adj),
+            idx(_idx),
+            isvalid(false)
     {}
     adjlist_iterator_t<T1, initsizet1, T2, initsizet2> & next();
     T2 &operator* ();
@@ -195,7 +195,7 @@ inline void adjlist<T1, initsizet1, T2, initsizet2>::init(uint32_t size, const T
     ele.data = input;
     ele.pointer = -1;
     index.init();
-    for (int i=0;i<size;++i)
+    for (unsigned int i=0;i<size;++i)
         index.add(ele);
 }
 
