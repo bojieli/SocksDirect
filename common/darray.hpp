@@ -17,13 +17,14 @@ private:
     {
         T data;
         bool isvalid;
-        data_t():isvalid(false),data(){}
+        data_t():data(),isvalid(false){}
     };
-    std::vector<data_t> data;
     unsigned int lowest_available;
     unsigned int highest_possible;
     unsigned int total_num;
     unsigned int size;
+
+    std::vector<data_t> data;
 public:
     darray_t(): lowest_available(0), highest_possible(0), total_num(0),size(INITSIZE)
     {

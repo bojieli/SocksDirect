@@ -217,7 +217,7 @@ int main()
                     close (events[i].data.fd);
                 }
                 else {
-                    printf ("received %d bytes from fd %d\n", count, events[i].data.fd);
+                    printf ("received %ld bytes from fd %d\n", count, events[i].data.fd);
                 }
             }
         }

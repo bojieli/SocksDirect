@@ -20,6 +20,10 @@ public:
     class buffer_t
     {
     public:
+        class element;
+    private:
+        element *mem;
+    public:
         class element
         {
         public:
@@ -41,8 +45,7 @@ public:
 
         locklessqueue_t<int, 2048> *avail_slots;
 
-    private:
-        element *mem;
+
     };
 
     class queue_t

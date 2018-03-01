@@ -11,14 +11,15 @@ locklessqueue_t<uint64_t, 1024> queue_sender, queue_receiver;
 uint64_t glbcounter(0);
 static void* reader(void* param)
 {
+    (void)param;
     pin_thread(0);
     uint64_t ret;
-    while (1)
+    while (true)
     {
         while (!queue_receiver.pop_nb(ret));
         //printf("read: %lu\n", glbcounter);
         if (ret != glbcounter)
-            FATAL("data error %llu", ret);
+            FATAL("data error %lu", ret);
         ++glbcounter;
     }
     return nullptr;
@@ -27,8 +28,9 @@ static void* reader(void* param)
 static void* writer(void* param)
 {
     pin_thread(2);
+    (void)param;
     uint64_t counter(0);
-    while (1)
+    while (true)
     {
         queue_sender.push(counter);
         //printf("write: %lu\n", counter);
@@ -60,7 +62,7 @@ int main()
     while (1)
     {
         sleep(1);
-        printf("%dM\n", glbcounter/1000000);
+        printf("%ldM\n", glbcounter/1000000);
     }
     return 0;
 }

@@ -90,7 +90,7 @@ public:
         {}
     } buffer[BUFFERNUM];
 
-    thread_sock_data_t() : lowest_available(0), total_num(0), bufferhash(nullptr)
+    thread_sock_data_t() :  bufferhash(nullptr), lowest_available(0), total_num(0)
     {}
 
     int isexist(key_t key);

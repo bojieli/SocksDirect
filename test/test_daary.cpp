@@ -8,7 +8,7 @@
 int main()
 {
     darray_t<int, 32> darr;
-    for (int i=0;i<63;++i)
+    for (unsigned int i=0;i<63;++i)
     {
         unsigned int ret;
         ret=darr.add(i);

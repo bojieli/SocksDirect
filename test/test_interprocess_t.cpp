@@ -20,6 +20,7 @@ uint8_t output_data[total_buffer_size];
 
 static void* reader(void* param)
 {
+    (void)param;
     pin_thread(0);
     int counter=0;
     interprocess_t::queue_t::element element;
@@ -35,6 +36,7 @@ static void* reader(void* param)
 
 static void* writer(void* param)
 {
+    (void)param;
     pin_thread(2);
     interprocess_t::queue_t::element element;
     while (1)

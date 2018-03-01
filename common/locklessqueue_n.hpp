@@ -55,7 +55,7 @@ public:
     };
     uint32_t MASK;
 
-    locklessqueue_t() : MASK(SIZE - 1), pointer(0), ringbuffer(nullptr)
+    locklessqueue_t() : ringbuffer(nullptr), pointer(0), MASK(SIZE - 1)
     {
         assert((sizeof(element_t)==16));
     }
@@ -149,7 +149,7 @@ public:
         SW_BARRIER;
     }
 
-    inline void del(int loc)
+    inline void del(unsigned int loc)
     {
         loc = loc & MASK;
         bool issuccess = atomic_set_bit(&ringbuffer[loc].isdel);
