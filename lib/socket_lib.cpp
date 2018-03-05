@@ -699,9 +699,6 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
     
     interprocess_t *buffer = &(thread_sock_data->buffer[iter->buffer_idx].data);
     uint8_t pointer = buffer->q[1].tail;
-    bool islockrequired = (bool)(iter->status & FD_STATUS_RD_RECV_FORKED);
-    if (islockrequired)
-        pthread_mutex_lock(buffer->rd_mutex);
     SW_BARRIER;
     while (true)
     {  //for same fd(buffer), iterate each available slot
@@ -726,12 +723,8 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     {
                         DEBUG("Destroyed self fd %d.", target_fd);
                         thread_data->fds_datawithrd.del_key(target_fd);
-                        if (islockrequired)
-                            pthread_mutex_unlock(buffer->rd_mutex);
                         return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
                     }
-                    if (islockrequired)
-                        pthread_mutex_unlock(buffer->rd_mutex);
                     return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
                 } else {
                     if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
@@ -743,8 +736,6 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 ele.data_fd_rw.fd == target_fd)
             {
                 loc_in_buffer_has_blk = pointer;
-                if (islockrequired)
-                    pthread_mutex_unlock(buffer->rd_mutex);
                 return ITERATE_FD_IN_BUFFER_STATE::FIND;
             }
         }
@@ -754,8 +745,6 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
             ++pointer;
     }
     iter = recv_empty_hook(iter, target_fd);
-    if (islockrequired)
-        pthread_mutex_unlock(buffer->rd_mutex);
     return ITERATE_FD_IN_BUFFER_STATE::NOTFIND;
 }
 
