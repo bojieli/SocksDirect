@@ -153,7 +153,7 @@ void interprocess_t::monitor_init(void *baseaddr) {
     pthread_mutexattr_t mutexattr;
     pthread_mutexattr_init(&mutexattr);
     pthread_mutexattr_setpshared(&mutexattr, PTHREAD_PROCESS_SHARED);
-    tmp.sender_turn = 0;
+    *(tmp.sender_turn) = 0;
     if (pthread_mutex_init(tmp.rd_mutex, &mutexattr) != 0)
         FATAL("Error to init mutex");
     
