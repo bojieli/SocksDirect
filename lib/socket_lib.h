@@ -50,16 +50,9 @@ typedef struct
 {
     int buffer_idx;
     unsigned short status;
-    int id_in_v;
 } fd_wr_list_t;
 
-typedef struct
-{
-    int buffer_idx;
-    int parent_id_in_v;
-    unsigned short status;
-} fd_vec_t;
-typedef darray_t<fd_vec_t, 10> file_struc_wr_t;
+
 void usocket_init();
 #ifdef __cplusplus
 }
