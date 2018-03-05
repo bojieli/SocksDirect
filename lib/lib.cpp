@@ -107,19 +107,7 @@ static void after_fork_father()
                         iter->buffer_idx = new_buffer_id;
                     }
                 }
-                
-                //then iterate candidate list
-                for (int idx = thread_data->fds_wr[fd].iterator_init(); 
-                     idx != -1;
-                     idx=thread_data->fds_wr[fd].iterator_next(idx))
-                {
-                    if (thread_data->fds_wr[fd][idx].buffer_idx == old_buffer_id)
-                    {
-                        DEBUG("Write Fork case: find old buffer idx in candidate for fd %d", fd);
-                        thread_data->fds_wr[fd][idx].status = 0;
-                        thread_data->fds_wr[fd][idx].buffer_idx = new_buffer_id;
-                    }
-                }
+
             }
         }
     }

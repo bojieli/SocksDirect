@@ -38,22 +38,24 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
          fd!=-1;
          fd = thread_data->fds_wr.hiter_next(fd))
     {
-        file_struc_wr_t * curr_wr_handle_list = &thread_data->fds_wr[fd];
-        for (int id_in_fd = curr_wr_handle_list->iterator_init(); id_in_fd != -1; id_in_fd = curr_wr_handle_list->iterator_next(id_in_fd))
+        for (auto iter = thread_data->fds_wr.begin(fd); !iter.end();)
         {
-            if ((*curr_wr_handle_list)[id_in_fd].buffer_idx == old_buffer_id)
+            if (iter->buffer_idx == old_buffer_id)
             {
-                //match the old buffer, then create two new candicate into the list
-                DEBUG("Add two candidate");
-                fd_vec_t n_candicate[2];
-                n_candicate[0].parent_id_in_v = n_candicate[1].parent_id_in_v = id_in_fd;
-                n_candicate[0].buffer_idx = new_buffer_id[0];
-                n_candicate[1].buffer_idx = new_buffer_id[1];
-                n_candicate[0].status = n_candicate[1].status = 0;
-                curr_wr_handle_list->add(n_candicate[0]);
-                curr_wr_handle_list->add(n_candicate[1]);
+                DEBUG("fd %d buffer id %d peer forked and add two new queue to adjlist", fd, old_buffer_id);
+                fd_wr_list_t new_wr_adj_ele[2];
+                new_wr_adj_ele[0].status = new_wr_adj_ele[1].status = 0;
+                new_wr_adj_ele[0].buffer_idx = new_buffer_id[0];
+                new_wr_adj_ele[1].buffer_idx = new_buffer_id[1];
+                *(thread_sock_data->buffer[new_buffer_id[0]].data.sender_turn) = 0;
+                *(thread_sock_data->buffer[new_buffer_id[1]].data.sender_turn) = 0;
+                iter = thread_data->fds_wr.add_element_at(iter, fd, new_wr_adj_ele[0]);
+                iter = thread_data->fds_wr.add_element_at(iter, fd, new_wr_adj_ele[1]);
+                continue;
             }
+            iter.next();
         }
+
     }
     
     //read side, itself not fork
@@ -112,7 +114,7 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
     thread_data_t * thread_data = GET_THREAD_DATA();
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     int match_key_id = (*(thread_sock_data->bufferhash))[ele.req_relay_recv.shmem];
-    file_struc_wr_t * curr_adjlist_h = &thread_data->fds_wr[myfd];
+    /*file_struc_wr_t * curr_adjlist_h = &thread_data->fds_wr[myfd];
     for (int bufferidx_in_list = curr_adjlist_h->iterator_init();
          bufferidx_in_list != -1;
          bufferidx_in_list = curr_adjlist_h->iterator_next(bufferidx_in_list))
@@ -160,7 +162,11 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
 
     //send ack to the back to monitor
     ele.command = REQ_RELAY_RECV_ACK;
-    thread_data->metaqueue.q[0].push(ele);
+    thread_data->metaqueue.q[0].push(ele);*/
+    /*
+     *
+     * TODO: Finish the handler for ack of takeover msg
+     */
 
 }
 
@@ -307,8 +313,7 @@ void usocket_init()
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     file_struc_rd_t _fd;
     data->fds_datawithrd.init(0,_fd);
-    file_struc_wr_t _fd_wr;
-    data->fds_wr.init(0, _fd_wr);
+    data->fds_wr.init(0, 0);
     auto *thread_sock_data = new thread_sock_data_t;
     thread_sock_data->bufferhash = new std::unordered_map<key_t, int>;
     for (int i = 0; i < BUFFERNUM; ++i) thread_sock_data->buffer[i].isvalid = false;
@@ -326,8 +331,7 @@ int socket(int domain, int type, int protocol) __THROW
     nfd.property.is_blocking = 1;
     nfd.property.tcp.isopened = false;
     unsigned int idx_nfd=data->fds_datawithrd.add_key(nfd);
-    file_struc_wr_t nfd_wr;
-    data->fds_wr.add_key(nfd_wr);
+    data->fds_wr.add_key(0);
     //assert(idx_nfd == idx_nfd_wr);
     int ret = MAX_FD_ID - idx_nfd;
     return ret;
@@ -466,13 +470,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         idx = peer_fd_rd.buffer_idx = thread_buf->newbuffer(key, loc);
     auto peerfd_iter = data->fds_datawithrd.add_element(socket, peer_fd_rd);
     fd_wr_list_t peer_fd_wr;
-    fd_vec_t wr_vec_ele;
-    wr_vec_ele.buffer_idx = peer_fd_rd.buffer_idx;
-    wr_vec_ele.status = 0;
-    wr_vec_ele.parent_id_in_v = -1;
-    int wr_idx_in_vec = data->fds_wr[socket].add(wr_vec_ele);
     peer_fd_wr.status = 0;
-    peer_fd_wr.id_in_v = wr_idx_in_vec;
     peer_fd_wr.buffer_idx = peer_fd_rd.buffer_idx;
     data->fds_wr.add_element(socket, peer_fd_wr);
 
@@ -554,18 +552,10 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     npeerfd_rd.status = 0;
     data->fds_datawithrd.add_element(idx_nfd, npeerfd_rd);
 
-    file_struc_wr_t nfd_wr;
     fd_wr_list_t npeerfd_wr;
-    fd_vec_t nfd_wr_vec_ele;
-    nfd_wr_vec_ele.buffer_idx = idx;
-    nfd_wr_vec_ele.status = 0;
-    nfd_wr_vec_ele.parent_id_in_v = -1;
-    npeerfd_wr.id_in_v = nfd_wr.add(nfd_wr_vec_ele);
     npeerfd_wr.buffer_idx = idx;
     npeerfd_wr.status = 0;
-
-    data->fds_wr.add_key(nfd_wr);
-
+    data->fds_wr.add_key(0);
     data->fds_wr.add_element(idx_nfd, npeerfd_wr);
 
 
