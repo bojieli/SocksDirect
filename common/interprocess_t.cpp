@@ -137,6 +137,8 @@ void interprocess_t::init(void *baseaddr, int loc)
     memory += locklessqueue_t<queue_t::element, 256>::getmemsize();
     
     rd_mutex = (pthread_mutex_t *)memory;
+    memory += sizeof(pthread_mutex_t);
+    sender_turn = (int *)memory;
 }
 
 void interprocess_t::monitor_init(void *baseaddr) {
@@ -151,6 +153,7 @@ void interprocess_t::monitor_init(void *baseaddr) {
     pthread_mutexattr_t mutexattr;
     pthread_mutexattr_init(&mutexattr);
     pthread_mutexattr_setpshared(&mutexattr, PTHREAD_PROCESS_SHARED);
+    tmp.sender_turn = 0;
     if (pthread_mutex_init(tmp.rd_mutex, &mutexattr) != 0)
         FATAL("Error to init mutex");
     
