@@ -54,10 +54,8 @@ static void after_fork_father()
                     if (iter->buffer_idx == old_buffer_id)
                     {
                         DEBUG("Matched for fd %d", fd);
-                        iter->status |= FD_STATUS_RD_RECV_FORKED;
-                        iter->status &= ~FD_STATUS_RECV_REQ;
-                        iter->status &= ~FD_STATUS_RECV_ACK;
-                        iter->child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                        iter->buffer_idx = new_buffer_id;
+                        iter->status = 0;
                         isFind = true;
                     } else
                     {
@@ -75,9 +73,8 @@ static void after_fork_father()
                         {
                             isFind = true;
                             thread_data->rd_tree[ret].status |= FD_STATUS_RD_RECV_FORKED;
-                            iter->status &= ~FD_STATUS_RECV_REQ;
-                            iter->status &= ~FD_STATUS_RECV_ACK;
-                            thread_data->rd_tree[ret].child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                            iter->status = 0;
+                            thread_data->rd_tree[ret].buffer_idx = new_buffer_id;
                         }
                     }
                 }
@@ -218,7 +215,7 @@ void before_fork_blocking()
 
 pid_t fork()
 {
-    before_fork_blocking();
+    //before_fork_blocking();
     thread_data_t * thread_data = GET_THREAD_DATA();
     pid_t oldtid = gettid();
     thread_data->old_token = thread_data->token;

@@ -138,7 +138,9 @@ void interprocess_t::init(void *baseaddr, int loc)
     
     rd_mutex = (pthread_mutex_t *)memory;
     memory += sizeof(pthread_mutex_t);
-    sender_turn = (int *)memory;
+    sender_turn[my_loc] = (bool(*) [MAX_FD_NUM])memory;
+    memory += sizeof(bool) * MAX_FD_NUM;
+    sender_turn[peer_loc] = (bool(*) [MAX_FD_NUM])memory;
 }
 
 void interprocess_t::monitor_init(void *baseaddr) {
@@ -153,7 +155,6 @@ void interprocess_t::monitor_init(void *baseaddr) {
     pthread_mutexattr_t mutexattr;
     pthread_mutexattr_init(&mutexattr);
     pthread_mutexattr_setpshared(&mutexattr, PTHREAD_PROCESS_SHARED);
-    *(tmp.sender_turn) = 0;
     if (pthread_mutex_init(tmp.rd_mutex, &mutexattr) != 0)
         FATAL("Error to init mutex");
     

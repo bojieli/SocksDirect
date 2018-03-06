@@ -47,8 +47,6 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
                 new_wr_adj_ele[0].status = new_wr_adj_ele[1].status = 0;
                 new_wr_adj_ele[0].buffer_idx = new_buffer_id[0];
                 new_wr_adj_ele[1].buffer_idx = new_buffer_id[1];
-                *(thread_sock_data->buffer[new_buffer_id[0]].data.sender_turn) = 0;
-                *(thread_sock_data->buffer[new_buffer_id[1]].data.sender_turn) = 0;
                 iter = thread_data->fds_wr.add_element_at(iter, fd, new_wr_adj_ele[0]);
                 iter = thread_data->fds_wr.add_element_at(iter, fd, new_wr_adj_ele[1]);
                 continue;
@@ -108,12 +106,16 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
     }
 }
 
+#undef DEBUGON
+#define DEBUGON 1
+
 void recv_takeover_req_handler(metaqueue_ctl_element ele)
 {
     int myfd = ele.req_relay_recv.peer_fd;
     thread_data_t * thread_data = GET_THREAD_DATA();
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
-    int match_key_id = (*(thread_sock_data->bufferhash))[ele.req_relay_recv.shmem];
+    int match_buffer_id = (*(thread_sock_data->bufferhash))[ele.req_relay_recv.shmem];
+    DEBUG("Takeover msg recvd");
     /*file_struc_wr_t * curr_adjlist_h = &thread_data->fds_wr[myfd];
     for (int bufferidx_in_list = curr_adjlist_h->iterator_init();
          bufferidx_in_list != -1;
@@ -478,6 +480,8 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     interprocess_t *buffer;
     interprocess_t::queue_t::element element;
     buffer = &thread_buf->buffer[idx].data;
+    (*buffer->sender_turn[0])[socket] = true;
+    //TODO:set writer pointer
     bool isFind = false;
     while (true)
     {
@@ -560,6 +564,8 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 
 
     interprocess_t *buffer = &sock_data->buffer[idx].data;
+    (*buffer->sender_turn[0])[idx_nfd] = true;
+    //TODO:set iter pointer
     interprocess_t::queue_t::element inter_element;
     inter_element.command = interprocess_t::cmd::NEW_FD;
     inter_element.data_fd_notify.fd = idx_nfd;
@@ -661,10 +667,11 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
 {
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     thread_data_t * thread_data = GET_THREAD_DATA();
+    //if it is empty
     if (thread_sock_data->buffer[iter->buffer_idx].data.q[1].isempty())
     {
-        if ((iter->status & FD_STATUS_RD_SND_FORKED) //it is forked by the receiver side
-            || (iter->status & (FD_STATUS_RD_RECV_FORKED | FD_STATUS_RECV_ACK))) // it is forked by the sender side and ACK of takeover message is received
+        //if it has child
+        if (iter->child[0] != -1 || iter->child[1] != -1)
         {
             //remove itself and add its children
             if (iter->child[0] != -1)
@@ -675,6 +682,21 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
             //remove itself from adjlist
             iter = thread_data->fds_datawithrd.del_element(iter);
             return iter;
+        } else
+        {
+            //check whether clock pointer is point to itself, if not
+            if (!*(thread_sock_data->buffer[iter->buffer_idx].data.sender_turn[1])[thread_data->fds_datawithrd[myfd].peer_fd])
+            {
+                //send takeover msg to monitor
+                metaqueue_ctl_element ele;
+                ele.command = REQ_RELAY_RECV;
+                ele.req_relay_recv.shmem = thread_sock_data->buffer[iter->buffer_idx].shmemkey;
+                ele.req_relay_recv.req_fd = myfd;
+                ele.req_relay_recv.peer_fd = thread_data->fds_datawithrd[myfd].peer_fd;
+                thread_data->metaqueue.q[0].push(ele);
+                DEBUG("Send takeover req for myfd %d on buffer idx %d since q empty and not pointed", myfd, iter->buffer_idx);
+
+            }
         }
     }
     return iter.next();
@@ -751,7 +773,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
 
 #undef DEBUGON
 #define DEBUGON 1
-
+/*
 static void recv_takeover_traverse(int myfd, int idx, bool valid)
 {
     //whether itself is the leaf
@@ -804,7 +826,7 @@ void send_recv_takeover_req(int fd)
     }
 }
 
-
+*/
 #undef DEBUGON
 #define DEBUGON 0
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
@@ -826,12 +848,12 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     monitor2proc_hook();
 
     //send recv relay message
-    if ((thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RD_RECV_FORKED) &&
+    /*if ((thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RD_RECV_FORKED) &&
             !(thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RECV_REQ))
     {
         send_recv_takeover_req(sockfd);
         thread_data->fds_datawithrd[sockfd].property.status &= FD_STATUS_RECV_REQ;
-    }
+    }*/
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     interprocess_t *buffer_has_blk(nullptr);
