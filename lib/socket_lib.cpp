@@ -38,10 +38,11 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
          fd!=-1;
          fd = thread_data->fds_wr.hiter_next(fd))
     {
-        for (auto iter = thread_data->fds_wr.begin(fd); !iter.end();)
+        for (auto iter = thread_data->fds_wr.begin(fd); !iter.end();iter = iter.next())
         {
             if (iter->buffer_idx == old_buffer_id)
             {
+                iter->status = FD_STATUS_Q_ISOLATED;
                 DEBUG("fd %d buffer id %d peer forked and add two new queue to adjlist", fd, old_buffer_id);
                 fd_wr_list_t new_wr_adj_ele[2];
                 new_wr_adj_ele[0].status = new_wr_adj_ele[1].status = 0;
@@ -49,9 +50,7 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
                 new_wr_adj_ele[1].buffer_idx = new_buffer_id[1];
                 iter = thread_data->fds_wr.add_element_at(iter, fd, new_wr_adj_ele[0]);
                 iter = thread_data->fds_wr.add_element_at(iter, fd, new_wr_adj_ele[1]);
-                continue;
             }
-            iter.next();
         }
 
     }
@@ -116,6 +115,52 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     int match_buffer_id = (*(thread_sock_data->bufferhash))[ele.req_relay_recv.shmem];
     DEBUG("Takeover msg recvd");
+    /*
+     * Three things to do:
+     * 1. Get the fd, and iterate the adjlist to match the buffer
+     * 2. Find the current pointer to the buffer
+     * 3. Send sender_req_data to the emergency queue of the pointer in step 2
+     * 4. poll itself emergency queue
+     */
+    //get the iterator of current clock pointer
+    auto snd_clk_curr_iter = thread_data->fds_wr.begin(myfd);
+    //get the receiver who send the takeover req
+    auto req_iter = thread_data->fds_wr.begin(myfd);
+    while (!req_iter.end())
+    {
+        if (req_iter->buffer_idx == match_buffer_id) break;
+        req_iter = req_iter.next_no_move_ptr();
+    }
+    if (req_iter.end())
+        FATAL("Fail to find the the receiver who send the takeover req");
+    if (req_iter.curr_ptr == snd_clk_curr_iter.curr_ptr)
+        FATAL("Current clk pointer already point to the takeover req sender");
+
+    if (snd_clk_curr_iter->status & FD_STATUS_Q_ISOLATED)
+    {
+        DEBUG("The Q of current clk ptr has been isolated. polled by sender");
+        auto polling_q_ptr = &(thread_sock_data->buffer[snd_clk_curr_iter->buffer_idx].data.q[0]);
+        unsigned int q_mask = polling_q_ptr->MASK;
+        unsigned int q_ptr = polling_q_ptr->pointer;
+        unsigned int old_q_ptr = q_ptr;
+        //find the tail of the queue by iterating the queue
+        interprocess_t::queue_t::element tmp;
+        bool tmp_isvalid, tmp_isdel;
+        std::tie(tmp_isvalid, tmp_isdel) = polling_q_ptr->peek((q_ptr & q_mask), tmp);
+        //currently the queue is not full
+        if (!tmp_isvalid)
+        {
+            while (true)
+            {
+                bool isvalid, isdel;
+                std::tie(isvalid, isdel) = polling_q_ptr->peek((q_ptr - 1) & q_mask, tmp);
+                if (!isvalid) break;
+                --q_ptr;
+            }
+        }
+        DEBUG("Old q start at %u", q_ptr);
+        //iterate the old queue and write the data to certain 
+    }
     /*file_struc_wr_t * curr_adjlist_h = &thread_data->fds_wr[myfd];
     for (int bufferidx_in_list = curr_adjlist_h->iterator_init();
          bufferidx_in_list != -1;
@@ -167,10 +212,11 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
     thread_data->metaqueue.q[0].push(ele);*/
     /*
      *
-     * TODO: Finish the handler for ack of takeover msg
+     *
      */
 
 }
+/*
 
 bool takeover_ack_traverse_rd_tree(int curr_idx, int match_bid)
 {
@@ -207,11 +253,11 @@ bool takeover_ack_traverse_rd_tree(int curr_idx, int match_bid)
         return false;
     }
 
-}
+}*/
 
 
 
-void recv_takeover_ack_handler(metaqueue_ctl_element ele)
+/*void recv_takeover_ack_handler(metaqueue_ctl_element ele)
 {
     key_t shmem_key = ele.req_relay_recv.shmem;
     int myfd = ele.req_relay_recv.req_fd;
@@ -257,7 +303,7 @@ void recv_takeover_ack_handler(metaqueue_ctl_element ele)
         }
         iter=iter.next();
     }
-}
+}*/
 
 void monitor2proc_hook()
 {
@@ -273,9 +319,9 @@ void monitor2proc_hook()
             case REQ_RELAY_RECV:
                 recv_takeover_req_handler(ele);
                 break;
-            case REQ_RELAY_RECV_ACK:
+            /*case REQ_RELAY_RECV_ACK:
                 recv_takeover_ack_handler(ele);
-                break;
+                break;*/
         }
     }
 }
@@ -474,14 +520,14 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     fd_wr_list_t peer_fd_wr;
     peer_fd_wr.status = 0;
     peer_fd_wr.buffer_idx = peer_fd_rd.buffer_idx;
-    data->fds_wr.add_element(socket, peer_fd_wr);
+    auto wr_iter = data->fds_wr.add_element(socket, peer_fd_wr);
 
     //wait for ACK from peer
     interprocess_t *buffer;
     interprocess_t::queue_t::element element;
     buffer = &thread_buf->buffer[idx].data;
     (*buffer->sender_turn[0])[socket] = true;
-    //TODO:set writer pointer
+    data->fds_wr.set_ptr_to(socket, wr_iter);
     bool isFind = false;
     while (true)
     {
@@ -560,12 +606,12 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     npeerfd_wr.buffer_idx = idx;
     npeerfd_wr.status = 0;
     data->fds_wr.add_key(0);
-    data->fds_wr.add_element(idx_nfd, npeerfd_wr);
+    auto iter_wr = data->fds_wr.add_element(idx_nfd, npeerfd_wr);
 
 
     interprocess_t *buffer = &sock_data->buffer[idx].data;
     (*buffer->sender_turn[0])[idx_nfd] = true;
-    //TODO:set iter pointer
+    data->fds_wr.set_ptr_to(idx_nfd, iter_wr);
     interprocess_t::queue_t::element inter_element;
     inter_element.command = interprocess_t::cmd::NEW_FD;
     inter_element.data_fd_notify.fd = idx_nfd;
@@ -625,7 +671,6 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     auto iter = thread_data->fds_wr.begin(fd);
-    iter = iter.next();
     interprocess_t *buffer = &thread_sock_data->
             buffer[iter->buffer_idx].data;
     int peer_fd = thread_data->fds_datawithrd[fd].peer_fd;
@@ -681,7 +726,7 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
 
             //remove itself from adjlist
             iter = thread_data->fds_datawithrd.del_element(iter);
-            return iter;
+            return iter.next();
         } else
         {
             //check whether clock pointer is point to itself, if not

@@ -79,12 +79,6 @@ static void after_fork_father()
                     }
                 }
 
-                if (isFind)
-                {
-                    thread_data->fds_datawithrd[fd].property.status |= FD_STATUS_RD_RECV_FORKED;
-                    thread_data->fds_datawithrd[fd].property.status &= ~FD_STATUS_RECV_REQ;
-                    thread_data->fds_datawithrd[fd].property.status &= ~FD_STATUS_RECV_ACK;
-                }
             }
             
             //deal with the write side
@@ -153,6 +147,7 @@ void after_exec()
     usocket_init();
 }
 
+/*
 static bool recv_takeover_check(int idx)
 {
     //whether itself is the leaf
@@ -176,8 +171,9 @@ static bool recv_takeover_check(int idx)
     
     return ret;
     
-}
+} */
 
+/*
 
 static bool before_fork_blocking_chk()
 {
@@ -205,13 +201,13 @@ static bool before_fork_blocking_chk()
         }
     }
     return isblocking;
-}
+} */
 
-void before_fork_blocking()
+/*void before_fork_blocking()
 {
     while (before_fork_blocking_chk())
         monitor2proc_hook();
-}
+}*/
 
 pid_t fork()
 {
