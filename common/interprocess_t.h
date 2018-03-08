@@ -43,6 +43,8 @@ public:
         short pushdata(uint8_t *start_ptr, int size) volatile ;
 
         short popdata(unsigned short src, int &size, uint8_t *user_buf) volatile ;
+        short popdata_nomemrelease(unsigned short src, int &size, uint8_t *user_buf) volatile ;
+
 
         locklessqueue_t<int, 2048> *avail_slots;
 

@@ -95,6 +95,38 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
     return current_loc;
 }
 
+short interprocess_t::buffer_t::popdata_nomemrelease(unsigned short src, int &size, uint8_t *user_buf) volatile
+{
+    short current_loc = src;
+    int sizeleft = size;
+    uint8_t *curr_ptr = user_buf;
+    while ((current_loc != -1) && (sizeleft != 0))
+    {
+        uint16_t size_inblk = mem[current_loc].size;
+        uint16_t offset_inblk = mem[current_loc].offset;
+        bool isfullblk = (sizeleft >= mem[current_loc].size);
+        short copy_size = isfullblk ? size_inblk : sizeleft;
+        if (user_buf != nullptr)
+            mempcpy(curr_ptr, &mem[current_loc].data[offset_inblk], copy_size);
+        curr_ptr += copy_size;
+        sizeleft -= copy_size;
+        if (!isfullblk)
+        { //last block and not fully copied
+            size_inblk -= copy_size;
+            offset_inblk += copy_size;
+        }
+        mem[current_loc].size = size_inblk;
+        mem[current_loc].offset = offset_inblk;
+        if ((sizeleft == 0) && (!isfullblk)) break;
+        short next_ptr = mem[current_loc].next_ptr;
+        current_loc = next_ptr;
+    }
+
+    size -= sizeleft;
+    return current_loc;
+}
+
+
 void interprocess_t::init(key_t shmem_key, int loc)
 {
     int mem_id;

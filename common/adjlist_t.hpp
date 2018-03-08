@@ -212,7 +212,7 @@ template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
 inline void
 adjlist<T1, initsizet1, T2, initsizet2>::set_ptr_to(int key_idx, iterator iter)
 {
-    index[key_idx].pointer = iter.curr_ptr;
+    index[key_idx].pointer = iter.prev_ptr;
 }
         
         
