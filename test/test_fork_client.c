@@ -35,6 +35,8 @@ int main()
         //try to take over
         sleep(1);
         read(init_fd, buffer, 1);
+        assert(buffer[0] == 10);
+        read(init_fd, buffer, 1);
         assert(buffer[0] == 1);
         sleep(2);
         read(init_fd, buffer, 1);
