@@ -54,10 +54,8 @@ static void after_fork_father()
                     if (iter->buffer_idx == old_buffer_id)
                     {
                         DEBUG("Matched for fd %d", fd);
-                        iter->status |= FD_STATUS_RD_RECV_FORKED;
-                        iter->status &= ~FD_STATUS_RECV_REQ;
-                        iter->status &= ~FD_STATUS_RECV_ACK;
-                        iter->child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                        iter->buffer_idx = new_buffer_id;
+                        iter->status = 0;
                         isFind = true;
                     } else
                     {
@@ -75,19 +73,12 @@ static void after_fork_father()
                         {
                             isFind = true;
                             thread_data->rd_tree[ret].status |= FD_STATUS_RD_RECV_FORKED;
-                            iter->status &= ~FD_STATUS_RECV_REQ;
-                            iter->status &= ~FD_STATUS_RECV_ACK;
-                            thread_data->rd_tree[ret].child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                            iter->status = 0;
+                            thread_data->rd_tree[ret].buffer_idx = new_buffer_id;
                         }
                     }
                 }
 
-                if (isFind)
-                {
-                    thread_data->fds_datawithrd[fd].property.status |= FD_STATUS_RD_RECV_FORKED;
-                    thread_data->fds_datawithrd[fd].property.status &= ~FD_STATUS_RECV_REQ;
-                    thread_data->fds_datawithrd[fd].property.status &= ~FD_STATUS_RECV_ACK;
-                }
             }
             
             //deal with the write side
@@ -107,19 +98,7 @@ static void after_fork_father()
                         iter->buffer_idx = new_buffer_id;
                     }
                 }
-                
-                //then iterate candidate list
-                for (int idx = thread_data->fds_wr[fd].iterator_init(); 
-                     idx != -1;
-                     idx=thread_data->fds_wr[fd].iterator_next(idx))
-                {
-                    if (thread_data->fds_wr[fd][idx].buffer_idx == old_buffer_id)
-                    {
-                        DEBUG("Write Fork case: find old buffer idx in candidate for fd %d", fd);
-                        thread_data->fds_wr[fd][idx].status = 0;
-                        thread_data->fds_wr[fd][idx].buffer_idx = new_buffer_id;
-                    }
-                }
+
             }
         }
     }
@@ -168,6 +147,7 @@ void after_exec()
     usocket_init();
 }
 
+/*
 static bool recv_takeover_check(int idx)
 {
     //whether itself is the leaf
@@ -191,8 +171,9 @@ static bool recv_takeover_check(int idx)
     
     return ret;
     
-}
+} */
 
+/*
 
 static bool before_fork_blocking_chk()
 {
@@ -220,17 +201,17 @@ static bool before_fork_blocking_chk()
         }
     }
     return isblocking;
-}
+} */
 
-void before_fork_blocking()
+/*void before_fork_blocking()
 {
     while (before_fork_blocking_chk())
         monitor2proc_hook();
-}
+}*/
 
 pid_t fork()
 {
-    before_fork_blocking();
+    //before_fork_blocking();
     thread_data_t * thread_data = GET_THREAD_DATA();
     pid_t oldtid = gettid();
     thread_data->old_token = thread_data->token;

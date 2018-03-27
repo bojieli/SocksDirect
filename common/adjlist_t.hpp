@@ -13,7 +13,6 @@ template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
 class adjlist_iterator_t
 {
 private:
-    int curr_ptr;
     int prev_ptr;
     int start_ptr;
     using adjlist_type=adjlist<T1, initsizet1, T2, initsizet2>;
@@ -24,6 +23,7 @@ private:
 
     friend class adjlist<T1, initsizet1, T2, initsizet2>;
 public:
+    int curr_ptr;
     adjlist_iterator_t(adjlist_type *_adj, int _idx):
             curr_ptr(-1),
             prev_ptr(-1),
@@ -33,6 +33,8 @@ public:
             isvalid(false)
     {}
     adjlist_iterator_t<T1, initsizet1, T2, initsizet2> & next();
+    adjlist_iterator_t<T1, initsizet1, T2, initsizet2> & next_no_move_ptr();
+
     T2 &operator* ();
     T2 *operator-> ();
     bool end();
@@ -66,6 +68,7 @@ public:
     iterator add_element_at(iterator iter, int key_idx, const T2 &input);
     iterator del_element(iterator iter);
     iterator begin(int key_idx);
+    void set_ptr_to(int key_idx, iterator iter);
     bool is_keyvalid(int key_idx);
     void init(uint32_t size, const T1& input);
     int hiter_begin();
@@ -172,7 +175,6 @@ adjlist<T1, initsizet1, T2, initsizet2>::add_element_at(iterator iter, int key_i
         ret.prev_ptr = n_adjele_idx;
     } else //it is not the first element for the designated key
     {
-        int prev_ptr = ptr;
         adj_element_t ele;
         ele.adjdata = input;
         ele.next = _adjlist[iter.curr_ptr].next;
@@ -205,6 +207,15 @@ inline bool adjlist<T1, initsizet1, T2, initsizet2>::is_keyvalid(int key_idx)
     return index.isvalid(key_idx);
 }
 
+
+template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
+inline void
+adjlist<T1, initsizet1, T2, initsizet2>::set_ptr_to(int key_idx, iterator iter)
+{
+    index[key_idx].pointer = iter.prev_ptr;
+}
+        
+        
 template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
 inline adjlist_iterator_t<T1, initsizet1, T2, initsizet2>
 adjlist<T1, initsizet1, T2, initsizet2>::del_element(iterator iter)
@@ -256,6 +267,22 @@ inline adjlist_iterator_t<T1, initsizet1, T2, initsizet2> &
 adjlist_iterator_t<T1, initsizet1, T2, initsizet2>::next()
 {
     adj->index[idx].pointer = curr_ptr;
+    int n_next_ptr = adj->_adjlist[curr_ptr].next;
+    //Already one round
+    if (n_next_ptr == start_ptr)
+    {
+        isvalid = false;
+        return *this;
+    }
+    prev_ptr = curr_ptr;
+    curr_ptr = n_next_ptr;
+    return *this;
+};
+
+template<class T1, uint32_t initsizet1, class T2, uint32_t initsizet2>
+inline adjlist_iterator_t<T1, initsizet1, T2, initsizet2> &
+adjlist_iterator_t<T1, initsizet1, T2, initsizet2>::next_no_move_ptr()
+{
     int n_next_ptr = adj->_adjlist[curr_ptr].next;
     //Already one round
     if (n_next_ptr == start_ptr)

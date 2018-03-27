@@ -13,6 +13,7 @@
 #define INTERPROCESS_SLOTS_IN_QUEUE 256
 #define INTERPROCESS_Q_MASK ((INTERPROCESS_SLOTS_IN_QUEUE)-1)
 #define INTERPROCESS_SLOTS_BLK_SIZE 1018
+#define MAX_FD_NUM 10240
 
 class interprocess_t
 {
@@ -42,6 +43,8 @@ public:
         short pushdata(uint8_t *start_ptr, int size) volatile ;
 
         short popdata(unsigned short src, int &size, uint8_t *user_buf) volatile ;
+        short popdata_nomemrelease(unsigned short src, int &size, uint8_t *user_buf) volatile ;
+
 
         locklessqueue_t<int, 2048> *avail_slots;
 
@@ -84,13 +87,14 @@ public:
     buffer_t b[2];
     locklessqueue_t<int, 2048> b_avail[2];
     pthread_mutex_t * rd_mutex;
+    bool (*sender_turn[2])[MAX_FD_NUM];
     static int get_sharedmem_size()
     {
         return (
                 2 * locklessqueue_t<int, 2 * INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize() +
                 2 * locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize() +
                 2 * locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize() +
-                2 * sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER + sizeof(pthread_mutex_t)
+                2 * sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER + sizeof(pthread_mutex_t) + sizeof(bool) * MAX_FD_NUM * 2
                 );
     }
 
