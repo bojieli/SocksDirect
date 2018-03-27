@@ -22,8 +22,10 @@ int main()
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed\n");
-    int init_fd = accept4(fd, NULL, NULL, 0);
     char buffer[100];
+    buffer[0] = 10;
+    int init_fd = accept4(fd, NULL, NULL, 0);
+    write(init_fd, buffer, 1);
     sleep(2);
     buffer[0] = 1;
     write(init_fd, buffer, 1);
