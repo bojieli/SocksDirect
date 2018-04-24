@@ -8,11 +8,13 @@
 #include "../common/helper.h"
 #include "../lib/pot_socket_lib.h"
 uint8_t buffer[65536];
-long samples[10000];
 int main(int argc, char* argv[])
 {
+    const int warmup_num = 1000;
+    const int test_num=10000;
+    double samples[warmup_num + test_num];
+
     if (argc < 3) FATAL("Lack of parameter: <output file name> <size of the message>");
-    int test_num=10000;
     int inner_test_num = 1;
     int test_size=atoi(argv[2]);
     FILE* data_output_f = fopen(argv[1], "w");
@@ -30,11 +32,13 @@ int main(int argc, char* argv[])
     printf("connect succeed\n");
 
     pot_init_write();
-    for (int i=0;i<test_num;++i)
+    InitRdtsc();
+    for (int i=0;i<warmup_num + test_num;++i)
     {
         //get time
         struct timespec s_time, e_time;
-        clock_gettime(CLOCK_REALTIME, &s_time);
+        //clock_gettime(CLOCK_REALTIME, &s_time);
+        GetRdtscTime(&s_time);
 
         for (int j=0;j<inner_test_num; ++j)
         {
@@ -45,12 +49,13 @@ int main(int argc, char* argv[])
         }
 
         //get time
-        clock_gettime(CLOCK_REALTIME, &e_time);
+        //clock_gettime(CLOCK_REALTIME, &e_time);
+        GetRdtscTime(&e_time);
 
-        samples[i]= ((e_time.tv_sec - s_time.tv_sec) * (int)1e9 + (e_time.tv_nsec - s_time.tv_nsec)) / inner_test_num;
+        samples[i]= (double)((e_time.tv_sec - s_time.tv_sec) * (double)1e9 + (e_time.tv_nsec - s_time.tv_nsec)) / inner_test_num;
     }
 
-    for (int i=0;i<test_num;++i) fprintf(data_output_f, "%ld ", samples[i]);
+    for (int i=warmup_num;i<warmup_num + test_num;++i) fprintf(data_output_f, "%.0lf\n", samples[i]);
     fclose(data_output_f);
     return 0;
 }

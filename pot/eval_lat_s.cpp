@@ -13,6 +13,7 @@
 int main(int argc, char* argv[])
 {
     if (argc < 2) FATAL("Lack of parameter: <output file name> <size of the message>");
+    int warmup_num=1000;
     int test_num=10000;
     int inner_test_num = 1;
     int test_size=atoi(argv[1]);
@@ -36,13 +37,12 @@ int main(int argc, char* argv[])
 
     pot_init_write();
 
-
     int connect_fd = accept4(fd, NULL, NULL, 0);
     if (connect_fd == -1)
         FATAL("Failed to connect to client");
     printf("Connected\n");
 
-    for (int i=0;i<test_num;++i)
+    for (int i=0;i<warmup_num + test_num;++i)
     {
         //pong
         for (int j=0;j< inner_test_num; ++j)
