@@ -17,6 +17,7 @@
 #include <fcntl.h>
 #include <string.h>
 #include <pthread.h>
+#include <time.h>
 
 #include <sys/mman.h>
 #include <sys/wait.h>
@@ -70,6 +71,9 @@ extern "C"
 extern pid_t gettid();
 
 extern int pin_thread(int core);
+
+void InitRdtsc();
+void GetRdtscTime(struct timespec *ts);
 
 #ifdef __cplusplus
 }
