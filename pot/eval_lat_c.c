@@ -10,9 +10,9 @@
 uint8_t buffer[65536];
 int main(int argc, char* argv[])
 {
-    const int warmup_num = 1000;
+    const int warmup_num = 10000000;
     const int test_num=10000;
-    double samples[warmup_num + test_num];
+    double samples[test_num];
 
     if (argc < 3) FATAL("Lack of parameter: <output file name> <size of the message>");
     int inner_test_num = 1;
@@ -52,10 +52,11 @@ int main(int argc, char* argv[])
         //clock_gettime(CLOCK_REALTIME, &e_time);
         GetRdtscTime(&e_time);
 
-        samples[i]= (double)((e_time.tv_sec - s_time.tv_sec) * (double)1e9 + (e_time.tv_nsec - s_time.tv_nsec)) / inner_test_num;
+        if (i >= warmup_num)
+            samples[i - warmup_num]= (double)((e_time.tv_sec - s_time.tv_sec) * (double)1e9 + (e_time.tv_nsec - s_time.tv_nsec)) / inner_test_num;
     }
 
-    for (int i=warmup_num;i<warmup_num + test_num;++i) fprintf(data_output_f, "%.0lf\n", samples[i]);
+    for (int i=0;i<test_num;++i) fprintf(data_output_f, "%.0lf\n", samples[i]);
     fclose(data_output_f);
     return 0;
 }
