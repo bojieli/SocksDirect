@@ -113,14 +113,14 @@ double get_memcached_time(memcached_st *memc, memcached_return *rc)
 {
     struct timespec begin_time, end_time;
     clock_gettime(CLOCK_REALTIME, &begin_time);
-    for (int i=0; i<2; i++) {
-        char *key = "keylat";
-        size_t value_length;
-        int flags;
-        char *retrieved_value = memcached_get(memc, key, strlen(key), &value_length, &flags, rc);
-        if (value_length > 0 && retrieved_value)
-            free(retrieved_value);
-    }
+
+    char *key = "keylat";
+    size_t value_length;
+    int flags;
+    char *retrieved_value = memcached_get(memc, key, strlen(key), &value_length, &flags, rc);
+    if (value_length > 0 && retrieved_value)
+        free(retrieved_value);
+
     clock_gettime(CLOCK_REALTIME, &end_time);
     double usec = (1e6 * (end_time.tv_sec - begin_time.tv_sec) + (end_time.tv_nsec - begin_time.tv_nsec) / 1.0e3);
     return usec;
@@ -223,7 +223,7 @@ static void * reporter_thread(void *arg)
         double latency = get_memcached_time(memc, &rc);
         char *name = (getppid() == 0 ? "ipc" : "linux");
         FILE *fp = fopen("/usr/share/nginx/html/data/live.txt", "w");
-        fprintf(fp, "%s-%d %.2lf %.2lf\n", name, nthreads, (total_counter - last_counter) / 2.0e4, latency);
+        fprintf(fp, "%s-%d %.2lf %.2lf\n", name, nthreads, (total_counter - last_counter) / 4.0e3, latency);
         fclose(fp);
         last_counter = total_counter;
     }
