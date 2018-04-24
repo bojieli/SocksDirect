@@ -66,6 +66,11 @@ public:
                 int pointer;
                 int fd;
             };
+            struct __attribute__((packed)) pot_rw_t
+            {
+                int fd;
+                uint8_t raw[9];
+            };
             struct __attribute__((packed)) close_t
             {
                 int req_fd;
@@ -78,6 +83,7 @@ public:
                 fd_notify_t data_fd_notify;
                 fd_rw_t data_fd_rw;
                 close_t close_fd;
+                pot_rw_t pot_fd_rw;
             };
             unsigned char command;
         };
@@ -108,6 +114,7 @@ public:
     {
         NEW_FD=2,
         DATA_TRANSFER,
+        NOP,
         CLOSE_FD,
         CLOSE_REQ_NORD,
         CLOSE_REQ_NOWR,
