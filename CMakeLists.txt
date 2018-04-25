@@ -61,6 +61,11 @@ add_executable(pot_eval_lat_s pot/eval_lat_s.cpp)
 target_link_libraries(pot_eval_lat_s ipc)
 add_executable(pot_eval_lat_c pot/eval_lat_c.c)
 target_link_libraries(pot_eval_lat_c ipc)
+add_executable(pot_eval_linux_lat_s pot/eval_linux_lat_s.cpp common/helper.c common/helper.h)
+add_executable(pot_eval_linux_lat_c pot/eval_linux_lat_c.c common/helper.c common/helper.h)
+target_link_libraries(pot_eval_linux_lat_c pthread)
+target_link_libraries(pot_eval_linux_lat_s pthread)
+
 
 
 
