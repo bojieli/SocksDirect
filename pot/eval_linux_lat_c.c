@@ -12,7 +12,7 @@
 #define MAX_MSGSIZE (1024*1024)
 uint8_t buffer[MAX_MSGSIZE];
 #define TST_NUM 10000
-#define WARMUP_NUM 1000
+#define WARMUP_NUM 10000
 double samples[TST_NUM];
 
 int main(int argc, char * argv[])
