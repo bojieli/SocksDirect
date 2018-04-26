@@ -10,7 +10,7 @@
 
 
 
-#define MAX_MSGSIZE (64*1024)
+#define MAX_MSGSIZE (1024*1024)
 #define TST_NUM 10000
 #define WARMUP_NUM 1000
 
@@ -30,6 +30,7 @@ int main(int argc, char * argv[])
     if (fd == -1) FATAL("Failed to create fd");
     int property=1;
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &property, sizeof(int));
+
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(8080);
@@ -53,6 +54,9 @@ int main(int argc, char * argv[])
         FATAL("Failed to connect to client");
     int tmp = 1;
     setsockopt( connect_fd, IPPROTO_TCP, TCP_NODELAY, (void *)&tmp, sizeof(tmp));
+    tmp = MAX_MSGSIZE;
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &tmp, sizeof(tmp));
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &tmp, sizeof(tmp));
 
     InitRdtsc();
 

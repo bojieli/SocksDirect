@@ -9,7 +9,7 @@
 #include "../common/helper.h"
 #include "../lib/lib.h"
 
-#define MAX_MSGSIZE (64*1024)
+#define MAX_MSGSIZE (1024*1024)
 uint8_t buffer[MAX_MSGSIZE];
 #define TST_NUM 10000
 #define WARMUP_NUM 1000
@@ -39,6 +39,9 @@ int main(int argc, char * argv[])
     inet_pton(AF_INET, argv[2], &servaddr.sin_addr);
     int tmp=1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (void *)&tmp, sizeof(tmp));
+    tmp = MAX_MSGSIZE;
+    setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &tmp, sizeof(tmp));
+    setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &tmp, sizeof(tmp));
     if (connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("Failed to connect");
     printf("connect succeed\n");
@@ -57,12 +60,26 @@ int main(int argc, char * argv[])
         int len=0;
         while (len < msgsize)
         {
-            len += write(fd, (void *) buffer+len, msgsize-len);
+            int onetimelen=write(fd, (void *) buffer+len, msgsize-len);
+            if (onetimelen<0)
+            {
+                printf("Wr err");
+                return -1;
+            }
+            len += onetimelen;
         }
 
         len = 0;
         while (len < msgsize)
-            len += recvfrom(fd, (void *) buffer+len, msgsize-len, 0, NULL, NULL);
+        {
+            int onetimelen = recvfrom(fd, (void *) buffer + len, msgsize - len, 0, NULL, NULL);
+            if (onetimelen<0)
+            {
+                printf("Wr err");
+                return -1;
+            }
+            len += onetimelen;
+        }
 
         //get time
         //clock_gettime(CLOCK_REALTIME, &e_time);
