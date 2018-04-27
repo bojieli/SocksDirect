@@ -19,6 +19,7 @@ struct thread_ctx_t
     int core_num;
     int msgsize;
     int counter;
+    int ready;
 } ;
 
 
@@ -38,6 +39,7 @@ void* tput_msg_receiver(void* p_ctx_tmp)
     pin_thread(corenum);
     InitRdtsc();
     printf("Connection for core %d inited\n", corenum);
+    p_ctx->ready = 1;
     while (!done[corenum])
     {
         int len = 0;
@@ -102,6 +104,7 @@ int main(int argc, char * argv[])
         per_thread_ctx[current_core_num].msgsize = msgsize;
         per_thread_ctx[current_core_num].core_num = current_core_num;
         per_thread_ctx[current_core_num].fd = connect_fd;
+        per_thread_ctx[current_core_num].ready = 0;
         done[current_core_num] = 0;
         pthread_create(&threads[current_core_num],NULL, tput_msg_receiver, &per_thread_ctx[current_core_num]);
     }
@@ -109,7 +112,16 @@ int main(int argc, char * argv[])
 
 
 
-    sleep(5);
+    bool allready(true);
+    do
+    {
+        allready=true;
+        for (int i=0;i<core_sum;++i)
+        {
+            int current_core_num = i* 2 + 2 - i % 2;
+            allready = allready && per_thread_ctx[current_core_num].ready;
+        }
+    }while (!allready);
     InitRdtsc();
 
     int64_t old_ctr(0), new_ctr(0);
