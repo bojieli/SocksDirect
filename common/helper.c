@@ -44,7 +44,8 @@ struct timespec *TimeSpecDiff(struct timespec *ts1, struct timespec *ts2)
     return &ts;
 }
 
-double g_TicksPerNanoSec;
+static pthread_key_t tick_key;
+
 
 static void CalibrateTicks()
 {
@@ -66,14 +67,16 @@ static void CalibrateTicks()
     clock_gettime(CLOCK_MONOTONIC, &endts);
     struct timespec *tmpts = TimeSpecDiff(&endts, &begints);
     uint64_t nsecElapsed = tmpts->tv_sec * 1000000000LL + tmpts->tv_nsec;
-    g_TicksPerNanoSec = (double) (end - begin) / (double) nsecElapsed;
+    double *g_TicksPerNanoSec=malloc(sizeof(double));
+    *g_TicksPerNanoSec = (double) (end - begin) / (double) nsecElapsed;
+    pthread_setspecific(tick_key, g_TicksPerNanoSec);
 }
 
 /* Call once before using RDTSC, has side effect of binding process to CPU1 */
 void InitRdtsc()
 {
     CalibrateTicks();
-    printf("Calibrated!");
+    printf("Calibrated!\n");
 }
 
 void GetTimeSpec(struct timespec *ts, uint64_t nsecs)
@@ -85,5 +88,10 @@ void GetTimeSpec(struct timespec *ts, uint64_t nsecs)
 /* ts will be filled with time converted from TSC reading */
 void GetRdtscTime(struct timespec *ts)
 {
-    GetTimeSpec(ts, RDTSC() / g_TicksPerNanoSec);
+    GetTimeSpec(ts, RDTSC() / *((double *)pthread_getspecific(tick_key)));
+}
+
+void TimingInit()
+{
+    pthread_key_create(&tick_key,NULL);
 }
