@@ -47,7 +47,7 @@ int main(int argc, char * argv[])
     printf("connect succeed\n");
 
     for (int i=0;i<MAX_MSGSIZE;++i) buffer[i] = rand() % 256;
-
+    TimingInit();
     InitRdtsc();
     for (int i=0;i<WARMUP_NUM + TST_NUM;++i)
     {

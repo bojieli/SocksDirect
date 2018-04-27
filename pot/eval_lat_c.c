@@ -32,6 +32,7 @@ int main(int argc, char* argv[])
     printf("connect succeed\n");
 
     pot_init_write();
+    TimingInit();
     InitRdtsc();
     for (int i=0;i<warmup_num + test_num;++i)
     {
