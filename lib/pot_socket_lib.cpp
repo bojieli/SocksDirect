@@ -15,8 +15,10 @@
 #include <sys/ioctl.h>
 #include "fork.h"
 #include "pot_socket_lib.h"
+#include "../lib/zerocopy.h"
+
 const int MAX_TST_MSG_SIZE=64*1024;
-static uint8_t pot_mock_data[MAX_TST_MSG_SIZE];
+static uint8_t pot_mock_data[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
 
 void pot_init_write()
 {
@@ -45,19 +47,35 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
     int peer_fd = thread_data->fds_datawithrd[fd].peer_fd;
     interprocess_t::queue_t::element ele;
 
+    uint8_t *send_buffer = pot_mock_data;
+
     if (numofbytes <= 16)
     {
         ele.command = interprocess_t::cmd ::NOP;
         ele.pot_fd_rw.fd = peer_fd;
-        memcpy(ele.pot_fd_rw.raw, pot_mock_data, 9);
+        memcpy(ele.pot_fd_rw.raw, send_buffer, 9);
         SW_BARRIER;
         buffer->q[0].push(ele);
         return 0;
     }
 
-    if (numofbytes < 4096)
+    while (numofbytes >= 4096)
     {
-        short startloc = buffer->b[0].pushdata(pot_mock_data, numofbytes);
+        long physaddr = virt2phys((unsigned long)send_buffer);
+        if (physaddr < 0)
+                FATAL("error calling virt2phys: return %ld\n", physaddr);
+        ele.command = interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY;
+        ele.data_fd_rw_zc.fd = peer_fd;
+        ele.data_fd_rw_zc.page_high = (unsigned short)(physaddr >> 32);
+        ele.data_fd_rw_zc.page_low = (unsigned int)(physaddr);
+        SW_BARRIER;
+        buffer->q[0].push(ele);
+        send_buffer += PAGE_SIZE;
+    }
+
+    if (numofbytes > 0)
+    {
+        short startloc = buffer->b[0].pushdata(send_buffer, numofbytes);
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
         ele.data_fd_rw.fd = peer_fd;
         ele.data_fd_rw.pointer = startloc;
@@ -65,11 +83,6 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
         buffer->q[0].push(ele);
         return 0;
 
-    }
-
-    if (numofbytes >= 4096)
-    {
-        FATAL("Zero copy not implemented!!!!!");
     }
     return 0;
 }
@@ -130,7 +143,8 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 }
             }
 
-            if (ele.command == interprocess_t::cmd::DATA_TRANSFER &&
+            if ((ele.command == interprocess_t::cmd::DATA_TRANSFER || 
+                 ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY) &&
                 ele.data_fd_rw.fd == target_fd)
             {
                 loc_in_buffer_has_blk = pointer;
@@ -237,6 +251,13 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
                 ele.data_fd_rw.pointer = blk;
                 buffer_has_blk->q[1].set(loc_has_blk, ele);
             }
+        }
+        if (ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY)
+        {
+            long physaddr = (ele.data_fd_rw_zc.page_high << 32) | (ele.data_fd_rw_zc.page_low);
+            long ret = map_phys((unsigned long)buf, physaddr);
+            if (ret < 0)
+                FATAL("map_phys failed: %d\n", ret);
         }
         if (ele.command == interprocess_t::cmd::NOP)
         {

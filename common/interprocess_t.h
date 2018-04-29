@@ -66,6 +66,13 @@ public:
                 int pointer;
                 int fd;
             };
+            struct __attribute__((packed)) fd_rw_zc_t
+            {
+                int fd;
+                unsigned short num_pages;
+                unsigned short page_high;
+                unsigned int page_low;
+            };
             struct __attribute__((packed)) pot_rw_t
             {
                 int fd;
@@ -82,6 +89,7 @@ public:
                 unsigned char raw[13];
                 fd_notify_t data_fd_notify;
                 fd_rw_t data_fd_rw;
+                fd_rw_zc_t data_fd_rw_zc;
                 close_t close_fd;
                 pot_rw_t pot_fd_rw;
             };
@@ -114,6 +122,7 @@ public:
     {
         NEW_FD=2,
         DATA_TRANSFER,
+        DATA_TRANSFER_ZEROCOPY,
         NOP,
         CLOSE_FD,
         CLOSE_REQ_NORD,

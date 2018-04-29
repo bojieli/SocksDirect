@@ -291,7 +291,7 @@ static void *wrapper(void *arg)
 }
 
 int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
-                   void *(*start_routine)(void *), void *arg) __THROW
+                   void *(*start_routine)(void *), void *arg) //__THROW
 {
     struct wrapper_arg *warg = (wrapper_arg *)malloc(sizeof(*warg));
     if (!warg)
