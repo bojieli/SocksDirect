@@ -944,8 +944,10 @@ asmlinkage long sys_statx(int dfd, const char __user *path, unsigned flags,
 
 asmlinkage long sys_alloc_phys(unsigned long npages_order);
 asmlinkage long sys_virt2phys(unsigned long virt_addr);
+asmlinkage long sys_virt2physv(unsigned long virt_addr, unsigned long __user *phys_addr, unsigned long npages);
 asmlinkage long sys_map_phys(unsigned long virt_addr, unsigned long phys_addr);
 asmlinkage long sys_map_physv(unsigned long virt_addr, unsigned long __user *phys_addr, unsigned long __user *old_phys_addr, unsigned long npages);
 asmlinkage long sys_socksdirect(unsigned long echo);
+asmlinkage long sys_virt2phys16(unsigned long virt_addr, unsigned long __user *phys_addr, unsigned long npages);
 
 #endif

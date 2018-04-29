@@ -39,8 +39,7 @@ SYSCALL_DEFINE1(alloc_phys, unsigned long, npages_order)
 	return pfn;
 }
 
-
-SYSCALL_DEFINE1(virt2phys, unsigned long, virt_addr)
+static inline unsigned long do_virt2phys(unsigned long virt_addr)
 {
 	pgd_t *pgd;
 	p4d_t *p4d;
@@ -76,7 +75,49 @@ SYSCALL_DEFINE1(virt2phys, unsigned long, virt_addr)
 	return pfn;
 }
 
-inline static int do_map_phys(unsigned long virt_addr, unsigned long new_pfn, unsigned long *old_pfn)
+SYSCALL_DEFINE1(virt2phys, unsigned long, virt_addr)
+{
+    return do_virt2phys(virt_addr);
+}
+
+SYSCALL_DEFINE3(virt2phys16, unsigned long, virt_addr, unsigned long __user *, phys_addr, unsigned long, npages)
+{
+	unsigned long pfn[16];
+	int i;
+    
+	for (i=0; i<npages; i++)
+	{
+		pfn[i] = do_virt2phys(virt_addr);
+		virt_addr += PAGE_SIZE;
+	}
+	
+	copy_to_user(phys_addr, pfn, sizeof(unsigned long) * npages);
+	return 0;
+}
+
+SYSCALL_DEFINE3(virt2physv, unsigned long, virt_addr, unsigned long __user *, phys_addr, unsigned long, npages)
+{
+	unsigned long *pfn = kmalloc(sizeof(unsigned long) * npages, GFP_KERNEL);
+	long ret = 0;
+	int i;
+
+	if (pfn == NULL)
+        return -10;
+
+	for (i=0; i<npages; i++)
+	{
+		pfn[i] = do_virt2phys(virt_addr);
+		virt_addr += PAGE_SIZE;
+	}
+	
+	copy_to_user(phys_addr, pfn, sizeof(unsigned long) * npages);
+
+out:
+	kfree(pfn);
+	return ret;
+}
+
+static inline int do_map_phys(unsigned long virt_addr, unsigned long new_pfn, unsigned long *old_pfn)
 {
 	pgd_t *pgd;
 	p4d_t *p4d;
@@ -85,31 +126,34 @@ inline static int do_map_phys(unsigned long virt_addr, unsigned long new_pfn, un
 	pte_t *pte;
 	struct mm_struct *mm = current->mm;
 
-	if (new_pfn == 0)
-		return -1;
+    //printk(KERN_INFO "do_map_phys: virt %lx new_pfn %lx\n", virt_addr, new_pfn);
 
 	pgd = pgd_offset(mm, virt_addr);
 	if (pgd_none(*pgd) || pgd_bad(*pgd))
-		return -2;
+		return -1;
 
 	p4d = p4d_offset(pgd, virt_addr);
 	if (p4d_none(*p4d) || p4d_bad(*p4d))
-		return -3;
+		return -2;
 
 	pud = pud_offset(p4d, virt_addr);
 	if (pud_none(*pud) || pud_bad(*pud))
-		return -4;
+		return -3;
 
 	pmd = pmd_offset(pud, virt_addr);
 	if (pmd_none(*pmd) || pmd_bad(*pmd))
-		return -5;
+		return -4;
 
 	pte = pte_offset_map(pmd, virt_addr);
 	if (!pte)
-		return -6;
+		return -5;
 
+    //printk(KERN_INFO "before map: pgd %lx p4d %lx pud %lx pmd %lx pte %lx entry %lx\n", pgd, p4d, pud, pmd, pte, pte->pte);
+    
 	*old_pfn = pte->pte & PTE_PFN_MASK;
 	pte->pte = (pte->pte & (~PTE_PFN_MASK)) | (new_pfn & PTE_PFN_MASK);
+
+    //printk(KERN_INFO "after map: pgd %lx p4d %lx pud %lx pmd %lx pte %lx entry %lx\n", pgd, p4d, pud, pmd, pte, pte->pte);
 	pte_unmap(pte);
 	
 	return 0;
@@ -129,14 +173,14 @@ SYSCALL_DEFINE2(map_phys, unsigned long, virt_addr, unsigned long, phys_addr)
 
 SYSCALL_DEFINE4(map_physv, unsigned long, virt_addr, unsigned long __user *, phys_addr, unsigned long __user *, old_phys_addr, unsigned long, npages)
 {
-	unsigned long *buf = kmalloc(GFP_KERNEL, sizeof(unsigned long) * npages * 2);
+	unsigned long *buf = kmalloc(sizeof(unsigned long) * npages * 2, GFP_KERNEL);
 	unsigned long *old_pfn = buf;
 	unsigned long *new_pfn = buf + npages;
 	long ret = 0;
 	int i;
 
 	if (buf == NULL)
-		return -10;
+        return -10;
 
 	copy_from_user(old_pfn, phys_addr, sizeof(unsigned long) * npages);
 

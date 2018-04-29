@@ -263,6 +263,8 @@ cond_syscall(sys_pkey_free);
 
 cond_syscall(sys_alloc_phys);
 cond_syscall(sys_virt2phys);
+cond_syscall(sys_virt2physv);
 cond_syscall(sys_map_phys);
 cond_syscall(sys_map_physv);
 cond_syscall(sys_socksdirect);
+cond_syscall(sys_virt2phys16);
