@@ -36,4 +36,17 @@ extern adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::
                 int myfd
         );
 
+// free page management for copy on write
+static void alloc_page_pool(int num_pages)
+{
+}
+
+static void enqueue_free_page(int page)
+{
+}
+
+static void dequeue_free_page(int page)
+{
+}
+
 #endif //IPC_DIRECT_LIB_INTERNAL_H

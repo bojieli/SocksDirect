@@ -15,10 +15,12 @@
 // return physical page number
 inline long alloc_phys(unsigned long num_pages) {
     int order = 0;
-    while ((1 << order) < num_pages)
+    while ((unsigned int)(1 << order) < num_pages) {
         order ++;
-    if (order > MAX_ORDER) // too large, cannot succeed
+    }
+    if (order > MAX_ORDER) { // too large, cannot succeed
         return -2;
+    }
 	return syscall(__NR_alloc_phys, order);
 }
 
