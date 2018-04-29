@@ -73,6 +73,9 @@ add_executable(pot_eval_linux_create_s pot/eval_linux_create_s.cpp common/helper
 add_executable(pot_eval_linux_create_c pot/eval_linux_create_c.c common/helper.c common/helper.h)
 target_link_libraries(pot_eval_linux_create_s pthread)
 target_link_libraries(pot_eval_linux_create_c pthread)
-
-
-
+add_executable(pot_eval_create_s pot/eval_create_s.cpp)
+target_link_libraries(pot_eval_create_s ipc)
+add_executable(pot_eval_create_c pot/eval_create_c.c)
+target_link_libraries(pot_eval_create_c ipc)
+add_executable(pot_eval_create_c_m pot/eval_create_c_m.cpp)
+target_link_libraries(pot_eval_create_c_m pthread)

@@ -685,7 +685,7 @@ int setsockopt(int socket, int level, int option_name, const void *option_value,
 {
     if (socket < FD_DELIMITER) return ORIG(setsockopt, (socket, level, option_name, option_value, option_len));
     socket = MAX_FD_ID - socket;
-    if ((level == SOL_SOCKET) && (option_name == SO_REUSEADDR))
+    if ((level == SOL_SOCKET) && (option_name == SO_REUSEPORT))
     {
         thread_data_t *thread;
         thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
