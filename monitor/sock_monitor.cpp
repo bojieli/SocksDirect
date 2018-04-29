@@ -33,8 +33,9 @@ const per_proc_map_t * buff_get_handler(pid_t tid)
 key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc)
 {
     key_t shm_key;
-    if ((shm_key = ftok(SHM_INTERPROCESS_NAME, current_q_counter)) < 0)
-        FATAL("Failed to get the key of shared memory, errno: %d", errno);
+    shm_key = 9837423+current_q_counter;
+    //if ((shm_key = ftok(SHM_INTERPROCESS_NAME, current_q_counter)) < 0)
+            // FATAL("Failed to get the key of shared memory, errno: %s", strerror(errno));
     ++current_q_counter;
     int shm_id = shmget(shm_key, interprocess_t::get_sharedmem_size(), IPC_CREAT | 0777);
     if (shm_id == -1)

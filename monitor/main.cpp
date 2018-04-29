@@ -12,7 +12,7 @@
 #include <tuple>
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 
 static void try_accept_new_proc()
 {
@@ -130,7 +130,7 @@ static void event_loop()
 
 int main()
 {
-    pin_thread(14);
+    pin_thread(30);
     setup_sock_monitor_init();
     sock_monitor_init();
     process_init();
