@@ -2,8 +2,8 @@
 //some helper function
 #include "helper.h"
 
-#define LOOP_CYCLE 100000000
-#define CAL_CYCLE 100000000
+#define LOOP_CYCLE 10000000
+#define CAL_CYCLE 10000000
 volatile int tmp;
 
 pid_t gettid()
@@ -51,18 +51,19 @@ static pthread_key_t timing_key;
 static void CalibrateTicks()
 {
     struct timespec begints, endts;
+    tmp = 0;
     for (int i = 0; i < LOOP_CYCLE; ++i)
     {
         __sync_synchronize();
-        tmp = i;
+        tmp=i;
     }
     uint64_t begin = 0, end = 0;
     clock_gettime(CLOCK_MONOTONIC, &begints);
     begin = RDTSC();
-    for (int i = 0; i < CAL_CYCLE; ++i)
+    for (int i = 0; i < LOOP_CYCLE; ++i)
     {
         __sync_synchronize();
-        tmp = i;
+        tmp=i;
     }
     end = RDTSC();
     clock_gettime(CLOCK_MONOTONIC, &endts);
@@ -78,6 +79,7 @@ void InitRdtsc()
 {
     CalibrateTicks();
     printf("Calibrated!\n");
+    fflush(stdout);
 }
 
 void GetTimeSpec(struct timespec *ts, uint64_t nsecs)
