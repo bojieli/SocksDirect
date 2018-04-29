@@ -9,7 +9,7 @@
 #include <sys/un.h>
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 
 void setup_sock_connect(ctl_struc *res)
 {

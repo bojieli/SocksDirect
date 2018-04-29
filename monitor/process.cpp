@@ -69,7 +69,7 @@ void process_del(int qid)
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 void process_chk_remove()
 {
     const char* basestr="/proc/%d/task/%d/";

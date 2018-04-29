@@ -32,6 +32,7 @@ struct thread_ctx_t
 int done[64];
 pthread_t threads[64];
 pid_t pid[64];
+int pipefds[64][2];
 
 
 
@@ -67,6 +68,7 @@ int main(int argc, char * argv[])
     for (int i=0;i<core_sum;++i) {
         int current_core_num = i* 2 + 2 - i % 2;
         pid_t fork_ret;
+        pipe(pipefds[current_core_num]);
         fork_ret = fork();
         if (fork_ret != 0) //This is the parent process
         {
@@ -109,15 +111,31 @@ int main(int argc, char * argv[])
                 close(connect_fd);
             }
             GetRdtscTime(&e_time);
+            double tput;
+            tput = (TST_RND)/ (double)((e_time.tv_sec - s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/(double)1e9) / (double)1000;
+            write(pipefds[current_core_num][1], (void *)&tput, sizeof(double));
             printf("Tput for core %d is %.0lfkop/s\n",
-                current_core_num,
-                (TST_RND)/ (double)((e_time.tv_sec - s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/(double)1e9) / (double)1000);
+                current_core_num, tput
+                );
             return 0;
         }
     }
     //sleep(5);
     for (int i=0;i<core_sum;++i) if(sem_post(sem_p)!=0) printf("Error\n");
     printf("Post\n");
+    double total_tput(0);
+    for (int i=0;i<core_sum;++i)
+    {
+        int current_core_num = i* 2 + 2 - i % 2;
+        double tput(0);
+        read(pipefds[current_core_num][0], (void *)&tput, sizeof(double));
+        total_tput += tput;
+
+    }
+    FILE * output_f;
+    output_f = fopen("tput.out", "a");
+    fprintf(output_f, "%d %.0lf\n", core_sum, total_tput);
+    fclose(output_f);
     for (int i=0;i<core_sum;++i) wait(NULL);
 
     return 0;
