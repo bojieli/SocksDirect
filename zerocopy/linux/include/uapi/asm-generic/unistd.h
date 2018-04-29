@@ -736,22 +736,28 @@ __SYSCALL(__NR_statx,     sys_statx)
 
 
 #define __NR_alloc_phys 292
-__SYSCALL(__NR_alloc_phys,	alloc_phys)
+__SYSCALL(__NR_alloc_phys,	sys_alloc_phys)
 
 #define __NR_virt2phys 293
-__SYSCALL(__NR_virt2phys,	virt2phys)
+__SYSCALL(__NR_virt2phys,	sys_virt2phys)
 
-#define __NR_map_phys 294
-__SYSCALL(__NR_map_phys,	map_phys)
+#define __NR_virt2physv 294
+__SYSCALL(__NR_virt2physv,	sys_virt2physv)
 
-#define __NR_map_physv 295
-__SYSCALL(__NR_map_physv,	map_physv)
+#define __NR_map_phys 295
+__SYSCALL(__NR_map_phys,	sys_map_phys)
 
-#define __NR_socksdirect 296
-__SYSCALL(__NR_socksdirect,	socksdirect)
+#define __NR_map_physv 296
+__SYSCALL(__NR_map_physv,	sys_map_physv)
+
+#define __NR_socksdirect 297
+__SYSCALL(__NR_socksdirect,	sys_socksdirect)
+
+#define __NR_virt2phys16 298
+__SYSCALL(__NR_virt2phys16,	sys_virt2phys16)
 
 #undef __NR_syscalls
-#define __NR_syscalls 297
+#define __NR_syscalls 299
 
 /*
  * All syscalls below here should go away really,

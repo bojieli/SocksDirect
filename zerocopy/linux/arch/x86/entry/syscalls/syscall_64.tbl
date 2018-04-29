@@ -341,9 +341,11 @@
 332	common	statx			sys_statx
 333	common	alloc_phys		sys_alloc_phys
 334	common	virt2phys		sys_virt2phys
-335	common	map_phys		sys_map_phys
-336	common	map_physv		sys_map_physv
-337	common	socksdirect		sys_socksdirect
+335 common  virt2physv      sys_virt2physv
+336	common	map_phys		sys_map_phys
+337	common	map_physv		sys_map_physv
+338	common	socksdirect		sys_socksdirect
+339 common  virt2phys16     sys_virt2phys16
 
 #
 # x32-specific system call numbers start at 512 to avoid cache impact
