@@ -18,6 +18,7 @@ struct thread_ctx_t
     char ip[40];
     int core_num;
     int msgsize;
+    char padding[16];
 } ;
 
 
@@ -88,8 +89,9 @@ int main(int argc, char * argv[])
 
     for (int i=0;i<coresum;++i)
     {
-        sleep(3);
-        int current_core_num = 2*i-i%2;
+        sleep(1);
+        //int current_core_num = 2*i-i%2;
+        int current_core_num = i;
         done[current_core_num] = 0;
         strcpy(per_thread_ctx[current_core_num].ip, argv[1]);
         per_thread_ctx[current_core_num].msgsize = msgsize;
@@ -98,7 +100,8 @@ int main(int argc, char * argv[])
     }
 
     for (int i=0;i<coresum;++i) {
-        int current_core_num = 2*i-i%2;
+        //int current_core_num = 2*i-i%2;
+        int current_core_num = i;
         pthread_join(threads[current_core_num], NULL);
     }
 

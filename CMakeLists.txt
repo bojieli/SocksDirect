@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.8)
+cmake_minimum_required(VERSION 3.5)
 project(ipc_direct)
 set(CMAKE_CXX_STANDARD 11)
 set (CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wall -Wextra")
@@ -69,6 +69,10 @@ add_executable(pot_eval_linux_tput_s pot/eval_linux_tput_s.cpp common/helper.c c
 add_executable(pot_eval_linux_tput_c pot/eval_linux_tput_c.c common/helper.c common/helper.h)
 target_link_libraries(pot_eval_linux_tput_s pthread)
 target_link_libraries(pot_eval_linux_tput_c pthread)
+add_executable(pot_eval_linux_create_s pot/eval_linux_create_s.cpp common/helper.c common/helper.h)
+add_executable(pot_eval_linux_create_c pot/eval_linux_create_c.c common/helper.c common/helper.h)
+target_link_libraries(pot_eval_linux_create_s pthread)
+target_link_libraries(pot_eval_linux_create_c pthread)
 
 
 

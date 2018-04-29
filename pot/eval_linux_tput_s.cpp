@@ -20,9 +20,10 @@ struct thread_ctx_t
     int msgsize;
     int counter;
     int ready;
+    int padding[64 / sizeof(int) - 5];
 } ;
 
-
+#define WARMUP_RND 100000
 int done[64];
 struct thread_ctx_t per_thread_ctx[64];
 pthread_t threads[64];
@@ -39,6 +40,12 @@ void* tput_msg_receiver(void* p_ctx_tmp)
     pin_thread(corenum);
     InitRdtsc();
     printf("Connection for core %d inited\n", corenum);
+    for (int i=0;i<WARMUP_RND;++i)
+    {
+        int len = 0;
+        while (len < msgsize)
+            len += recvfrom(fd, (void *) buffer+len, msgsize-len, 0, NULL, NULL);
+    }
     p_ctx->ready = 1;
     while (!done[corenum])
     {
@@ -93,7 +100,7 @@ int main(int argc, char * argv[])
         int current_core_num = i* 2 + 2 - i % 2;
         int connect_fd = accept4(fd, NULL, NULL, 0);
         if (connect_fd == -1)
-            FATAL("Failed to connect to client");
+            FATAL("Failed to connect to client %s", strerror(errno));
         int tmp = 1;
         setsockopt( connect_fd, IPPROTO_TCP, TCP_NODELAY, (void *)&tmp, sizeof(tmp));
         tmp = MAX_MSGSIZE;
@@ -125,21 +132,31 @@ int main(int argc, char * argv[])
     InitRdtsc();
 
     int64_t old_ctr(0), new_ctr(0);
-    for (int i=0;i<core_sum;++i)
+    FILE* output_f;
+    output_f=fopen("data.out","a");
+    fprintf(output_f, "%d ", core_sum);
+    for (int i=0;i<60;++i)
     {
-        int current_core_num = i* 2 + 2 - i % 2;
-        old_ctr += per_thread_ctx[current_core_num].counter;
+        old_ctr = new_ctr = 0;
+        for (int j=0;j<core_sum;++j)
+        {
+            int current_core_num = j* 2 + 2 - j % 2;
+            old_ctr += per_thread_ctx[current_core_num].counter;
+        }
+        struct timespec s_time, e_time;
+        GetRdtscTime(&s_time);
+        sleep(1);
+        GetRdtscTime(&e_time);
+        for (int j=0;j<core_sum;++j)
+        {
+            int current_core_num = j* 2 + 2 - j % 2;
+            new_ctr += per_thread_ctx[current_core_num].counter;
+        }
+        fprintf(output_f, "%.0lf ", (new_ctr-old_ctr)/ (double)((e_time.tv_sec - s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/(double)1e9) / (double)1000);
     }
-    struct timespec s_time, e_time;
-    GetRdtscTime(&s_time);
-    sleep(1);
-    GetRdtscTime(&e_time);
-    for (int i=0;i<core_sum;++i)
-    {
-        int current_core_num = i* 2 + 2 - i % 2;
-        new_ctr += per_thread_ctx[current_core_num].counter;
-    }
-    fprintf(stderr, "Tput: %.0lf kop/s\n", (new_ctr-old_ctr)/ (double)((e_time.tv_sec - s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/(double)1e9) / (double)1000);
+    fprintf(output_f, "\n");
+    fclose(output_f);
+    //fprintf(stderr, "Tput: %.0lf kop/s\n", (new_ctr-old_ctr)/ (double)((e_time.tv_sec - s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/(double)1e9) / (double)1000);
     for (int i=0;i<core_sum;++i)
     {
         int current_core_num = i* 2 + 2 - i % 2;
