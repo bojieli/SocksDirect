@@ -73,6 +73,22 @@ public:
                 unsigned short page_high;
                 unsigned int page_low;
             };
+            struct __attribute__((packed)) fd_rw_zcv_t
+            {
+                int pointer;
+                int fd;
+                unsigned short num_pages;
+            };
+            struct __attribute__((packed)) zc_ret_t
+            {
+                unsigned long page;
+                unsigned short num_pages;
+            };
+            struct __attribute__((packed)) zc_retv_t
+            {
+                int pointer;
+                unsigned short num_pages;
+            };
             struct __attribute__((packed)) pot_rw_t
             {
                 int fd;
@@ -90,6 +106,9 @@ public:
                 fd_notify_t data_fd_notify;
                 fd_rw_t data_fd_rw;
                 fd_rw_zc_t data_fd_rw_zc;
+                fd_rw_zcv_t data_fd_rw_zcv;
+                zc_ret_t zc_ret;
+                zc_retv_t zc_retv;
                 close_t close_fd;
                 pot_rw_t pot_fd_rw;
             };
@@ -123,6 +142,9 @@ public:
         NEW_FD=2,
         DATA_TRANSFER,
         DATA_TRANSFER_ZEROCOPY,
+        DATA_TRANSFER_ZEROCOPY_VECTOR,
+        ZEROCOPY_RETURN,
+        ZEROCOPY_RETURN_VECTOR,
         NOP,
         CLOSE_FD,
         CLOSE_REQ_NORD,

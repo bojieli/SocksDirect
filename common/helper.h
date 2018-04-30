@@ -75,6 +75,8 @@ extern int pin_thread(int core);
 void InitRdtsc();
 void GetRdtscTime(struct timespec *ts);
 void TimingInit();
+void TimingBegin();
+unsigned long TimingEnd();
 
 #ifdef __cplusplus
 }
