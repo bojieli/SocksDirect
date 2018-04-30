@@ -6,9 +6,11 @@ set (CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wall -Wextra")
 if (COMMAND cmake_policy)
     cmake_policy(SET CMP0003 NEW)
 endif (COMMAND cmake_policy)
+add_library(hrd rdma/hrd_conn.cc rdma/hrd_util.cc)
+target_link_libraries(hrd pthread)
 add_library(ipc SHARED common/helper.c lib/setup_sock_lib.cpp lib/socket_lib.cpp lib/lib.cpp common/interprocess_t.cpp
         lib/lib_internal.h common/setup_sock.h common/darray.hpp common/locklessqueue_n.hpp lib/fork.cpp lib/pot_socket_lib.cpp lib/pot_socket_lib.h)
-target_link_libraries(ipc dl pthread)
+target_link_libraries(ipc hrd dl pthread)
 add_executable(monitor common/helper.c monitor/setup_sock_monitor.cpp monitor/process.cpp monitor/sock_monitor.cpp
         monitor/main.cpp common/interprocess_t.cpp common/setup_sock.h common/locklessqueue_n.hpp common/adjlist_t.hpp
         common/metaqueue.h)
@@ -104,3 +106,8 @@ add_executable(pot_eval_rdma_tput_diffconnnum_s pot/eval_rdma_tput_diffconnnum_s
 target_link_libraries(pot_eval_rdma_tput_diffconnnum_s ipc)
 add_executable(pot_eval_rdma_tput_diffconnnum_c pot/eval_rdma_tput_diffconnnum_c.c)
 target_link_libraries(pot_eval_rdma_tput_diffconnnum_c ipc)
+
+add_executable(rdma_throughput rdma/throughput.cpp)
+target_link_libraries(rdma_throughput hrd gflags ibverbs memcached numa)
+add_executable(rdma_latency rdma/latency.cpp)
+target_link_libraries(rdma_latency hrd gflags ibverbs memcached numa)
