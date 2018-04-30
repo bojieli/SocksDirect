@@ -98,13 +98,13 @@ public:
     }
     void init_memlayout(uint8_t * baseaddr, int loc) //0: use the lower part to send
     {
-        q[loc].init(baseaddr);
+        q[loc].sender_init(baseaddr);
         baseaddr += q[0].getmemsize();
-        q[1 - loc].init(baseaddr);
+        q[1 - loc].receiver_init(baseaddr);
         baseaddr += q[1].getmemsize();
-        q_emergency[loc].init(baseaddr);
+        q_emergency[loc].sender_init(baseaddr);
         baseaddr += q[1].getmemsize();
-        q_emergency[1 - loc].init(baseaddr);
+        q_emergency[1 - loc].receiver_init(baseaddr);
     }
     void mem_init()
     {
