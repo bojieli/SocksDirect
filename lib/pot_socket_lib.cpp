@@ -146,81 +146,81 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         if (!ele_isdel)
         {
             switch (ele.command) {
-            case interprocess_t::cmd::CLOSE_FD:
-            {
-                if (ele.close_fd.peer_fd == target_fd &&
-                    ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
+                case interprocess_t::cmd::CLOSE_FD:
                 {
-                    buffer->q[1].del(pointer);
-                    DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
-
-                    iter = thread_data->fds_datawithrd.del_element(iter);
-                    if (iter.end())
+                    if (ele.close_fd.peer_fd == target_fd &&
+                        ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
                     {
-                        DEBUG("Destroyed self fd %d.", target_fd);
-                        thread_data->fds_datawithrd.del_key(target_fd);
+                        buffer->q[1].del(pointer);
+                        DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
+
+                        iter = thread_data->fds_datawithrd.del_element(iter);
+                        if (iter.end())
+                        {
+                            DEBUG("Destroyed self fd %d.", target_fd);
+                            thread_data->fds_datawithrd.del_key(target_fd);
+                            if (islockrequired)
+                                pthread_mutex_unlock(buffer->rd_mutex);
+                            return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
+                        }
                         if (islockrequired)
                             pthread_mutex_unlock(buffer->rd_mutex);
-                        return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
+                        return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
+                    } else {
+                        if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
+                            buffer->q[1].del(pointer);
                     }
-                    if (islockrequired)
-                        pthread_mutex_unlock(buffer->rd_mutex);
-                    return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
-                } else {
-                    if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
-                        buffer->q[1].del(pointer);
+                    break;
                 }
-                break;
-            }
 
-            case interprocess_t::cmd::DATA_TRANSFER:
-            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY:
-            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
-            {
-                if (ele.data_fd_rw.fd == target_fd)
+                case interprocess_t::cmd::DATA_TRANSFER:
+                case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY:
+                case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
                 {
-                    loc_in_buffer_has_blk = pointer;
-                    if (islockrequired)
-                        pthread_mutex_unlock(buffer->rd_mutex);
-                    return ITERATE_FD_IN_BUFFER_STATE::FIND;
+                    if (ele.data_fd_rw.fd == target_fd)
+                    {
+                        loc_in_buffer_has_blk = pointer;
+                        if (islockrequired)
+                            pthread_mutex_unlock(buffer->rd_mutex);
+                        return ITERATE_FD_IN_BUFFER_STATE::FIND;
+                    }
+                    break;
                 }
-                break;
-            }
 
-            case interprocess_t::cmd::ZEROCOPY_RETURN:
-            {
-                short num_pages = ele.zc_ret.num_pages;
-                short begin_page = ele.zc_ret.page;
-                for (int i=0; i<num_pages; i++) {
-                    enqueue_free_page(begin_page + i);
+                case interprocess_t::cmd::ZEROCOPY_RETURN:
+                {
+                    short num_pages = ele.zc_ret.num_pages;
+                    short begin_page = ele.zc_ret.page;
+                    for (int i=0; i<num_pages; i++) {
+                        enqueue_free_page(begin_page + i);
+                    }
+                    break;
                 }
-                break;
-            }
 
-            case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR:
-            {
-                int num_pages = ele.zc_retv.num_pages;
-                unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
-                int size = sizeof(unsigned long) * num_pages;
-                buffer->b[1].popdata(ele.zc_retv.pointer, size, (uint8_t *) received_pages);
-                for (int i=0; i<num_pages; i++) {
-                    enqueue_free_page(received_pages[i]);
+                case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR:
+                {
+                    int num_pages = ele.zc_retv.num_pages;
+                    unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+                    int size = sizeof(unsigned long) * num_pages;
+                    buffer->b[1].popdata(ele.zc_retv.pointer, size, (uint8_t *) received_pages);
+                    for (int i=0; i<num_pages; i++) {
+                        enqueue_free_page(received_pages[i]);
+                    }
+                    free(received_pages);
+                    break;
                 }
-                free(received_pages);
-                break;
-            }
 
-            case interprocess_t::cmd::NOP:
-            {
-                    if (ele.pot_fd_rw.fd == target_fd)
-            {
-                loc_in_buffer_has_blk = pointer;
-                if (islockrequired)
-                    pthread_mutex_unlock(buffer->rd_mutex);
-                return ITERATE_FD_IN_BUFFER_STATE::FIND;
-            }
-            break;
-            }
+                case interprocess_t::cmd::NOP:
+                {
+                        if (ele.pot_fd_rw.fd == target_fd)
+                    {
+                        loc_in_buffer_has_blk = pointer;
+                        if (islockrequired)
+                            pthread_mutex_unlock(buffer->rd_mutex);
+                        return ITERATE_FD_IN_BUFFER_STATE::FIND;
+                    }
+                    break;
+                }
             } // end switch
         }
         if (buffer->q[1].tail > pointer)
