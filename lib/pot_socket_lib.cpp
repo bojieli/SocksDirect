@@ -26,6 +26,14 @@ void pot_init_write()
     for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = rand() % 256;
 }
 
+ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+{
+}
+
+int pot_connect(int socket, const struct sockaddr *address, socklen_t address_len)
+{
+}
+
 ssize_t pot_write_nbyte(int fd, int numofbytes)
 {
     if (fd < FD_DELIMITER) return -1;

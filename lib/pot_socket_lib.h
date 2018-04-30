@@ -14,6 +14,9 @@ extern "C"
 extern void pot_init_write();
 extern ssize_t pot_write_nbyte(int fd, int numofbytes);
 extern ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len);
+extern ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags);
+extern int pot_connect(int socket, const struct sockaddr *address, socklen_t address_len);
+
 
 #ifdef __cplusplus
 }
