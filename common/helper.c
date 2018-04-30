@@ -45,6 +45,7 @@ struct timespec *TimeSpecDiff(struct timespec *ts1, struct timespec *ts2)
 }
 
 static pthread_key_t tick_key;
+static pthread_key_t timing_key;
 
 
 static void CalibrateTicks()
@@ -96,4 +97,27 @@ void GetRdtscTime(struct timespec *ts)
 void TimingInit()
 {
     pthread_key_create(&tick_key,NULL);
+    pthread_key_create(&timing_key,NULL);
+}
+
+void TimingBegin()
+{
+    struct timespec *begin = pthread_getspecific(timing_key);
+    if (begin == NULL) {
+        begin = malloc(sizeof(struct timespec));
+        pthread_setspecific(timing_key, begin);
+    }
+    GetRdtscTime(begin);
+}
+
+unsigned long TimingEnd()
+{
+    struct timespec end;
+    GetRdtscTime(&end);
+    struct timespec *begin = pthread_getspecific(timing_key);
+    if (begin == NULL)
+        return 0;
+    unsigned long ns = (unsigned long)((end.tv_sec - begin->tv_sec) * 1000000000LL + (end.tv_nsec - begin->tv_nsec));
+    free(begin);
+    return ns;
 }
