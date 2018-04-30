@@ -22,6 +22,9 @@ public:
     };
 private:
     element_t *ringbuffer;
+    bool *return_flag;
+    uint32_t credits;
+    uint32_t CREDITS_PER_RETURN;
 private:
     inline void atomic_copy16(element_t *dst, element_t *src)
     {
@@ -46,11 +49,28 @@ public:
         assert((sizeof(element_t)==16));
     }
 
+private:
     inline void init(void *baseaddr)
     {
         pointer = 0;
         MASK = SIZE - 1;
+        CREDITS_PER_RETURN = SIZE / 2 + 1;
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
+        return_flag = reinterpret_cast<bool *>(baseaddr + (sizeof(element_t) * SIZE));
+        *return_flag = false;
+    }
+
+public:
+    inline void sender_init(void *baseaddr)
+    {
+        init(baseaddr);
+        credits = SIZE;
+    }
+
+    inline void receiver_init(void *baseaddr)
+    {
+        init(baseaddr);
+        credits = 0;
     }
 
     inline void init_mem()
@@ -60,20 +80,27 @@ public:
 
     inline bool push_nb(const T &data)
     {
-        uint32_t local_ptr = pointer & MASK;
-        SW_BARRIER;
         //is full?
-        if (ringbuffer[local_ptr].isvalid)
-            return false;
+        if (credits == 0) {
+            if (*return_flag) {
+                credits += CREDITS_PER_RETURN;
+                *return_flag = false;
+            }
+            else
+                return false;
+        }
+
         //fillup element
         element_t ele;
         ele.data = data;
         ele.isvalid = true;
         ele.isdel = false;
         SW_BARRIER;
+
+        uint32_t local_ptr = pointer & MASK;
         atomic_copy16(&ringbuffer[local_ptr], &ele);
-        SW_BARRIER;
         pointer++;
+        credits--;
         return true;
     }
 
@@ -140,16 +167,18 @@ public:
         loc = loc & MASK;
         ringbuffer[loc].isdel=true;
         SW_BARRIER;
-        if ((ringbuffer[pointer & MASK].isvalid) && (loc == (pointer & MASK)))
+        if (loc == (pointer & MASK))
         {
-            ringbuffer[loc].isvalid = false;
-            ++pointer;
-            SW_BARRIER;
             while (ringbuffer[pointer & MASK].isvalid
                    && ringbuffer[pointer & MASK].isdel)
             {
                 ringbuffer[pointer & MASK].isvalid = false;
                 ++pointer;
+                ++credits;
+                if (credits == CREDITS_PER_RETURN) {
+                    *return_flag = true;
+                    credits = 0;
+                }
                 SW_BARRIER;
             }
         }
@@ -180,7 +209,9 @@ public:
 
     inline static int getmemsize()
     {
-        return (sizeof(element_t) * SIZE);
+        // have a cache line for return flag
+        const int return_flag_size = 64;
+        return (sizeof(element_t) * SIZE) + return_flag_size;
     }
 
 };
