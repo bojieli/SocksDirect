@@ -146,16 +146,16 @@ void interprocess_t::init(void *baseaddr, int loc)
     uint8_t *memory = (uint8_t *) baseaddr;
     int my_loc = loc;
     int peer_loc = 1 - my_loc;
-    b_avail[my_loc].init(memory);
+    b_avail[my_loc].sender_init(memory);
     memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
-    b_avail[peer_loc].init((void *) memory);
+    b_avail[peer_loc].receiver_init((void *) memory);
     b_avail[1].setpointer(INTERPROCESS_SLOTS_IN_BUFFER);
     b_avail[0].setpointer(0);
     memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
 
-    q[my_loc].init(memory);
+    q[my_loc].sender_init(memory);
     memory += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
-    q[peer_loc].init(memory);
+    q[peer_loc].receiver_init(memory);
     memory += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
 
     b[my_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[my_loc]);
@@ -163,9 +163,9 @@ void interprocess_t::init(void *baseaddr, int loc)
     b[peer_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[peer_loc]);
     memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
 
-    q_emergency[my_loc].init(memory);
+    q_emergency[my_loc].sender_init(memory);
     memory += locklessqueue_t<queue_t::element, 256>::getmemsize();
-    q_emergency[peer_loc].init(memory);
+    q_emergency[peer_loc].receiver_init(memory);
     memory += locklessqueue_t<queue_t::element, 256>::getmemsize();
     
     rd_mutex = (pthread_mutex_t *)memory;
