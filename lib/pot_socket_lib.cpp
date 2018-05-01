@@ -14,6 +14,7 @@
 #include "../common/helper.h"
 #include "../common/metaqueue.h"
 #include <sys/ioctl.h>
+#include <pthread.h>
 #include "fork.h"
 #include "pot_socket_lib.h"
 #include "../lib/zerocopy.h"
@@ -36,8 +37,18 @@ static size_t clt_gid = 0;     // One-to-one connections
 static char srv_name[50] = {0};
 static char clt_name[50] = {0};
 
-void pot_rdma_init(int thread_id)
+void pot_rdma_init(void)
 {
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    int thread_id = 0;
+    pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    for (int i=0; i<CPU_SETSIZE; i++)
+        if (CPU_ISSET(i, &cpuset)) {
+            thread_id = i;
+            break;
+        }
+
     srv_gid = thread_id;
     clt_gid = thread_id;
     sprintf(srv_name, "socksdirect-server-%zu", srv_gid);
@@ -50,6 +61,8 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
     if (initialized)
         return 0;
     initialized = true;
+
+    pot_rdma_init();
 
     const size_t ib_port_index = 0;
     hrd_conn_config_t conn_config;
@@ -89,6 +102,8 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     if (initialized)
         return fd_num;
     initialized = true;
+
+    pot_rdma_init();
 
     size_t ib_port_index = 0;
     hrd_conn_config_t conn_config;
