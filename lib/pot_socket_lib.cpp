@@ -11,6 +11,7 @@
 #include <arpa/inet.h>
 #include <cstdarg>
 #include "lib_internal.h"
+#include "../common/helper.h"
 #include "../common/metaqueue.h"
 #include <sys/ioctl.h>
 #include "fork.h"
@@ -31,6 +32,14 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
 }
 
 int pot_connect(int socket, const struct sockaddr *address, socklen_t address_len)
+{
+}
+
+ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
+{
+}
+
+ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
 {
 }
 
