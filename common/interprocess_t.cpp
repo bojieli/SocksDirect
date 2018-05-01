@@ -151,6 +151,8 @@ void interprocess_t::init(void *baseaddr, int loc)
     b_avail[peer_loc].init((void *) memory, peer_loc);
     b_avail[1].setpointer(INTERPROCESS_SLOTS_IN_BUFFER);
     b_avail[0].setpointer(0);
+    b_avail[1].disable_credit();
+    b_avail[0].disable_credit();
     memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
 
     q[my_loc].init(memory, my_loc);
