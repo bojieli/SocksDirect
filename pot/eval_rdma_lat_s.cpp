@@ -12,7 +12,7 @@
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2) FATAL("Lack of parameter: <output file name> <size of the message>");
+    if (argc < 2) FATAL("Lack of parameter: <size of the message>");
     int warmup_num=10000000;
     int test_num=10000;
     int inner_test_num = 1;
@@ -23,7 +23,7 @@ int main(int argc, char* argv[])
     if (test_size >= 131072)
         warmup_num /= 10;
 
-    pin_thread(2);
+    pin_thread(0);
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) FATAL("Failed to create fd");
@@ -38,11 +38,10 @@ int main(int argc, char* argv[])
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed\n");
-    uint8_t buffer[65536];
 
     pot_init_write();
 
-    int connect_fd = accept4(fd, NULL, NULL, 0);
+    int connect_fd = pot_accept4(fd, NULL, NULL, 0);
     if (connect_fd == -1)
         FATAL("Failed to connect to client");
     printf("Connected\n");
@@ -52,8 +51,8 @@ int main(int argc, char* argv[])
         //pong
         for (int j=0;j< inner_test_num; ++j)
         {
-            pot_read_nbyte(connect_fd, buffer, test_size);
-            pot_write_nbyte(connect_fd, test_size);
+            pot_rdma_read_nbyte(connect_fd, test_size);
+            pot_rdma_write_nbyte(connect_fd, test_size);
         }
     }
 

@@ -9,20 +9,10 @@
 #include "../lib/lib_internal.h"
 #include "../lib/socket_lib.h"
 #include "../lib/pot_socket_lib.h"
+#define T1RND 10000000
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2) FATAL("Lack of parameter: <output file name> <size of the message>");
-    int warmup_num=10000000;
-    int test_num=10000;
-    int inner_test_num = 1;
-    int test_size=atoi(argv[1]);
-
-    if (test_size >= 8192)
-        warmup_num /= 10;
-    if (test_size >= 131072)
-        warmup_num /= 10;
-
     pin_thread(2);
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -41,20 +31,20 @@ int main(int argc, char* argv[])
     uint8_t buffer[65536];
 
     pot_init_write();
-
+    TimingInit();
+    InitRdtsc();
     int connect_fd = accept4(fd, NULL, NULL, 0);
     if (connect_fd == -1)
         FATAL("Failed to connect to client");
     printf("Connected\n");
 
-    for (int i=0;i<warmup_num + test_num;++i)
-    {
-        //pong
-        for (int j=0;j< inner_test_num; ++j)
-        {
-            pot_read_nbyte(connect_fd, buffer, test_size);
-            pot_write_nbyte(connect_fd, test_size);
-        }
-    }
+    struct timespec e_time, s_time;
+    GetRdtscTime(&s_time);
+   for (int i=0;i<3*T1RND;++i)
+   {
+       pot_read_nbyte(connect_fd, buffer, 8);
+   }
+    GetRdtscTime(&e_time);
+   printf("%.0lf\n", (double)3*T1RND / ((e_time.tv_sec-s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/1e9) / 1e3);
 
 }

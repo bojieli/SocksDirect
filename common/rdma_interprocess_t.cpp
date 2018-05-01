@@ -5,27 +5,27 @@
 #include <cstring>
 #include <cstdlib>
 #include <sys/shm.h>
-#include "interprocess_t.h"
+#include "rdma_interprocess_t.h"
 #include "../common/helper.h"
-#include "locklessqueue_n.hpp"
+#include "rdma_locklessqueue_n.hpp"
 
-interprocess_t::buffer_t::buffer_t() : mem(nullptr), avail_slots(nullptr)
+rdma_interprocess_t::buffer_t::buffer_t() : mem(nullptr), avail_slots(nullptr)
 {
 }
 
-void interprocess_t::buffer_t::init(element *_mem, locklessqueue_t<int, 2048> *_avail_slots)
+void rdma_interprocess_t::buffer_t::init(element *_mem, rdma_locklessqueue_t<int, 2048> *_avail_slots)
 {
     mem = _mem;
     avail_slots = _avail_slots;
 
 }
 
-void interprocess_t::buffer_t::init_mem()
+void rdma_interprocess_t::buffer_t::init_mem()
 {
     avail_slots->init_mem();
 }
 
-short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size) volatile
+short rdma_interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size) volatile
 {
     int size_left = size;
     uint8_t *curr_ptr = start_ptr;
@@ -45,8 +45,8 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size) volatile
         if (prev_blk != -1)
             mem[prev_blk].next_ptr = blk;
         mem[blk].offset = 0;
-        int true_size = size_left < sizeof(interprocess_t::buffer_t::element::data) ?
-                        size_left : sizeof(interprocess_t::buffer_t::element::data);
+        int true_size = size_left < sizeof(rdma_interprocess_t::buffer_t::element::data) ?
+                        size_left : sizeof(rdma_interprocess_t::buffer_t::element::data);
         memcpy(mem[blk].data, curr_ptr, true_size);
         mem[blk].size = true_size;
         curr_ptr += true_size;
@@ -58,7 +58,7 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size) volatile
     return ret;
 }
 
-short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *user_buf) volatile
+short rdma_interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *user_buf) volatile
 {
     short current_loc = src;
     int sizeleft = size;
@@ -95,7 +95,7 @@ short interprocess_t::buffer_t::popdata(unsigned short src, int &size, uint8_t *
     return current_loc;
 }
 
-short interprocess_t::buffer_t::popdata_nomemrelease(unsigned short src, int &size, uint8_t *user_buf) volatile
+short rdma_interprocess_t::buffer_t::popdata_nomemrelease(unsigned short src, int &size, uint8_t *user_buf) volatile
 {
     short current_loc = src;
     int sizeleft = size;
@@ -127,7 +127,7 @@ short interprocess_t::buffer_t::popdata_nomemrelease(unsigned short src, int &si
 }
 
 
-void interprocess_t::init(key_t shmem_key, int loc)
+void rdma_interprocess_t::init(key_t shmem_key, int loc)
 {
     int mem_id;
     mem_id = shmget(shmem_key, sizeof(get_sharedmem_size()), 0777);
@@ -141,34 +141,32 @@ void interprocess_t::init(key_t shmem_key, int loc)
     init(baseaddr, loc);
 }
 
-void interprocess_t::init(void *baseaddr, int loc)
+void rdma_interprocess_t::init(void *baseaddr, int loc)
 {
     uint8_t *memory = (uint8_t *) baseaddr;
     int my_loc = loc;
     int peer_loc = 1 - my_loc;
     b_avail[my_loc].init(memory, peer_loc);
-    memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
+    memory += rdma_locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
     b_avail[peer_loc].init((void *) memory, my_loc);
     b_avail[1].setpointer(INTERPROCESS_SLOTS_IN_BUFFER);
     b_avail[0].setpointer(0);
-    b_avail[1].disable_credit();
-    b_avail[0].disable_credit();
-    memory += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
+    memory += rdma_locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
 
-    q[my_loc].init(memory, my_loc);
-    memory += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
-    q[peer_loc].init(memory, peer_loc);
-    memory += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
+    q[my_loc].init(memory, peer_loc);
+    memory += rdma_locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
+    q[peer_loc].init(memory, my_loc);
+    memory += rdma_locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
 
     b[my_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[my_loc]);
     memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
     b[peer_loc].init(reinterpret_cast<buffer_t::element *>(memory), &b_avail[peer_loc]);
     memory += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
 
-    q_emergency[my_loc].init(memory, my_loc);
-    memory += locklessqueue_t<queue_t::element, 256>::getmemsize();
-    q_emergency[peer_loc].init(memory, peer_loc);
-    memory += locklessqueue_t<queue_t::element, 256>::getmemsize();
+    q_emergency[my_loc].sender_init(memory);
+    memory += rdma_locklessqueue_t<queue_t::element, 256>::getmemsize();
+    q_emergency[peer_loc].receiver_init(memory);
+    memory += rdma_locklessqueue_t<queue_t::element, 256>::getmemsize();
     
     rd_mutex = (pthread_mutex_t *)memory;
     memory += sizeof(pthread_mutex_t);
@@ -177,8 +175,8 @@ void interprocess_t::init(void *baseaddr, int loc)
     sender_turn[peer_loc] = (bool(*) [MAX_FD_NUM])memory;
 }
 
-void interprocess_t::monitor_init(void *baseaddr) {
-    interprocess_t tmp;
+void rdma_interprocess_t::monitor_init(void *baseaddr) {
+    rdma_interprocess_t tmp;
     memset(baseaddr, 0, get_sharedmem_size());
     tmp.init(baseaddr, 0);
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)

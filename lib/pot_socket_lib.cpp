@@ -11,19 +11,191 @@
 #include <arpa/inet.h>
 #include <cstdarg>
 #include "lib_internal.h"
+#include "../common/helper.h"
 #include "../common/metaqueue.h"
 #include <sys/ioctl.h>
+#include <pthread.h>
 #include "fork.h"
 #include "pot_socket_lib.h"
 #include "../lib/zerocopy.h"
+#include "../rdma/hrd.h"
 
 const int MIN_PAGES_FOR_ZEROCOPY = 3;
-const int MAX_TST_MSG_SIZE=64*1024;
+const int MAX_TST_MSG_SIZE=1024*1024;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
 
 void pot_init_write()
 {
-    for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = rand() % 256;
+    for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (rand() % 255 + 1);
+}
+
+static hrd_ctrl_blk_t* cb = nullptr;
+static hrd_qp_attr_t *clt_qp = nullptr;
+static hrd_qp_attr_t *srv_qp = nullptr;
+static hrd_qp_attr_t *my_qp = nullptr;
+static size_t srv_gid = 0;  // Global ID of this server thread
+static size_t clt_gid = 0;     // One-to-one connections
+static char srv_name[50] = {0};
+static char clt_name[50] = {0};
+
+void pot_rdma_init(void)
+{
+    cpu_set_t cpuset;
+    CPU_ZERO(&cpuset);
+    int thread_id = 0;
+    pthread_getaffinity_np(pthread_self(), sizeof(cpu_set_t), &cpuset);
+    for (int i=0; i<CPU_SETSIZE; i++)
+        if (CPU_ISSET(i, &cpuset)) {
+            thread_id = i;
+            break;
+        }
+
+    srv_gid = thread_id;
+    clt_gid = thread_id;
+    sprintf(srv_name, "socksdirect-server-%zu", srv_gid);
+    sprintf(clt_name, "socksdirect-client-%zu", clt_gid);
+}
+
+int pot_connect(int socket, const struct sockaddr *address, socklen_t address_len)
+{
+    static bool initialized = false;
+    if (initialized)
+        return 0;
+    initialized = true;
+
+    pot_rdma_init();
+
+    const size_t ib_port_index = 0;
+    hrd_conn_config_t conn_config;
+    conn_config.num_qps = 1;
+    conn_config.use_uc = 0;
+    conn_config.prealloc_buf = nullptr;
+    conn_config.buf_size = MAX_TST_MSG_SIZE * 2;
+    conn_config.buf_shm_key = -1;
+
+    cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
+            &conn_config, nullptr);
+
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE * 2);
+
+    hrd_publish_conn_qp(cb, 0, clt_name);
+
+    printf("RDMA: Client %s published. Waiting for server %s.\n", clt_name, srv_name);
+
+    do {
+        srv_qp = hrd_get_published_qp(srv_name);
+        if (srv_qp == nullptr) usleep(200000);
+    } while (srv_qp == nullptr);
+
+    hrd_connect_qp(cb, 0, srv_qp);
+    hrd_publish_ready(clt_name);
+    my_qp = srv_qp;
+
+    printf("RDMA: Client %s connected\n", clt_name);
+    return 0;
+}
+
+ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+{
+    static bool initialized = false;
+    static int fd_num = 2147483647;
+    if (initialized)
+        return fd_num--;
+    initialized = true;
+
+    pot_rdma_init();
+
+    size_t ib_port_index = 0;
+    hrd_conn_config_t conn_config;
+    conn_config.num_qps = 1;
+    conn_config.use_uc = 0;
+    conn_config.prealloc_buf = nullptr;
+    conn_config.buf_size = MAX_TST_MSG_SIZE * 2;
+    conn_config.buf_shm_key = -1;
+
+    cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
+            &conn_config, nullptr);
+
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE * 2);
+
+    hrd_publish_conn_qp(cb, 0, srv_name);
+
+    printf("RDMA: Server %s published. Waiting for client %s.\n", srv_name, clt_name);
+
+    do {
+        clt_qp = hrd_get_published_qp(clt_name);
+        if (clt_qp == nullptr) usleep(200000);
+    } while (clt_qp == nullptr);
+
+    hrd_connect_qp(cb, 0, clt_qp);
+    hrd_wait_till_ready(clt_name);
+    my_qp = clt_qp;
+
+    printf("RDMA: Server %s connected\n", srv_name);
+    return fd_num--;
+}
+
+ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
+{
+    sockfd = 2147483647 - sockfd;
+
+    const int kAppUnsigBatch = 64;
+    const int kHrdMaxInline = 32;
+    static size_t nb_tx = 0;
+
+    struct ibv_send_wr wr, *bad_send_wr;
+    struct ibv_sge sgl;
+    struct ibv_wc wc;
+
+    wr.opcode = IBV_WR_RDMA_WRITE;
+    wr.num_sge = 1;
+    wr.next = nullptr;
+    wr.sg_list = &sgl;
+
+    wr.send_flags = nb_tx % kAppUnsigBatch == 0 ? IBV_SEND_SIGNALED : 0;
+    if (nb_tx % kAppUnsigBatch == 0 && nb_tx != 0) {
+        hrd_poll_cq(cb->conn_cq[0], 1, &wc);
+    }
+
+    wr.send_flags |= (len <= kHrdMaxInline) ? IBV_SEND_INLINE : 0;
+
+    size_t offset = (sockfd * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    if (offset + len > MAX_TST_MSG_SIZE)
+        offset = MAX_TST_MSG_SIZE - len;
+
+    sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]) + MAX_TST_MSG_SIZE;
+    sgl.length = len;
+    sgl.lkey = cb->conn_buf_mr->lkey;
+    memcpy(reinterpret_cast<void*>(sgl.addr), &pot_mock_data[offset], len);
+
+    wr.wr.rdma.remote_addr = my_qp->buf_addr + offset;
+    wr.wr.rdma.rkey = my_qp->rkey;
+
+    nb_tx++;
+
+    int ret = ibv_post_send(cb->conn_qp[0], &wr, &bad_send_wr);
+    if (ret != 0) {
+       printf("wrong ret %d\n", ret);
+       return 0;
+    }
+    return len;
+}
+
+ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
+{
+    sockfd = 2147483647 - sockfd;
+
+    size_t offset = (sockfd * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    if (offset + len > MAX_TST_MSG_SIZE)
+        offset = MAX_TST_MSG_SIZE - len;
+    volatile uint8_t *last_addr = cb->conn_buf + offset + len - 1;
+    // wait
+    while (*last_addr == 0) { }
+    uint64_t base_addr = reinterpret_cast<uint64_t>(cb->conn_buf + offset);
+    memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(base_addr), len);
+    // release
+    *last_addr = 0;
+    return len;
 }
 
 ssize_t pot_write_nbyte(int fd, int numofbytes)
@@ -146,81 +318,81 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         if (!ele_isdel)
         {
             switch (ele.command) {
-            case interprocess_t::cmd::CLOSE_FD:
-            {
-                if (ele.close_fd.peer_fd == target_fd &&
-                    ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
+                case interprocess_t::cmd::CLOSE_FD:
                 {
-                    buffer->q[1].del(pointer);
-                    DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
-
-                    iter = thread_data->fds_datawithrd.del_element(iter);
-                    if (iter.end())
+                    if (ele.close_fd.peer_fd == target_fd &&
+                        ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
                     {
-                        DEBUG("Destroyed self fd %d.", target_fd);
-                        thread_data->fds_datawithrd.del_key(target_fd);
+                        buffer->q[1].del(pointer);
+                        DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
+
+                        iter = thread_data->fds_datawithrd.del_element(iter);
+                        if (iter.end())
+                        {
+                            DEBUG("Destroyed self fd %d.", target_fd);
+                            thread_data->fds_datawithrd.del_key(target_fd);
+                            if (islockrequired)
+                                pthread_mutex_unlock(buffer->rd_mutex);
+                            return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
+                        }
                         if (islockrequired)
                             pthread_mutex_unlock(buffer->rd_mutex);
-                        return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
+                        return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
+                    } else {
+                        if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
+                            buffer->q[1].del(pointer);
                     }
-                    if (islockrequired)
-                        pthread_mutex_unlock(buffer->rd_mutex);
-                    return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
-                } else {
-                    if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
-                        buffer->q[1].del(pointer);
+                    break;
                 }
-                break;
-            }
 
-            case interprocess_t::cmd::DATA_TRANSFER:
-            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY:
-            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
-            {
-                if (ele.data_fd_rw.fd == target_fd)
+                case interprocess_t::cmd::DATA_TRANSFER:
+                case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY:
+                case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
                 {
-                    loc_in_buffer_has_blk = pointer;
-                    if (islockrequired)
-                        pthread_mutex_unlock(buffer->rd_mutex);
-                    return ITERATE_FD_IN_BUFFER_STATE::FIND;
+                    if (ele.data_fd_rw.fd == target_fd)
+                    {
+                        loc_in_buffer_has_blk = pointer;
+                        if (islockrequired)
+                            pthread_mutex_unlock(buffer->rd_mutex);
+                        return ITERATE_FD_IN_BUFFER_STATE::FIND;
+                    }
+                    break;
                 }
-                break;
-            }
 
-            case interprocess_t::cmd::ZEROCOPY_RETURN:
-            {
-                short num_pages = ele.zc_ret.num_pages;
-                short begin_page = ele.zc_ret.page;
-                for (int i=0; i<num_pages; i++) {
-                    enqueue_free_page(begin_page + i);
+                case interprocess_t::cmd::ZEROCOPY_RETURN:
+                {
+                    short num_pages = ele.zc_ret.num_pages;
+                    short begin_page = ele.zc_ret.page;
+                    for (int i=0; i<num_pages; i++) {
+                        enqueue_free_page(begin_page + i);
+                    }
+                    break;
                 }
-                break;
-            }
 
-            case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR:
-            {
-                int num_pages = ele.zc_retv.num_pages;
-                unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
-                int size = sizeof(unsigned long) * num_pages;
-                buffer->b[1].popdata(ele.zc_retv.pointer, size, (uint8_t *) received_pages);
-                for (int i=0; i<num_pages; i++) {
-                    enqueue_free_page(received_pages[i]);
+                case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR:
+                {
+                    int num_pages = ele.zc_retv.num_pages;
+                    unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+                    int size = sizeof(unsigned long) * num_pages;
+                    buffer->b[1].popdata(ele.zc_retv.pointer, size, (uint8_t *) received_pages);
+                    for (int i=0; i<num_pages; i++) {
+                        enqueue_free_page(received_pages[i]);
+                    }
+                    free(received_pages);
+                    break;
                 }
-                free(received_pages);
-                break;
-            }
 
-            case interprocess_t::cmd::NOP:
-            {
-                    if (ele.pot_fd_rw.fd == target_fd)
-            {
-                loc_in_buffer_has_blk = pointer;
-                if (islockrequired)
-                    pthread_mutex_unlock(buffer->rd_mutex);
-                return ITERATE_FD_IN_BUFFER_STATE::FIND;
-            }
-            break;
-            }
+                case interprocess_t::cmd::NOP:
+                {
+                        if (ele.pot_fd_rw.fd == target_fd)
+                    {
+                        loc_in_buffer_has_blk = pointer;
+                        if (islockrequired)
+                            pthread_mutex_unlock(buffer->rd_mutex);
+                        return ITERATE_FD_IN_BUFFER_STATE::FIND;
+                    }
+                    break;
+                }
             } // end switch
         }
         if (buffer->q[1].tail > pointer)
