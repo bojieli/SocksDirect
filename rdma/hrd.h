@@ -174,6 +174,20 @@ void hrd_post_dgram_recv(struct ibv_qp* qp, void* buf_addr, size_t len,
                          uint32_t lkey);
 
 // Fill @wc with @num_comps comps from this @cq. Exit on error.
+static inline int hrd_poll_cq_nb(struct ibv_cq* cq, int num_comps,
+                                 struct ibv_wc* wc) {
+  int new_comps = ibv_poll_cq(cq, num_comps, wc);
+  if (new_comps != 0) {
+    // Ideally, we should check from 0 -> new_comps - 1
+    if (wc[0].status != 0) {
+      fprintf(stderr, "Bad wc status %d\n", wc[0].status);
+      exit(0);
+    }
+  }
+  return new_comps;
+}
+
+// Fill @wc with @num_comps comps from this @cq. Exit on error.
 static inline void hrd_poll_cq(struct ibv_cq* cq, int num_comps,
                                struct ibv_wc* wc) {
   int comps = 0;
