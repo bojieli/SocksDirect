@@ -53,7 +53,7 @@ void pot_rdma_init(void)
     srv_gid = thread_id;
     clt_gid = thread_id;
     sprintf(srv_name, "socksdirect-server-%zu", srv_gid);
-    sprintf(clt_name, "socksdirect-client-%zu", srv_gid);
+    sprintf(clt_name, "socksdirect-client-%zu", clt_gid);
 }
 
 int pot_connect(int socket, const struct sockaddr *address, socklen_t address_len)
@@ -76,17 +76,14 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
     cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    memset(const_cast<uint8_t*>(cb->conn_buf), static_cast<uint8_t>(clt_gid) + 1,
-            MAX_TST_MSG_SIZE);
-
     hrd_publish_conn_qp(cb, 0, clt_name);
 
     printf("RDMA: Client %s published. Waiting for server %s.\n", clt_name, srv_name);
 
-    while (srv_qp == nullptr) {
+    do {
         srv_qp = hrd_get_published_qp(srv_name);
         if (srv_qp == nullptr) usleep(200000);
-    }
+    } while (srv_qp == nullptr);
 
     hrd_connect_qp(cb, 0, srv_qp);
     hrd_publish_ready(clt_name);
@@ -117,6 +114,9 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
 
     cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
+
+    memset(const_cast<uint8_t*>(cb->conn_buf), static_cast<uint8_t>(srv_gid) + 1,
+            MAX_TST_MSG_SIZE);
 
     hrd_publish_conn_qp(cb, 0, srv_name);
 
