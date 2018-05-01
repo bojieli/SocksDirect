@@ -25,6 +25,7 @@ private:
     bool *return_flag;
     uint32_t credits;
     uint32_t CREDITS_PER_RETURN;
+    bool credit_disabled;
 private:
     inline void atomic_copy16(element_t *dst, element_t *src)
     {
@@ -61,6 +62,7 @@ public:
             credits = 0;
         else
             credits = SIZE;
+        credit_disabled = false;
     }
 
     inline void init_mem()
@@ -71,7 +73,7 @@ public:
     inline bool push_nb(const T &data)
     {
         //is full?
-        if (credits == 0) {
+        if (!credit_disabled && credits == 0) {
             if (*return_flag) {
                 credits += CREDITS_PER_RETURN;
                 *return_flag = false;
@@ -102,6 +104,11 @@ public:
     inline void setpointer(uint32_t _pointer)
     {
         pointer = _pointer;    
+    }
+
+    inline void disable_credit()
+    {
+        credit_disabled = true;
     }
 
     //true: success false: fail
