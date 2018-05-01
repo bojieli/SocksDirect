@@ -26,7 +26,7 @@ static uint8_t pot_mock_data[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)
 
 void pot_init_write()
 {
-    for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = rand() % 256;
+    for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (rand() % 255 + 1);
 }
 
 static hrd_ctrl_blk_t* cb = nullptr;
@@ -70,11 +70,13 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
     conn_config.num_qps = 1;
     conn_config.use_uc = 0;
     conn_config.prealloc_buf = nullptr;
-    conn_config.buf_size = MAX_TST_MSG_SIZE;
+    conn_config.buf_size = MAX_TST_MSG_SIZE * 2;
     conn_config.buf_shm_key = -1;
 
     cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
+
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE * 2);
 
     hrd_publish_conn_qp(cb, 0, clt_name);
 
@@ -96,10 +98,9 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
 ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     static bool initialized = false;
-    static int fd_num = 10;
-    ++ fd_num;
+    static int fd_num = 0;
     if (initialized)
-        return fd_num;
+        return fd_num++;
     initialized = true;
 
     pot_rdma_init();
@@ -115,8 +116,7 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    memset(const_cast<uint8_t*>(cb->conn_buf), static_cast<uint8_t>(srv_gid) + 1,
-            MAX_TST_MSG_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE);
 
     hrd_publish_conn_qp(cb, 0, srv_name);
 
@@ -132,7 +132,7 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     my_qp = clt_qp;
 
     printf("RDMA: Server %s connected\n", srv_name);
-    return fd_num;
+    return fd_num++;
 }
 
 ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
@@ -161,9 +161,10 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     if (offset + len > MAX_TST_MSG_SIZE)
         offset = MAX_TST_MSG_SIZE - len;
 
-    sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]);
+    sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]) + MAX_TST_MSG_SIZE;
     sgl.length = len;
     sgl.lkey = cb->conn_buf_mr->lkey;
+    memcpy(reinterpret_cast<void*>(sgl.addr), &pot_mock_data[offset], len);
 
     wr.wr.rdma.remote_addr = my_qp->buf_addr + offset;
     wr.wr.rdma.rkey = my_qp->rkey;
@@ -180,6 +181,13 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 
 ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
 {
+    size_t offset = (sockfd * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    if (offset + len > MAX_TST_MSG_SIZE)
+        offset = MAX_TST_MSG_SIZE - len;
+    volatile uint8_t *addr = cb->conn_buf + offset;
+    while (*addr == 0) { }
+    uint64_t int_addr = reinterpret_cast<uint64_t>(addr);
+    memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(int_addr), len);
     return len;
 }
 
