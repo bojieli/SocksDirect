@@ -110,13 +110,13 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     conn_config.num_qps = 1;
     conn_config.use_uc = 0;
     conn_config.prealloc_buf = nullptr;
-    conn_config.buf_size = MAX_TST_MSG_SIZE;
+    conn_config.buf_size = MAX_TST_MSG_SIZE * 2;
     conn_config.buf_shm_key = -1;
 
     cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE * 2);
 
     hrd_publish_conn_qp(cb, 0, srv_name);
 
