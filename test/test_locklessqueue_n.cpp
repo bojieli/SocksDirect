@@ -42,9 +42,9 @@ static void* writer(void* param)
 int main()
 {
     void* baseaddr;
-    queue_sender.init(baseaddr=malloc(queue_sender.getmemsize()));
+    queue_sender.init(baseaddr=malloc(queue_sender.getmemsize()), 0);
     queue_sender.init_mem();
-    queue_receiver.init(baseaddr);
+    queue_receiver.init(baseaddr, 1);
     for (int i = 0; i < 5; ++i)
     {
         queue_sender.push(i);

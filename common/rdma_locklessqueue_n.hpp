@@ -10,7 +10,7 @@
 #define SW_BARRIER asm volatile("" ::: "memory")
 
 template<class T, uint32_t SIZE>
-class locklessqueue_t
+class rdma_locklessqueue_t
 {
 public:
 
@@ -25,7 +25,6 @@ private:
     bool *return_flag;
     uint32_t credits;
     uint32_t CREDITS_PER_RETURN;
-    bool credit_disabled;
 private:
     inline void atomic_copy16(element_t *dst, element_t *src)
     {
@@ -45,12 +44,13 @@ public:
     };
     uint32_t MASK;
 
-    locklessqueue_t() : ringbuffer(nullptr), pointer(0), MASK(SIZE - 1)
+    rdma_locklessqueue_t() : ringbuffer(nullptr), pointer(0), MASK(SIZE - 1)
     {
         assert((sizeof(element_t)==16));
     }
 
-    inline void init(void *baseaddr, bool is_receiver)
+private:
+    inline void init(void *baseaddr)
     {
         pointer = 0;
         MASK = SIZE - 1;
@@ -58,11 +58,19 @@ public:
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
         return_flag = reinterpret_cast<bool *>(baseaddr + (sizeof(element_t) * SIZE));
         *return_flag = false;
-        if (is_receiver)
-            credits = 0;
-        else
-            credits = SIZE;
-        credit_disabled = false;
+    }
+
+public:
+    inline void sender_init(void *baseaddr)
+    {
+        init(baseaddr);
+        credits = SIZE;
+    }
+
+    inline void receiver_init(void *baseaddr)
+    {
+        init(baseaddr);
+        credits = 0;
     }
 
     inline void init_mem()
@@ -73,7 +81,7 @@ public:
     inline bool push_nb(const T &data)
     {
         //is full?
-        if (!credit_disabled && credits == 0) {
+        if (credits == 0) {
             if (*return_flag) {
                 credits += CREDITS_PER_RETURN;
                 *return_flag = false;
@@ -104,11 +112,6 @@ public:
     inline void setpointer(uint32_t _pointer)
     {
         pointer = _pointer;    
-    }
-
-    inline void disable_credit()
-    {
-        credit_disabled = true;
     }
 
     //true: success false: fail

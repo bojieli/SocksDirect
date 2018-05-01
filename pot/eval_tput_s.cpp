@@ -9,19 +9,13 @@
 #include "../lib/lib_internal.h"
 #include "../lib/socket_lib.h"
 #include "../lib/pot_socket_lib.h"
+uint8_t buffer[65536];
 
 int main(int argc, char* argv[])
 {
-    if (argc < 2) FATAL("Lack of parameter: <output file name> <size of the message>");
-    int warmup_num=10000000;
-    int test_num=10000;
-    int inner_test_num = 1;
-    int test_size=atoi(argv[1]);
-
-    if (test_size >= 8192)
-        warmup_num /= 10;
-    if (test_size >= 131072)
-        warmup_num /= 10;
+    int test_size = 8;
+    if (argc == 2)
+        test_size = atoi(argv[1]);
 
     pin_thread(2);
     int fd;
@@ -38,23 +32,28 @@ int main(int argc, char* argv[])
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed\n");
-    uint8_t buffer[65536];
+
+    int test_num = 10000000;
+    if (test_size >= 8192)
+        test_num /= 10;
+    if (test_size >= 131072)
+        test_num /= 10;
 
     pot_init_write();
-
+    TimingInit();
+    InitRdtsc();
     int connect_fd = accept4(fd, NULL, NULL, 0);
     if (connect_fd == -1)
         FATAL("Failed to connect to client");
     printf("Connected\n");
 
-    for (int i=0;i<warmup_num + test_num;++i)
-    {
-        //pong
-        for (int j=0;j< inner_test_num; ++j)
-        {
-            pot_read_nbyte(connect_fd, buffer, test_size);
-            pot_write_nbyte(connect_fd, test_size);
-        }
-    }
+    struct timespec e_time, s_time;
+    GetRdtscTime(&s_time);
+   for (int i=0;i<test_num;++i)
+   {
+       pot_read_nbyte(connect_fd, buffer, test_size);
+   }
+    GetRdtscTime(&e_time);
+   printf("%.0lf\n", (double)test_num / ((e_time.tv_sec-s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/1e9) / 1e3);
 
 }

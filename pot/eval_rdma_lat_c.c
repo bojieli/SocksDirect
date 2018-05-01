@@ -7,7 +7,6 @@
 #include <arpa/inet.h>
 #include "../common/helper.h"
 #include "../lib/pot_socket_lib.h"
-uint8_t buffer[65536];
 int main(int argc, char* argv[])
 {
     int warmup_num = 10000000;
@@ -32,7 +31,7 @@ int main(int argc, char* argv[])
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(8080);
     inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr);
-    if (connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
+    if (pot_connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("Failed to connect, %d", errno);
     printf("connect succeed\n");
 
@@ -49,9 +48,9 @@ int main(int argc, char* argv[])
         for (int j=0;j<inner_test_num; ++j)
         {
             //ping
-            pot_write_nbyte(fd, test_size);
+            pot_rdma_write_nbyte(fd, test_size);
             //pong
-            pot_read_nbyte(fd, buffer, test_size);
+            pot_rdma_read_nbyte(fd, test_size);
         }
 
         //get time
