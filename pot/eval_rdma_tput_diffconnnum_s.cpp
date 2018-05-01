@@ -42,7 +42,7 @@ int main(int argc, char* argv[])
     GetRdtscTime(&s_time);
    for (int i=0;i<3*T1RND;++i)
    {
-       pot_read_nbyte(connect_fd, buffer, 8);
+       pot_rdma_read_nbyte(connect_fd, buffer, 8);
    }
     GetRdtscTime(&e_time);
    printf("%.0lf\n", (double)3*T1RND / ((e_time.tv_sec-s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/1e9) / 1e3);

@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(8080);
     inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr);
-    if (connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
+    if (pot_connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("Failed to connect, %d", errno);
     printf("connect succeed\n");
 
@@ -31,7 +31,7 @@ int main(int argc, char* argv[])
     InitRdtsc();
     for (int i=0;i<3*T1RND;++i)
     {
-        pot_write_nbyte(fd, 8);
+        pot_rdma_write_nbyte(fd, 8);
     }
     return 0;
 }
