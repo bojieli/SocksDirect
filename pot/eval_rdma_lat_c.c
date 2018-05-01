@@ -9,7 +9,7 @@
 #include "../lib/pot_socket_lib.h"
 int main(int argc, char* argv[])
 {
-    const int warmup_num = 10000000;
+    int warmup_num = 10000000;
     const int test_num=10000;
     double samples[test_num];
 
@@ -18,6 +18,11 @@ int main(int argc, char* argv[])
     int test_size=atoi(argv[2]);
     FILE* data_output_f = fopen(argv[1], "w");
     pin_thread(0);
+
+    if (test_size >= 8192)
+        warmup_num /= 10;
+    if (test_size >= 131072)
+        warmup_num /= 10;
 
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);

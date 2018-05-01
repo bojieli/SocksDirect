@@ -188,13 +188,13 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     size_t offset = (sockfd * PAGE_SIZE) % MAX_TST_MSG_SIZE;
     if (offset + len > MAX_TST_MSG_SIZE)
         offset = MAX_TST_MSG_SIZE - len;
-    volatile uint8_t *addr = cb->conn_buf + offset;
+    volatile uint8_t *last_addr = cb->conn_buf + offset + len - 1;
     // wait
-    while (*addr == 0) { }
-    uint64_t int_addr = reinterpret_cast<uint64_t>(addr);
-    memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(int_addr), len);
+    while (*last_addr == 0) { }
+    uint64_t base_addr = reinterpret_cast<uint64_t>(cb->conn_buf + offset);
+    memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(base_addr), len);
     // release
-    *addr = 0;
+    *last_addr = 0;
     return len;
 }
 
