@@ -341,6 +341,12 @@ void hrd_close_memcached() {
   memcached_free(memc);
 }
 
+void hrd_flush_memcached() {
+  if (memc == nullptr) memc = hrd_create_memc();
+  assert(memc != nullptr);
+  memcached_flush(memc, 0);
+}
+
 // Insert key -> value mapping into memcached running at HRD_REGISTRY_IP.
 void hrd_publish(const char* key, void* value, size_t len) {
   assert(key != nullptr && value != nullptr && len > 0);

@@ -243,6 +243,8 @@ void hrd_wait_till_ready(const char* qp_name);
 
 void hrd_close_memcached();
 
+void hrd_flush_memcached();
+
 // Utility functions
 static inline uint32_t hrd_fastrand(uint64_t* seed) {
   *seed = *seed * 1103515245 + 12345;
