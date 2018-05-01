@@ -72,25 +72,25 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
     conn_config.buf_size = MAX_TST_MSG_SIZE;
     conn_config.buf_shm_key = -1;
 
-    cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
+    cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    memset(const_cast<uint8_t*>(cb->conn_buf), static_cast<uint8_t>(srv_gid) + 1,
+    memset(const_cast<uint8_t*>(cb->conn_buf), static_cast<uint8_t>(clt_gid) + 1,
             MAX_TST_MSG_SIZE);
 
     hrd_publish_conn_qp(cb, 0, clt_name);
 
     printf("RDMA: Client %s published. Waiting for server %s.\n", clt_name, srv_name);
 
-    while (clt_qp == nullptr) {
-        clt_qp = hrd_get_published_qp(clt_name);
-        if (clt_qp == nullptr) usleep(200000);
+    while (srv_qp == nullptr) {
+        srv_qp = hrd_get_published_qp(srv_name);
+        if (srv_qp == nullptr) usleep(200000);
     }
 
-    hrd_connect_qp(cb, 0, clt_qp);
-    hrd_wait_till_ready(clt_name);
+    hrd_connect_qp(cb, 0, srv_qp);
+    hrd_publish_ready(clt_name);
 
-    printf("RDMA connected\n");
+    printf("RDMA: Client %s connected\n", clt_name);
     return 0;
 }
 
@@ -113,22 +113,22 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     conn_config.buf_size = MAX_TST_MSG_SIZE;
     conn_config.buf_shm_key = -1;
 
-    cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
+    cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    hrd_publish_conn_qp(cb, 0, clt_name);
+    hrd_publish_conn_qp(cb, 0, srv_name);
 
-    printf("RDMA: Client %s published. Waiting for server %s.\n", clt_name, srv_name);
+    printf("RDMA: Server %s published. Waiting for client %s.\n", srv_name, clt_name);
 
     do {
-        srv_qp = hrd_get_published_qp(srv_name);
-        if (srv_qp == nullptr) usleep(200000);
-    } while (srv_qp == nullptr);
+        clt_qp = hrd_get_published_qp(clt_name);
+        if (clt_qp == nullptr) usleep(200000);
+    } while (clt_qp == nullptr);
 
-    hrd_connect_qp(cb, 0, srv_qp);
-    hrd_publish_ready(clt_name);
+    hrd_connect_qp(cb, 0, clt_qp);
+    hrd_wait_till_ready(clt_name);
 
-    printf("RDMA connected\n");
+    printf("RDMA: Server %s connected\n", srv_name);
     return fd_num;
 }
 
