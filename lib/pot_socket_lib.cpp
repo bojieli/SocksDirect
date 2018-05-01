@@ -137,6 +137,8 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
 
 ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 {
+    sockfd = 2147483647 - sockfd;
+
     const int kAppUnsigBatch = 64;
     const int kHrdMaxInline = 32;
     static size_t nb_tx = 0;
@@ -181,6 +183,8 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 
 ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
 {
+    sockfd = 2147483647 - sockfd;
+
     size_t offset = (sockfd * PAGE_SIZE) % MAX_TST_MSG_SIZE;
     if (offset + len > MAX_TST_MSG_SIZE)
         offset = MAX_TST_MSG_SIZE - len;
