@@ -98,9 +98,9 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
 ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     static bool initialized = false;
-    static int fd_num = 0;
+    static int fd_num = 2147483647;
     if (initialized)
-        return fd_num++;
+        return fd_num--;
     initialized = true;
 
     pot_rdma_init();
@@ -132,7 +132,7 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     my_qp = clt_qp;
 
     printf("RDMA: Server %s connected\n", srv_name);
-    return fd_num++;
+    return fd_num--;
 }
 
 ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
@@ -185,9 +185,12 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     if (offset + len > MAX_TST_MSG_SIZE)
         offset = MAX_TST_MSG_SIZE - len;
     volatile uint8_t *addr = cb->conn_buf + offset;
+    // wait
     while (*addr == 0) { }
     uint64_t int_addr = reinterpret_cast<uint64_t>(addr);
     memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(int_addr), len);
+    // release
+    *addr = 0;
     return len;
 }
 
