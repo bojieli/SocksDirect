@@ -17,9 +17,10 @@
 #include "fork.h"
 #include "pot_socket_lib.h"
 #include "../lib/zerocopy.h"
+#include "../rdma/hrd.h"
 
 const int MIN_PAGES_FOR_ZEROCOPY = 3;
-const int MAX_TST_MSG_SIZE=64*1024;
+const int MAX_TST_MSG_SIZE=1024*1024;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
 
 void pot_init_write()
@@ -27,20 +28,141 @@ void pot_init_write()
     for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = rand() % 256;
 }
 
-ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+static hrd_ctrl_blk_t* cb = nullptr;
+static hrd_qp_attr_t *clt_qp = nullptr;
+static hrd_qp_attr_t *srv_qp = nullptr;
+static size_t srv_gid = 0;  // Global ID of this server thread
+static size_t clt_gid = 0;     // One-to-one connections
+static char srv_name[50] = {0};
+static char clt_name[50] = {0};
+
+void pot_rdma_init(int thread_id)
 {
+    srv_gid = thread_id;
+    clt_gid = thread_id;
+    sprintf(srv_name, "socksdirect-server-%zu", srv_gid);
+    sprintf(clt_name, "socksdirect-client-%zu", srv_gid);
 }
 
 int pot_connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
+    static bool initialized = false;
+    if (initialized)
+        return 0;
+    initialized = true;
+
+    const size_t ib_port_index = 0;
+    hrd_conn_config_t conn_config;
+    conn_config.num_qps = 1;
+    conn_config.use_uc = 0;
+    conn_config.prealloc_buf = nullptr;
+    conn_config.buf_size = MAX_TST_MSG_SIZE;
+    conn_config.buf_shm_key = -1;
+
+    cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
+            &conn_config, nullptr);
+
+    memset(const_cast<uint8_t*>(cb->conn_buf), static_cast<uint8_t>(srv_gid) + 1,
+            MAX_TST_MSG_SIZE);
+
+    hrd_publish_conn_qp(cb, 0, clt_name);
+
+    printf("RDMA: Client %s published. Waiting for server %s.\n", clt_name, srv_name);
+
+    while (clt_qp == nullptr) {
+        clt_qp = hrd_get_published_qp(clt_name);
+        if (clt_qp == nullptr) usleep(200000);
+    }
+
+    hrd_connect_qp(cb, 0, clt_qp);
+    hrd_wait_till_ready(clt_name);
+
+    printf("RDMA connected\n");
+    return 0;
+}
+
+ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
+{
+    static bool initialized = false;
+    static int fd_num = 10;
+    ++ fd_num;
+    if (initialized)
+        return fd_num;
+    initialized = true;
+
+    size_t ib_port_index = 0;
+    hrd_conn_config_t conn_config;
+    conn_config.num_qps = 1;
+    conn_config.use_uc = 0;
+    conn_config.prealloc_buf = nullptr;
+    conn_config.buf_size = MAX_TST_MSG_SIZE;
+    conn_config.buf_shm_key = -1;
+
+    cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
+            &conn_config, nullptr);
+
+    hrd_publish_conn_qp(cb, 0, clt_name);
+
+    printf("RDMA: Client %s published. Waiting for server %s.\n", clt_name, srv_name);
+
+    do {
+        srv_qp = hrd_get_published_qp(srv_name);
+        if (srv_qp == nullptr) usleep(200000);
+    } while (srv_qp == nullptr);
+
+    hrd_connect_qp(cb, 0, srv_qp);
+    hrd_publish_ready(clt_name);
+
+    printf("RDMA connected\n");
+    return fd_num;
 }
 
 ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 {
+    const int kAppUnsigBatch = 64;
+    const int kHrdMaxInline = 32;
+    static size_t nb_tx = 0;
+
+    struct ibv_send_wr wr, *bad_send_wr;
+    struct ibv_sge sgl;
+    struct ibv_wc wc;
+
+    wr.opcode = IBV_WR_RDMA_WRITE;
+    wr.num_sge = 1;
+    wr.next = nullptr;
+    wr.sg_list = &sgl;
+
+    wr.send_flags = nb_tx % kAppUnsigBatch == 0 ? IBV_SEND_SIGNALED : 0;
+    if (nb_tx % kAppUnsigBatch == 0 && nb_tx != 0) {
+        hrd_poll_cq(cb->conn_cq[0], 1, &wc);
+    }
+
+    wr.send_flags |= (len <= kHrdMaxInline) ? IBV_SEND_INLINE : 0;
+
+    size_t offset = (sockfd * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    if (offset + len > MAX_TST_MSG_SIZE)
+        offset = MAX_TST_MSG_SIZE - len;
+
+    sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]);
+    sgl.length = len;
+    sgl.lkey = cb->conn_buf_mr->lkey;
+
+    wr.wr.rdma.remote_addr = clt_qp->buf_addr + offset;
+    wr.wr.rdma.rkey = clt_qp->rkey;
+
+    nb_tx++;
+
+    int ret = ibv_post_send(cb->conn_qp[0], &wr, &bad_send_wr);
+    if (ret != 0) {
+       printf("wrong ret %d\n", ret);
+       return 0;
+    }
+    return len;
 }
 
 ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
 {
+    return len;
 }
 
 ssize_t pot_write_nbyte(int fd, int numofbytes)
