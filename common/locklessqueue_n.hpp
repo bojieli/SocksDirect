@@ -49,8 +49,7 @@ public:
         assert((sizeof(element_t)==16));
     }
 
-private:
-    inline void init(void *baseaddr)
+    inline void init(void *baseaddr, bool is_receiver)
     {
         pointer = 0;
         MASK = SIZE - 1;
@@ -58,19 +57,10 @@ private:
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
         return_flag = reinterpret_cast<bool *>(baseaddr + (sizeof(element_t) * SIZE));
         *return_flag = false;
-    }
-
-public:
-    inline void sender_init(void *baseaddr)
-    {
-        init(baseaddr);
-        credits = SIZE;
-    }
-
-    inline void receiver_init(void *baseaddr)
-    {
-        init(baseaddr);
-        credits = 0;
+        if (is_receiver)
+            credits = 0;
+        else
+            credits = SIZE;
     }
 
     inline void init_mem()
