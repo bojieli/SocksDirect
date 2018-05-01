@@ -18,6 +18,11 @@ int main(int argc, char* argv[])
     int inner_test_num = 1;
     int test_size=atoi(argv[1]);
 
+    if (test_size >= 8192)
+        warmup_num /= 10;
+    if (test_size >= 131072)
+        warmup_num /= 10;
+
     pin_thread(2);
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);

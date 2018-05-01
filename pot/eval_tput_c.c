@@ -8,10 +8,12 @@
 #include "../common/helper.h"
 #include "../lib/pot_socket_lib.h"
 uint8_t buffer[65536];
-#define T1RND 10000000
 
 int main(int argc, char* argv[])
 {
+    int test_size = 8;
+    if (argc == 2)
+        test_size = atoi(argv[1]);
 
     pin_thread(0);
 
@@ -26,12 +28,18 @@ int main(int argc, char* argv[])
         FATAL("Failed to connect, %d", errno);
     printf("connect succeed\n");
 
+    int test_num = 10000000;
+    if (test_size >= 8192)
+        test_num /= 10;
+    if (test_size >= 131072)
+        test_num /= 10;
+
     pot_init_write();
     TimingInit();
     InitRdtsc();
-    for (int i=0;i<3*T1RND;++i)
+    for (int i=0;i<test_num;++i)
     {
-        pot_write_nbyte(fd, 8);
+        pot_write_nbyte(fd, test_size);
     }
     return 0;
 }
