@@ -32,6 +32,7 @@ void pot_init_write()
 static hrd_ctrl_blk_t* cb = nullptr;
 static hrd_qp_attr_t *clt_qp = nullptr;
 static hrd_qp_attr_t *srv_qp = nullptr;
+static hrd_qp_attr_t *my_qp = nullptr;
 static size_t srv_gid = 0;  // Global ID of this server thread
 static size_t clt_gid = 0;     // One-to-one connections
 static char srv_name[50] = {0};
@@ -89,6 +90,7 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
 
     hrd_connect_qp(cb, 0, srv_qp);
     hrd_publish_ready(clt_name);
+    my_qp = srv_qp;
 
     printf("RDMA: Client %s connected\n", clt_name);
     return 0;
@@ -127,6 +129,7 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
 
     hrd_connect_qp(cb, 0, clt_qp);
     hrd_wait_till_ready(clt_name);
+    my_qp = clt_qp;
 
     printf("RDMA: Server %s connected\n", srv_name);
     return fd_num;
@@ -162,8 +165,8 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     sgl.length = len;
     sgl.lkey = cb->conn_buf_mr->lkey;
 
-    wr.wr.rdma.remote_addr = clt_qp->buf_addr + offset;
-    wr.wr.rdma.rkey = clt_qp->rkey;
+    wr.wr.rdma.remote_addr = my_qp->buf_addr + offset;
+    wr.wr.rdma.rkey = my_qp->rkey;
 
     nb_tx++;
 
