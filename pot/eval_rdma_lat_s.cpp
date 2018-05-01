@@ -18,7 +18,7 @@ int main(int argc, char* argv[])
     int inner_test_num = 1;
     int test_size=atoi(argv[1]);
 
-    pin_thread(2);
+    pin_thread(0);
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) FATAL("Failed to create fd");
