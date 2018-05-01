@@ -9,10 +9,14 @@
 #include "../lib/lib_internal.h"
 #include "../lib/socket_lib.h"
 #include "../lib/pot_socket_lib.h"
-#define T1RND 10000000
+uint8_t buffer[65536];
 
 int main(int argc, char* argv[])
 {
+    int test_size = 8;
+    if (argc == 2)
+        test_size = atoi(argv[1]);
+
     pin_thread(2);
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
@@ -28,7 +32,12 @@ int main(int argc, char* argv[])
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed\n");
-    uint8_t buffer[65536];
+
+    int test_num = 10000000;
+    if (test_size >= 8192)
+        test_num /= 10;
+    if (test_size >= 131072)
+        test_num /= 10;
 
     pot_init_write();
     TimingInit();
@@ -40,11 +49,11 @@ int main(int argc, char* argv[])
 
     struct timespec e_time, s_time;
     GetRdtscTime(&s_time);
-   for (int i=0;i<3*T1RND;++i)
+   for (int i=0;i<test_num;++i)
    {
-       pot_read_nbyte(connect_fd, buffer, 8);
+       pot_read_nbyte(connect_fd, buffer, test_size);
    }
     GetRdtscTime(&e_time);
-   printf("%.0lf\n", (double)3*T1RND / ((e_time.tv_sec-s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/1e9) / 1e3);
+   printf("%.0lf\n", (double)test_num / ((e_time.tv_sec-s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/1e9) / 1e3);
 
 }
