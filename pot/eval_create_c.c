@@ -10,7 +10,7 @@
 #include <sys/shm.h>
 #include <sys/types.h>
 #include <semaphore.h>
-uint8_t buffer[65536];
+uint8_t buffer[1048576]  __attribute__((aligned(PAGE_SIZE)));
 int main(int argc, char* argv[])
 {
     const int warmup_num = 10000;

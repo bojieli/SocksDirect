@@ -28,7 +28,7 @@ int main(int argc, char* argv[])
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed\n");
-    uint8_t buffer[65536];
+    uint8_t buffer[1048576]  __attribute__((aligned(PAGE_SIZE)));
 
     pot_init_write();
     TimingInit();

@@ -19,8 +19,9 @@
 #include "pot_socket_lib.h"
 #include "../lib/zerocopy.h"
 #include "../rdma/hrd.h"
+#include <unordered_map>
 
-const int MIN_PAGES_FOR_ZEROCOPY = 3;
+const int MIN_PAGES_FOR_ZEROCOPY = 2;
 const int MAX_TST_MSG_SIZE=1024*1024;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
 
@@ -374,7 +375,16 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     int num_pages = ele.zc_retv.num_pages;
                     unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
                     int size = sizeof(unsigned long) * num_pages;
-                    buffer->b[1].popdata(ele.zc_retv.pointer, size, (uint8_t *) received_pages);
+                    short blk = buffer->b[1].popdata(ele.zc_retv.pointer, size, (uint8_t *) received_pages);
+                    if (blk == -1)
+                    {
+                        buffer->q[1].del(blk);
+                    } else
+                    {
+                        ele.zc_retv.pointer = blk;
+                        buffer->q[1].set(blk, ele);
+                    }
+
                     for (int i=0; i<num_pages; i++) {
                         enqueue_free_page(received_pages[i]);
                     }
@@ -410,34 +420,79 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
 #define DEBUGON 1
 
 
+static uint8_t mapping_buf[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
+static std::unordered_map<unsigned long,unsigned long> page_mappings;
+
+static inline void log_mapping(void *buf, unsigned long *original_pages, int num_pages)
+{
+        for (int i=0; i<num_pages; i++) {
+            unsigned long addr = (unsigned long)(buf) + i * PAGE_SIZE;
+            if (page_mappings.count(addr) == 0) {
+                page_mappings.insert(std::pair<unsigned long,unsigned long>(addr, original_pages[i]));
+            }
+        }
+}
+
+static inline void init_mapping(void)
+{
+        const int num_pages = 1;
+        alloc_phys(num_pages);
+}
+
+static inline void resume_mapping(void)
+{
+        for (auto& x: page_mappings) {
+            if (x.second != 0)
+                map_phys(x.first, x.second);
+        }
+}
+
 static inline void map_and_return_pages(void *buf, unsigned long *received_pages,
     interprocess_t *ret_queue, int num_pages)
 {
-        unsigned long *return_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
-        map_physv((unsigned long)buf, received_pages, return_pages, num_pages);
+        static bool initialized = false;
+        if (!initialized) {
+            init_mapping();
+            atexit(resume_mapping);
+            initialized = true;
+        }
 
-        // return pages now
-        // check if pages are continuous
-        int i;
-        for (i=1; i<num_pages; i++) {
-            if (return_pages[i] != return_pages[i-1] + 1)
-                break;
+        unsigned long *return_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+        if ((unsigned long)(buf) & (PAGE_SIZE - 1) != 0) {
+            printf("Warning: receive buffer %p not aligned, fall back to memcpy\n", buf);
+            map_physv((unsigned long)mapping_buf, received_pages, return_pages, num_pages);
+            log_mapping(mapping_buf, return_pages, num_pages);
+            memcpy(buf, mapping_buf, num_pages * PAGE_SIZE);
         }
-        interprocess_t::queue_t::element ele;
-        if (i == num_pages) { // if continuous
-            ele.command = interprocess_t::cmd::ZEROCOPY_RETURN;
-            ele.zc_ret.num_pages = num_pages;
-            ele.zc_ret.page = return_pages[0];
-            SW_BARRIER;
-            ret_queue->q[1].push(ele);
-        }
-        else { // send in a vector
-            short startloc = ret_queue->b[1].pushdata((uint8_t *)return_pages, sizeof(unsigned long) * num_pages);
-            ele.command = interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR;
-            ele.zc_retv.num_pages = num_pages;
-            ele.zc_retv.pointer = startloc;
-            SW_BARRIER;
-            ret_queue->q[1].push(ele);
+        else {
+            map_physv((unsigned long)buf, received_pages, return_pages, num_pages);
+            log_mapping(buf, return_pages, num_pages);
+
+            /*
+            // return pages now
+            // check if pages are continuous
+            int i;
+            for (i=1; i<num_pages; i++) {
+                if (return_pages[i] != return_pages[i-1] + 1)
+                    break;
+            }
+            interprocess_t::queue_t::element ele;
+            if (i == num_pages) { // if continuous
+                ele.command = interprocess_t::cmd::ZEROCOPY_RETURN;
+                ele.zc_ret.num_pages = num_pages;
+                ele.zc_ret.page = return_pages[0];
+                SW_BARRIER;
+                ret_queue->q[1].push(ele);
+            }
+            else { // send in a vector
+                short startloc = ret_queue->b[1].pushdata((uint8_t *)return_pages, sizeof(unsigned long) * num_pages);
+                ele.command = interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR;
+                ele.zc_retv.num_pages = num_pages;
+                ele.zc_retv.pointer = startloc;
+                SW_BARRIER;
+                ret_queue->q[1].push(ele);
+            }
+            */
         }
 
         free(return_pages);
@@ -511,9 +566,7 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
             short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
             if (blk == -1)
             {
-                SW_BARRIER;
                 buffer_has_blk->q[1].del(loc_has_blk);
-                SW_BARRIER;
             } else
             {
                 ele.data_fd_rw.pointer = blk;
@@ -538,7 +591,6 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
             short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw_zcv.pointer, ret, (uint8_t *) received_pages);
             if (blk == -1)
             {
-                FATAL("zero copy vector not found error\n");
                 buffer_has_blk->q[1].del(loc_has_blk);
             } else
             {
