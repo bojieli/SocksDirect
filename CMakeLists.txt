@@ -93,6 +93,10 @@ add_executable(pot_eval_linux_tput_diffconnnum_s pot/eval_linux_tput_diffconnnum
 add_executable(pot_eval_linux_tput_diffconnnum_c pot/eval_linux_tput_diffconnnum_c.c common/helper.c common/helper.h)
 target_link_libraries(pot_eval_linux_tput_diffconnnum_s pthread)
 target_link_libraries(pot_eval_linux_tput_diffconnnum_c pthread)
+add_executable(pot_eval_tput_diffconnnum_s pot/eval_tput_diffconnnum_s.cpp)
+target_link_libraries(pot_eval_tput_diffconnnum_s ipc)
+add_executable(pot_eval_tput_diffconnnum_c pot/eval_tput_diffconnnum_c.c)
+target_link_libraries(pot_eval_tput_diffconnnum_c ipc)
 
 add_executable(pot_eval_rdma_lat_s pot/eval_rdma_lat_s.cpp)
 target_link_libraries(pot_eval_rdma_lat_s ipc)
