@@ -17,12 +17,12 @@
 #include <pthread.h>
 #include "fork.h"
 #include "pot_socket_lib.h"
-#include "../lib/zerocopy.h"
+#include "../lib/zerocopy.hpp"
 #include "../rdma/hrd.h"
 #include <unordered_map>
 
 const int MIN_PAGES_FOR_ZEROCOPY = 2;
-const int MAX_TST_MSG_SIZE=1024*1024*4;
+const int MAX_TST_MSG_SIZE=1024*1024;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 static uint8_t mapping_buf[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 
@@ -156,13 +156,13 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     static unsigned long credits = MAX_TST_MSG_SIZE / PAGE_SIZE;
     sockfd = 2147483647 - sockfd;
 
+    //printf("counter %ld credits %ld\n", counter, credits);
     if (credits == 0) {
-        if (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]) {
-            printf("Warning: credit not returned yet!\n");
-        }
+        //if (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]) {
+        //    printf("Counter %ld. Warning: credit not returned yet!\n", counter);
+        //}
         while (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]);
-        printf("Got %d credits\n", MAX_TST_MSG_SIZE / 2 / PAGE_SIZE);
-        credits = MAX_TST_MSG_SIZE / 2 / PAGE_SIZE;
+        credits = MAX_TST_MSG_SIZE / 2 / PAGE_SIZE + 1;
         cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64] = 0;
     }
     credits--;
@@ -244,7 +244,7 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     }
 
     credits++;
-    if (credits >= MAX_TST_MSG_SIZE / 2 / PAGE_SIZE) {
+    if (credits > MAX_TST_MSG_SIZE / 2 / PAGE_SIZE) {
         credits = 0;
 
         // send back to sender
@@ -259,7 +259,12 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
         wr.next = nullptr;
         wr.sg_list = &sgl;
     
-        wr.send_flags = IBV_SEND_SIGNALED | IBV_SEND_INLINE;
+        wr.send_flags = nb_tx % kAppUnsigBatch == 0 ? IBV_SEND_SIGNALED : 0;
+        if (nb_tx % kAppUnsigBatch == 0 && nb_tx != 0) {
+            hrd_poll_cq(cb->conn_cq[0], 1, &wc);
+        }
+        nb_tx++;
+        wr.send_flags |= IBV_SEND_INLINE;
 
         cb->conn_buf[4 * MAX_TST_MSG_SIZE] = 1;
         sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[4 * MAX_TST_MSG_SIZE]);
@@ -274,7 +279,6 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
            printf("wrong ret %d\n", ret);
            return 0;
         }
-        hrd_poll_cq(cb->conn_cq[0], 1, &wc);
     }
 
     return len;
