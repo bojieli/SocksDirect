@@ -76,7 +76,7 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
     conn_config.num_qps = 1;
     conn_config.use_uc = 0;
     conn_config.prealloc_buf = nullptr;
-    conn_config.buf_size = MAX_TST_MSG_SIZE * 2;
+    conn_config.buf_size = MAX_TST_MSG_SIZE * 4;
     conn_config.buf_shm_key = -1;
 
     cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
