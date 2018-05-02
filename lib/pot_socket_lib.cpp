@@ -265,9 +265,9 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
         return 0;
     }
 
-    if (numofbytes >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY &&
+    if ((numofbytes >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY) &&
             (((unsigned long)send_buffer & (PAGE_SIZE - 1)) == 0) &&
-            (numofbytes & (PAGE_SIZE - 1) == 0))
+            ((numofbytes & (PAGE_SIZE - 1)) == 0))
     {
         int num_pages = numofbytes / PAGE_SIZE;
         unsigned long *phys_addrs = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
