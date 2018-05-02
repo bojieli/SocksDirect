@@ -17,14 +17,15 @@
 #include <pthread.h>
 #include "fork.h"
 #include "pot_socket_lib.h"
-#include "../lib/zerocopy.hpp"
+#include "../lib/zerocopy.h"
 #include "../rdma/hrd.h"
 #include <unordered_map>
 
 const int MIN_PAGES_FOR_ZEROCOPY = 2;
-const int MAX_TST_MSG_SIZE=1024*1024;
+const int MAX_TST_MSG_SIZE=1024*1024*4;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 static uint8_t mapping_buf[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
+const int CREDIT_RETURN_THRESHOLD = MAX_TST_MSG_SIZE / 2 / PAGE_SIZE + 1;
 
 static hrd_ctrl_blk_t* cb = nullptr;
 static hrd_qp_attr_t *clt_qp = nullptr;
@@ -154,18 +155,20 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 {
     static unsigned long counter = 0;
     static unsigned long credits = MAX_TST_MSG_SIZE / PAGE_SIZE;
+
+    int num_pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     sockfd = 2147483647 - sockfd;
 
     //printf("counter %ld credits %ld\n", counter, credits);
-    if (credits == 0) {
+    if (credits < num_pages) {
         //if (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]) {
         //    printf("Counter %ld. Warning: credit not returned yet!\n", counter);
         //}
         while (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]);
-        credits = MAX_TST_MSG_SIZE / 2 / PAGE_SIZE + 1;
+        credits += CREDIT_RETURN_THRESHOLD;
         cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64] = 0;
     }
-    credits--;
+    credits -= num_pages;
 
     struct ibv_send_wr wr, *bad_send_wr;
     struct ibv_sge sgl;
@@ -185,7 +188,7 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     wr.send_flags |= (len <= kHrdMaxInline) ? IBV_SEND_INLINE : 0;
 
     size_t offset = (counter * PAGE_SIZE) % MAX_TST_MSG_SIZE;
-    counter++;
+    counter += num_pages;
 
     sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]) + 2 * MAX_TST_MSG_SIZE;
     sgl.length = len;
@@ -220,8 +223,12 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     static unsigned long credits = 0;
     sockfd = 2147483647 - sockfd;
 
+    int num_pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     size_t offset = (counter * PAGE_SIZE) % MAX_TST_MSG_SIZE;
-    counter++;
+    counter += num_pages;
+
+    if (counter % 8192 == 0)
+        printf("%ld\n", counter);
 
     volatile uint8_t *last_addr = cb->conn_buf + offset + len - 1;
     // wait
@@ -243,9 +250,9 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
         memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(base_addr), len);
     }
 
-    credits++;
-    if (credits > MAX_TST_MSG_SIZE / 2 / PAGE_SIZE) {
-        credits = 0;
+    credits += num_pages;
+    if (credits >= CREDIT_RETURN_THRESHOLD) {
+        credits -= CREDIT_RETURN_THRESHOLD;
 
         // send back to sender
         static size_t nb_tx = 0;
