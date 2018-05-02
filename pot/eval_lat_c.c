@@ -10,7 +10,7 @@
 uint8_t buffer[65536];
 int main(int argc, char* argv[])
 {
-    int warmup_num = 10000000;
+    int warmup_num = 1000000;
     const int test_num=10000;
     double samples[test_num];
 

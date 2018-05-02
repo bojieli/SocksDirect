@@ -13,7 +13,7 @@
 int main(int argc, char* argv[])
 {
     if (argc < 2) FATAL("Lack of parameter: <output file name> <size of the message>");
-    int warmup_num=10000000;
+    int warmup_num=1000000;
     int test_num=10000;
     int inner_test_num = 1;
     int test_size=atoi(argv[1]);
