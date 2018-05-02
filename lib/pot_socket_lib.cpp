@@ -22,7 +22,7 @@
 #include <unordered_map>
 
 const int MIN_PAGES_FOR_ZEROCOPY = 2;
-const int MAX_TST_MSG_SIZE=1024*1024;
+const int MAX_TST_MSG_SIZE=1024*1024*2;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 static uint8_t mapping_buf[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 
@@ -162,7 +162,6 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
         cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64] = 0;
     }
     credits--;
-
 
     struct ibv_send_wr wr, *bad_send_wr;
     struct ibv_sge sgl;
