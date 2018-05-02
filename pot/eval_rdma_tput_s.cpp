@@ -21,7 +21,8 @@ int main(int argc, char* argv[])
     if (argc >= 4)
         thread = atoi(argv[3]);
 
-    pin_thread((4 * thread + 2) % 31);
+    pin_thread(thread);
+
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) FATAL("Failed to create fd");
