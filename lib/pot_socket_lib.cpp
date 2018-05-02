@@ -23,8 +23,8 @@
 
 const int MIN_PAGES_FOR_ZEROCOPY = 2;
 const int MAX_TST_MSG_SIZE=1024*1024;
-static uint8_t pot_mock_data[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
-static uint8_t mapping_buf[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
+static uint8_t pot_mock_data[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
+static uint8_t mapping_buf[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 
 static hrd_ctrl_blk_t* cb = nullptr;
 static hrd_qp_attr_t *clt_qp = nullptr;
@@ -34,14 +34,14 @@ static size_t srv_gid = 0;  // Global ID of this server thread
 static size_t clt_gid = 0;     // One-to-one connections
 static char srv_name[50] = {0};
 static char clt_name[50] = {0};
-static unsigned long original_phys[MAX_TST_MSG_SIZE * 2 / PAGE_SIZE];
-static unsigned long recv_buffer_phys[MAX_TST_MSG_SIZE * 2 / PAGE_SIZE];
-static unsigned long send_buffer_phys[MAX_TST_MSG_SIZE / PAGE_SIZE];
+static unsigned long original_phys[MAX_TST_MSG_SIZE * 4 / PAGE_SIZE];
+static unsigned long recv_buffer_phys[MAX_TST_MSG_SIZE * 4 / PAGE_SIZE];
+static unsigned long send_buffer_phys[MAX_TST_MSG_SIZE * 2 / PAGE_SIZE];
 
 void pot_init_write()
 {
-    for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (rand() % 255 + 1);
-    virt2physv(reinterpret_cast<uint64_t>(pot_mock_data), send_buffer_phys, MAX_TST_MSG_SIZE / PAGE_SIZE);
+    for (int i=0;i<2*MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (rand() % 255 + 1);
+    virt2physv(reinterpret_cast<uint64_t>(pot_mock_data), send_buffer_phys, 2 * MAX_TST_MSG_SIZE / PAGE_SIZE);
 }
 
 void pot_rdma_init(void)
@@ -82,9 +82,9 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
     cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE);
-    memset(const_cast<uint8_t*>(cb->conn_buf + MAX_TST_MSG_SIZE), 1, MAX_TST_MSG_SIZE);
-    virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 2 / PAGE_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, 2 * MAX_TST_MSG_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf + 2 * MAX_TST_MSG_SIZE), 1, 2 * MAX_TST_MSG_SIZE);
+    virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 4 / PAGE_SIZE);
 
     hrd_publish_conn_qp(cb, 0, clt_name);
 
@@ -118,15 +118,15 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     conn_config.num_qps = 1;
     conn_config.use_uc = 0;
     conn_config.prealloc_buf = nullptr;
-    conn_config.buf_size = MAX_TST_MSG_SIZE * 2;
+    conn_config.buf_size = MAX_TST_MSG_SIZE * 4;
     conn_config.buf_shm_key = -1;
 
     cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE);
-    memset(const_cast<uint8_t*>(cb->conn_buf + MAX_TST_MSG_SIZE), 1, MAX_TST_MSG_SIZE);
-    virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 2 / PAGE_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, 2 * MAX_TST_MSG_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf + 2 * MAX_TST_MSG_SIZE), 1, 2 * MAX_TST_MSG_SIZE);
+    virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 4 / PAGE_SIZE);
 
     hrd_publish_conn_qp(cb, 0, srv_name);
 
@@ -172,10 +172,8 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 
     size_t offset = (((unsigned long)sockfd + counter) * PAGE_SIZE) % MAX_TST_MSG_SIZE;
     counter++;
-    if (offset + len > MAX_TST_MSG_SIZE)
-        offset = MAX_TST_MSG_SIZE - len;
 
-    sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]) + MAX_TST_MSG_SIZE;
+    sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]) + 2 * MAX_TST_MSG_SIZE;
     sgl.length = len;
     sgl.lkey = cb->conn_buf_mr->lkey;
 
@@ -211,8 +209,7 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
 
     size_t offset = (((unsigned long)sockfd + counter) * PAGE_SIZE) % MAX_TST_MSG_SIZE;
     counter++;
-    if (offset + len > MAX_TST_MSG_SIZE)
-        offset = MAX_TST_MSG_SIZE - len;
+
     volatile uint8_t *last_addr = cb->conn_buf + offset + len - 1;
     // wait
     while (*last_addr == 0) { }
