@@ -28,13 +28,21 @@ int main(int argc, char* argv[])
         FATAL("Failed to connect, %d", errno);
     printf("connect succeed\n");
 
-    int test_num = 10000000;
+    int test_num = 100000000;
+    if (test_size >= 512)
+        test_num /= 10;
     if (test_size >= 8192)
         test_num /= 10;
     if (test_size >= 131072)
         test_num /= 10;
 
     pot_init_write();
+    // warmup
+    for (int i=0;i<test_num;++i)
+    {
+        pot_write_nbyte(fd, test_size);
+    }
+
     TimingInit();
     InitRdtsc();
     for (int i=0;i<test_num;++i)

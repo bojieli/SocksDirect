@@ -33,7 +33,9 @@ int main(int argc, char* argv[])
         FATAL("listen failed");
     printf("listen succeed\n");
 
-    int test_num = 10000000;
+    int test_num = 100000000;
+    if (test_size >= 512)
+        test_num /= 10;
     if (test_size >= 8192)
         test_num /= 10;
     if (test_size >= 131072)
@@ -46,6 +48,12 @@ int main(int argc, char* argv[])
     if (connect_fd == -1)
         FATAL("Failed to connect to client");
     printf("Connected\n");
+
+    // warmup
+   for (int i=0;i<test_num;++i)
+   {
+       pot_read_nbyte(connect_fd, buffer, test_size);
+   }
 
     struct timespec e_time, s_time;
     GetRdtscTime(&s_time);
