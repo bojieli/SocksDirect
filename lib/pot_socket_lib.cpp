@@ -259,13 +259,7 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
         wr.next = nullptr;
         wr.sg_list = &sgl;
     
-        wr.send_flags = nb_tx % kAppUnsigBatch == 0 ? IBV_SEND_SIGNALED : 0;
-        if (nb_tx % kAppUnsigBatch == 0 && nb_tx != 0) {
-            hrd_poll_cq(cb->conn_cq[0], 1, &wc);
-        }
-        nb_tx++;
-
-        wr.send_flags |= IBV_SEND_INLINE;
+        wr.send_flags = IBV_SEND_SIGNALED | IBV_SEND_INLINE;
 
         cb->conn_buf[4 * MAX_TST_MSG_SIZE] = 1;
         sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[4 * MAX_TST_MSG_SIZE]);
@@ -280,6 +274,7 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
            printf("wrong ret %d\n", ret);
            return 0;
         }
+        hrd_poll_cq(cb->conn_cq[0], 1, &wc);
     }
 
     return len;
