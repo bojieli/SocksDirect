@@ -157,7 +157,11 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     sockfd = 2147483647 - sockfd;
 
     if (credits == 0) {
+        if (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]) {
+            printf("Warning: credit not returned yet!\n");
+        }
         while (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]);
+        printf("Got %d credits\n", MAX_TST_MSG_SIZE / 2 / PAGE_SIZE);
         credits = MAX_TST_MSG_SIZE / 2 / PAGE_SIZE;
         cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64] = 0;
     }
