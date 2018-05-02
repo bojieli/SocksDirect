@@ -112,5 +112,5 @@ target_link_libraries(rdma_throughput hrd gflags)
 add_executable(rdma_latency rdma/latency.cpp)
 target_link_libraries(rdma_latency hrd gflags)
 
-add_executable(zerocopy zerocopy/zerocopy.c common/helper.c)
-target_link_libraries(zerocopy pthread)
+#add_executable(zerocopy zerocopy/zerocopy.c common/helper.c)
+#target_link_libraries(zerocopy pthread)
