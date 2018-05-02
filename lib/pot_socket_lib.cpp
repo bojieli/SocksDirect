@@ -24,11 +24,7 @@
 const int MIN_PAGES_FOR_ZEROCOPY = 2;
 const int MAX_TST_MSG_SIZE=1024*1024;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
-
-void pot_init_write()
-{
-    for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (rand() % 255 + 1);
-}
+static uint8_t mapping_buf[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
 
 static hrd_ctrl_blk_t* cb = nullptr;
 static hrd_qp_attr_t *clt_qp = nullptr;
@@ -38,6 +34,15 @@ static size_t srv_gid = 0;  // Global ID of this server thread
 static size_t clt_gid = 0;     // One-to-one connections
 static char srv_name[50] = {0};
 static char clt_name[50] = {0};
+static unsigned long original_phys[MAX_TST_MSG_SIZE * 2 / PAGE_SIZE];
+static unsigned long recv_buffer_phys[MAX_TST_MSG_SIZE * 2 / PAGE_SIZE];
+static unsigned long send_buffer_phys[MAX_TST_MSG_SIZE / PAGE_SIZE];
+
+void pot_init_write()
+{
+    for (int i=0;i<MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (rand() % 255 + 1);
+    virt2physv(reinterpret_cast<uint64_t>(pot_mock_data), send_buffer_phys, MAX_TST_MSG_SIZE / PAGE_SIZE);
+}
 
 void pot_rdma_init(void)
 {
@@ -78,6 +83,7 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
             &conn_config, nullptr);
 
     memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE * 2);
+    virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 2 / PAGE_SIZE);
 
     hrd_publish_conn_qp(cb, 0, clt_name);
 
@@ -118,6 +124,7 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
             &conn_config, nullptr);
 
     memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE * 2);
+    virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 2 / PAGE_SIZE);
 
     hrd_publish_conn_qp(cb, 0, srv_name);
 
@@ -167,7 +174,18 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]) + MAX_TST_MSG_SIZE;
     sgl.length = len;
     sgl.lkey = cb->conn_buf_mr->lkey;
-    memcpy(reinterpret_cast<void*>(sgl.addr), &pot_mock_data[offset], len);
+
+    if (len >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY &&
+        (sgl.addr & (PAGE_SIZE - 1) == 0) &&
+        (reinterpret_cast<uint64_t>(&pot_mock_data[offset]) & (PAGE_SIZE - 1) == 0) &&
+        (len & (PAGE_SIZE - 1) == 0)) 
+    {
+        map_physv(sgl.addr, &send_buffer_phys[offset / PAGE_SIZE], original_phys, len / PAGE_SIZE);
+        log_mapping(reinterpret_cast<void *>(sgl.addr), original_phys, len / PAGE_SIZE);
+    }
+    else {
+        memcpy(reinterpret_cast<void*>(sgl.addr), &pot_mock_data[offset], len);
+    }
 
     wr.wr.rdma.remote_addr = my_qp->buf_addr + offset;
     wr.wr.rdma.rkey = my_qp->rkey;
@@ -193,7 +211,19 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     // wait
     while (*last_addr == 0) { }
     uint64_t base_addr = reinterpret_cast<uint64_t>(cb->conn_buf + offset);
-    memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(base_addr), len);
+
+    if (len >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY &&
+        (base_addr & (PAGE_SIZE - 1) == 0) &&
+        (reinterpret_cast<uint64_t>(&pot_mock_data[offset]) & (PAGE_SIZE - 1) == 0) &&
+        (len & (PAGE_SIZE - 1) == 0)) 
+    {
+        map_physv(reinterpret_cast<uint64_t>(&pot_mock_data[offset]), &recv_buffer_phys[offset / PAGE_SIZE], original_phys, len / PAGE_SIZE); 
+        log_mapping(&pot_mock_data[offset], original_phys, len / PAGE_SIZE);
+    }
+    else {
+        memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(base_addr), len);
+    }
+
     // release
     *last_addr = 0;
     return len;
@@ -234,7 +264,8 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
     }
 
     if (numofbytes >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY &&
-            (((unsigned long)send_buffer & (PAGE_SIZE - 1)) == 0))
+            (((unsigned long)send_buffer & (PAGE_SIZE - 1)) == 0) &&
+            (numofbytes & (PAGE_SIZE - 1) == 0))
     {
         int num_pages = numofbytes / PAGE_SIZE;
         unsigned long *phys_addrs = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
@@ -419,33 +450,6 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
 #undef DEBUGON
 #define DEBUGON 1
 
-
-static uint8_t mapping_buf[MAX_TST_MSG_SIZE] __attribute__((aligned(PAGE_SIZE)));
-static std::unordered_map<unsigned long,unsigned long> page_mappings;
-
-static inline void log_mapping(void *buf, unsigned long *original_pages, int num_pages)
-{
-        for (int i=0; i<num_pages; i++) {
-            unsigned long addr = (unsigned long)(buf) + i * PAGE_SIZE;
-            if (page_mappings.count(addr) == 0) {
-                page_mappings.insert(std::pair<unsigned long,unsigned long>(addr, original_pages[i]));
-            }
-        }
-}
-
-static inline void init_mapping(void)
-{
-        const int num_pages = 1;
-        alloc_phys(num_pages);
-}
-
-static inline void resume_mapping(void)
-{
-        for (auto& x: page_mappings) {
-            if (x.second != 0)
-                map_phys(x.first, x.second);
-        }
-}
 
 static inline void map_and_return_pages(void *buf, unsigned long *received_pages,
     interprocess_t *ret_queue, int num_pages)
