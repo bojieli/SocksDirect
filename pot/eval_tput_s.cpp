@@ -17,7 +17,11 @@ int main(int argc, char* argv[])
     if (argc >= 2)
         test_size = atoi(argv[1]);
 
-    pin_thread(2);
+    int thread = 0;
+    if (argc >= 4)
+        thread = atoi(argv[3]);
+
+    pin_thread((4 * thread + 2) % 31);
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) FATAL("Failed to create fd");
@@ -25,7 +29,7 @@ int main(int argc, char* argv[])
     setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, &property, sizeof(int));
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(8080);
+    servaddr.sin_port = htons(8080 + thread);
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     if (bind(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("failed to bind %s", strerror(errno));

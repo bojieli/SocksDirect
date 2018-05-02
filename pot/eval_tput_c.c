@@ -15,14 +15,18 @@ int main(int argc, char* argv[])
     if (argc == 2)
         test_size = atoi(argv[1]);
 
-    pin_thread(0);
+    int thread = 0;
+    if (argc >= 4)
+        thread = atoi(argv[3]);
+
+    pin_thread((4 * thread) % 31);
 
     int fd;
     fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd == -1) FATAL("Failed to create fd");
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(8080);
+    servaddr.sin_port = htons(8080 + thread);
     inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr);
     if (connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("Failed to connect, %d", errno);
