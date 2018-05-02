@@ -22,7 +22,7 @@
 #include <unordered_map>
 
 const int MIN_PAGES_FOR_ZEROCOPY = 2;
-const int MAX_TST_MSG_SIZE=1024*1024*2;
+const int MAX_TST_MSG_SIZE=1024*1024*4;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 static uint8_t mapping_buf[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 
