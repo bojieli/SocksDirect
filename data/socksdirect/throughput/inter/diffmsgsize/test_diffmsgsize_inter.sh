@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 ip="10.1.2.4"
-msgsize=8
-for (( corenum=1; corenum<=16; corenum+=1 ))
+for (( msgsize=8; msgsize<=1048576; msgsize*=2 ))
 do
-    echo $corenum
-    LD_PRELOAD=libvma.so ../../../../../build/pot_eval_linux_tput_s $msgsize $corenum &
-    pid1=$!
-    ssh  10.1.2.4 "LD_PRELOAD=libvma.so cd /home/ctyi/work/ipc/src/build; LD_PRELOAD=libvma.so ./pot_eval_linux_tput_c 10.1.2.34 $msgsize $corenum"
-    wait $pid1
+    echo $msgsize
+    filename="inter-$msgsize.out"
+    ssh -n -f 10.1.2.4 "pkill pot; systemctl restart memcached"
+    ssh -n -f 10.1.2.4 "cd /home/boj/libsd/build; HRD_REGISTRY_IP=10.1.2.4 nohup ./pot_eval_rdma_thr_s $msgsize $filename &"
+    sleep 1
+    HRD_REGISTRY_IP=10.1.2.4 ../../../../build/pot_eval_rdma_thr_c $msgsize $filename
 done
