@@ -76,7 +76,7 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
     conn_config.num_qps = 1;
     conn_config.use_uc = 0;
     conn_config.prealloc_buf = nullptr;
-    conn_config.buf_size = MAX_TST_MSG_SIZE * 4;
+    conn_config.buf_size = MAX_TST_MSG_SIZE * 5;
     conn_config.buf_shm_key = -1;
 
     cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
@@ -84,6 +84,7 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
 
     memset(const_cast<uint8_t*>(cb->conn_buf), 0, 2 * MAX_TST_MSG_SIZE);
     memset(const_cast<uint8_t*>(cb->conn_buf + 2 * MAX_TST_MSG_SIZE), 1, 2 * MAX_TST_MSG_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf + 4 * MAX_TST_MSG_SIZE), 0, MAX_TST_MSG_SIZE);
     virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 4 / PAGE_SIZE);
 
     hrd_publish_conn_qp(cb, 0, clt_name);
@@ -118,7 +119,7 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     conn_config.num_qps = 1;
     conn_config.use_uc = 0;
     conn_config.prealloc_buf = nullptr;
-    conn_config.buf_size = MAX_TST_MSG_SIZE * 4;
+    conn_config.buf_size = MAX_TST_MSG_SIZE * 5;
     conn_config.buf_shm_key = -1;
 
     cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
@@ -126,6 +127,7 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
 
     memset(const_cast<uint8_t*>(cb->conn_buf), 0, 2 * MAX_TST_MSG_SIZE);
     memset(const_cast<uint8_t*>(cb->conn_buf + 2 * MAX_TST_MSG_SIZE), 1, 2 * MAX_TST_MSG_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf + 4 * MAX_TST_MSG_SIZE), 0, MAX_TST_MSG_SIZE);
     virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 4 / PAGE_SIZE);
 
     hrd_publish_conn_qp(cb, 0, srv_name);
@@ -148,7 +150,15 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
 ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 {
     static unsigned long counter = 0;
+    static unsigned long credits = MAX_TST_MSG_SIZE / PAGE_SIZE;
     sockfd = 2147483647 - sockfd;
+
+    if (credits == 0) {
+        while (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]);
+        credits = MAX_TST_MSG_SIZE / 2 / PAGE_SIZE;
+        cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64] = 0;
+    }
+    credits--;
 
     const int kAppUnsigBatch = 64;
     const int kHrdMaxInline = 32;
@@ -170,7 +180,7 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 
     wr.send_flags |= (len <= kHrdMaxInline) ? IBV_SEND_INLINE : 0;
 
-    size_t offset = (((unsigned long)sockfd + counter) * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    size_t offset = (counter * PAGE_SIZE) % MAX_TST_MSG_SIZE;
     counter++;
 
     sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[offset]) + 2 * MAX_TST_MSG_SIZE;
@@ -205,14 +215,18 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
 {
     static unsigned long counter = 0;
+    static unsigned long credits = 0;
     sockfd = 2147483647 - sockfd;
 
-    size_t offset = (((unsigned long)sockfd + counter) * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    size_t offset = (counter * PAGE_SIZE) % MAX_TST_MSG_SIZE;
     counter++;
 
     volatile uint8_t *last_addr = cb->conn_buf + offset + len - 1;
     // wait
     while (*last_addr == 0) { }
+    // release
+    *last_addr = 0;
+
     uint64_t base_addr = reinterpret_cast<uint64_t>(cb->conn_buf + offset);
 
     if ((len >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY) &&
@@ -227,8 +241,38 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
         memcpy(&pot_mock_data[offset], reinterpret_cast<const void *>(base_addr), len);
     }
 
-    // release
-    *last_addr = 0;
+    credits++;
+    if (credits >= MAX_TST_MSG_SIZE / 2 / PAGE_SIZE) {
+        credits = 0;
+
+        // send back to sender
+        static size_t nb_tx = 0;
+    
+        struct ibv_send_wr wr, *bad_send_wr;
+        struct ibv_sge sgl;
+        struct ibv_wc wc;
+    
+        wr.opcode = IBV_WR_RDMA_WRITE;
+        wr.num_sge = 1;
+        wr.next = nullptr;
+        wr.sg_list = &sgl;
+        wr.send_flags = IBV_SEND_INLINE;
+    
+        cb->conn_buf[4 * MAX_TST_MSG_SIZE] = 1;
+        sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[4 * MAX_TST_MSG_SIZE]);
+        sgl.length = 1;
+        sgl.lkey = cb->conn_buf_mr->lkey;
+    
+        wr.wr.rdma.remote_addr = my_qp->buf_addr + 4 * MAX_TST_MSG_SIZE + 64;
+        wr.wr.rdma.rkey = my_qp->rkey;
+    
+        int ret = ibv_post_send(cb->conn_qp[0], &wr, &bad_send_wr);
+        if (ret != 0) {
+           printf("wrong ret %d\n", ret);
+           return 0;
+        }
+    }
+
     return len;
 }
 
