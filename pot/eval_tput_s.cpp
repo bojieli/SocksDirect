@@ -14,7 +14,7 @@ uint8_t buffer[1048576]  __attribute__((aligned(PAGE_SIZE)));
 int main(int argc, char* argv[])
 {
     int test_size = 8;
-    if (argc == 2)
+    if (argc >= 2)
         test_size = atoi(argv[1]);
 
     pin_thread(2);
@@ -54,6 +54,13 @@ int main(int argc, char* argv[])
        pot_read_nbyte(connect_fd, buffer, test_size);
    }
     GetRdtscTime(&e_time);
-   printf("%.0lf\n", (double)test_num / ((e_time.tv_sec-s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/1e9) / 1e3);
 
+    FILE *fp = stdout;
+    if (argc >= 3) {
+        fp = fopen(argv[2], "a");
+        if (fp == NULL)
+            printf("Failed to open log file %s\n", argv[2]);
+    }
+    fprintf(fp, "%d\t%.0lf\n", test_size, (double)test_num / ((e_time.tv_sec-s_time.tv_sec) + (e_time.tv_nsec - s_time.tv_nsec)/1e9) / 1e3);
+    fclose(fp);
 }
