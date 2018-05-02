@@ -59,6 +59,10 @@ enum
 #define FD_STATUS_RD_RECV_FORKED 64
 #define FD_STATUS_RD_SND_FORKED 128
 
+#ifndef PAGE_SIZE
+#define PAGE_SIZE 4096
+#endif
+
 //configuration
 #define SHM_NAME "/ipcd_shmem"
 #define SHM_INTERPROCESS_NAME "/ipcd_interprocess_shmem"

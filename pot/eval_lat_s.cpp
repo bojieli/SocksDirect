@@ -9,6 +9,7 @@
 #include "../lib/lib_internal.h"
 #include "../lib/socket_lib.h"
 #include "../lib/pot_socket_lib.h"
+static uint8_t buffer[1048576] __attribute__((aligned(PAGE_SIZE)));
 
 int main(int argc, char* argv[])
 {
@@ -38,7 +39,6 @@ int main(int argc, char* argv[])
     if (listen(fd, 10) == -1)
         FATAL("listen failed");
     printf("listen succeed\n");
-    uint8_t buffer[65536];
 
     pot_init_write();
 

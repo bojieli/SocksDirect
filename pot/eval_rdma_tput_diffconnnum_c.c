@@ -7,7 +7,7 @@
 #include <arpa/inet.h>
 #include "../common/helper.h"
 #include "../lib/pot_socket_lib.h"
-uint8_t buffer[65536];
+uint8_t buffer[1048576]  __attribute__((aligned(PAGE_SIZE)));
 #define T1RND 10000000
 
 int main(int argc, char* argv[])
