@@ -257,9 +257,9 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
         wr.sg_list = &sgl;
     
         wr.send_flags = nb_tx % kAppUnsigBatch == 0 ? IBV_SEND_SIGNALED : 0;
-        if (nb_tx % kAppUnsigBatch == 0 && nb_tx != 0) {
-            hrd_poll_cq(cb->conn_cq[0], 1, &wc);
-        }
+        //if (nb_tx % kAppUnsigBatch == 0 && nb_tx != 0) {
+        hrd_poll_cq_nb(cb->conn_cq[0], 1, &wc);
+        //}
         nb_tx++;
 
         wr.send_flags |= IBV_SEND_INLINE;
