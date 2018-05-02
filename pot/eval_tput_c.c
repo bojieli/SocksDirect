@@ -31,8 +31,6 @@ int main(int argc, char* argv[])
     int test_num = 100000000;
     if (test_size >= 512)
         test_num /= 10;
-    if (test_size >= 8192)
-        test_num /= 10;
     if (test_size >= 131072)
         test_num /= 10;
 
