@@ -54,6 +54,7 @@ inline long virt2phys16(unsigned long virt_addr, unsigned long *phys_addr, unsig
 	return syscall(__NR_virt2phys16, virt_addr, phys_addr, npages);
 }
 
+#ifdef __cplusplus
 static std::unordered_map<unsigned long,unsigned long> page_mappings;
 
 static inline void log_mapping(void *buf, unsigned long *original_pages, int num_pages)
@@ -79,5 +80,4 @@ static inline void resume_mapping(void)
                 map_phys(x.first, x.second);
         }
 }
-
-
+#endif // __cplusplus
