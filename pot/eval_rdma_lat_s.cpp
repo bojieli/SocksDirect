@@ -13,14 +13,12 @@
 int main(int argc, char* argv[])
 {
     if (argc < 2) FATAL("Lack of parameter: <size of the message>");
-    int warmup_num=10000000;
+    int warmup_num=100000;
     int test_num=10000;
     int inner_test_num = 1;
     int test_size=atoi(argv[1]);
 
     if (test_size >= 8192)
-        warmup_num /= 10;
-    if (test_size >= 131072)
         warmup_num /= 10;
 
     pin_thread(0);

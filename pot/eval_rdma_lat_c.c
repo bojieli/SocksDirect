@@ -9,7 +9,7 @@
 #include "../lib/pot_socket_lib.h"
 int main(int argc, char* argv[])
 {
-    int warmup_num = 10000000;
+    int warmup_num = 100000;
     const int test_num=10000;
     double samples[test_num];
 
@@ -20,8 +20,6 @@ int main(int argc, char* argv[])
     pin_thread(0);
 
     if (test_size >= 8192)
-        warmup_num /= 10;
-    if (test_size >= 131072)
         warmup_num /= 10;
 
     int fd;
