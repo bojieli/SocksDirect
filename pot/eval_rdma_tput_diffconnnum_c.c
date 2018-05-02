@@ -55,12 +55,12 @@ int main(int argc, char* argv[])
     // warmup
     for (int i=0;i<test_num;++i)
     {
-        pot_rdma_write_nbyte(fd[i], test_size);
+        pot_rdma_write_nbyte(fd[i % conn_num], test_size);
     }
 
     for (int i=0;i<test_num;++i)
     {
-        pot_rdma_write_nbyte(fd[i], test_size);
+        pot_rdma_write_nbyte(fd[i % conn_num], test_size);
     }
     return 0;
 }
