@@ -147,6 +147,7 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
 
 ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 {
+    static unsigned long counter = 0;
     sockfd = 2147483647 - sockfd;
 
     const int kAppUnsigBatch = 64;
@@ -169,7 +170,8 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 
     wr.send_flags |= (len <= kHrdMaxInline) ? IBV_SEND_INLINE : 0;
 
-    size_t offset = (sockfd * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    size_t offset = (((unsigned long)sockfd + counter) * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    counter++;
     if (offset + len > MAX_TST_MSG_SIZE)
         offset = MAX_TST_MSG_SIZE - len;
 
@@ -204,9 +206,11 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 
 ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
 {
+    static unsigned long counter = 0;
     sockfd = 2147483647 - sockfd;
 
-    size_t offset = (sockfd * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    size_t offset = (((unsigned long)sockfd + counter) * PAGE_SIZE) % MAX_TST_MSG_SIZE;
+    counter++;
     if (offset + len > MAX_TST_MSG_SIZE)
         offset = MAX_TST_MSG_SIZE - len;
     volatile uint8_t *last_addr = cb->conn_buf + offset + len - 1;
