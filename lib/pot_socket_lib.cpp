@@ -82,7 +82,8 @@ int pot_connect(int socket, const struct sockaddr *address, socklen_t address_le
     cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE * 2);
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf + MAX_TST_MSG_SIZE), 1, MAX_TST_MSG_SIZE);
     virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 2 / PAGE_SIZE);
 
     hrd_publish_conn_qp(cb, 0, clt_name);
@@ -123,7 +124,8 @@ ssize_t pot_accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int f
     cb = hrd_ctrl_blk_init(srv_gid, ib_port_index, kHrdInvalidNUMANode,
             &conn_config, nullptr);
 
-    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE * 2);
+    memset(const_cast<uint8_t*>(cb->conn_buf), 0, MAX_TST_MSG_SIZE);
+    memset(const_cast<uint8_t*>(cb->conn_buf + MAX_TST_MSG_SIZE), 1, MAX_TST_MSG_SIZE);
     virt2physv(reinterpret_cast<uint64_t>(cb->conn_buf), recv_buffer_phys, MAX_TST_MSG_SIZE * 2 / PAGE_SIZE);
 
     hrd_publish_conn_qp(cb, 0, srv_name);
@@ -175,10 +177,10 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     sgl.length = len;
     sgl.lkey = cb->conn_buf_mr->lkey;
 
-    if (len >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY &&
-        (sgl.addr & (PAGE_SIZE - 1) == 0) &&
-        (reinterpret_cast<uint64_t>(&pot_mock_data[offset]) & (PAGE_SIZE - 1) == 0) &&
-        (len & (PAGE_SIZE - 1) == 0)) 
+    if ((len >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY) &&
+        ((sgl.addr & (PAGE_SIZE - 1)) == 0) &&
+        ((reinterpret_cast<uint64_t>(&pot_mock_data[offset]) & (PAGE_SIZE - 1)) == 0) &&
+        ((len & (PAGE_SIZE - 1)) == 0))
     {
         map_physv(sgl.addr, &send_buffer_phys[offset / PAGE_SIZE], original_phys, len / PAGE_SIZE);
         log_mapping(reinterpret_cast<void *>(sgl.addr), original_phys, len / PAGE_SIZE);
@@ -212,10 +214,10 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     while (*last_addr == 0) { }
     uint64_t base_addr = reinterpret_cast<uint64_t>(cb->conn_buf + offset);
 
-    if (len >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY &&
-        (base_addr & (PAGE_SIZE - 1) == 0) &&
-        (reinterpret_cast<uint64_t>(&pot_mock_data[offset]) & (PAGE_SIZE - 1) == 0) &&
-        (len & (PAGE_SIZE - 1) == 0)) 
+    if ((len >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY) &&
+        ((base_addr & (PAGE_SIZE - 1)) == 0) &&
+        ((reinterpret_cast<uint64_t>(&pot_mock_data[offset]) & (PAGE_SIZE - 1)) == 0) &&
+        ((len & (PAGE_SIZE - 1)) == 0))
     {
         map_physv(reinterpret_cast<uint64_t>(&pot_mock_data[offset]), &recv_buffer_phys[offset / PAGE_SIZE], original_phys, len / PAGE_SIZE); 
         log_mapping(&pot_mock_data[offset], original_phys, len / PAGE_SIZE);
