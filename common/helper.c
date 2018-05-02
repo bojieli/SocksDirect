@@ -118,6 +118,5 @@ unsigned long TimingEnd()
     if (begin == NULL)
         return 0;
     unsigned long ns = (unsigned long)((end.tv_sec - begin->tv_sec) * 1000000000LL + (end.tv_nsec - begin->tv_nsec));
-    free(begin);
     return ns;
 }
