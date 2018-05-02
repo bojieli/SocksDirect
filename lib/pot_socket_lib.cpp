@@ -159,7 +159,6 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     int num_pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     sockfd = 2147483647 - sockfd;
 
-    //printf("counter %ld credits %ld\n", counter, credits);
     if (credits < num_pages) {
         //if (!cb->conn_buf[4 * MAX_TST_MSG_SIZE + 64]) {
         //    printf("Counter %ld. Warning: credit not returned yet!\n", counter);
@@ -226,9 +225,6 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     int num_pages = (len + PAGE_SIZE - 1) / PAGE_SIZE;
     size_t offset = (counter * PAGE_SIZE) % MAX_TST_MSG_SIZE;
     counter += num_pages;
-
-    if (counter % 8192 == 0)
-        printf("%ld\n", counter);
 
     volatile uint8_t *last_addr = cb->conn_buf + offset + len - 1;
     // wait
