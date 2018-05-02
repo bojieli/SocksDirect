@@ -38,6 +38,9 @@ static unsigned long original_phys[MAX_TST_MSG_SIZE * 4 / PAGE_SIZE];
 static unsigned long recv_buffer_phys[MAX_TST_MSG_SIZE * 4 / PAGE_SIZE];
 static unsigned long send_buffer_phys[MAX_TST_MSG_SIZE * 2 / PAGE_SIZE];
 
+const int kAppUnsigBatch = 64;
+static size_t nb_tx = 0;
+
 void pot_init_write()
 {
     for (int i=0;i<2*MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (rand() % 255 + 1);
@@ -160,9 +163,6 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     }
     credits--;
 
-    const int kAppUnsigBatch = 64;
-    const int kHrdMaxInline = 32;
-    static size_t nb_tx = 0;
 
     struct ibv_send_wr wr, *bad_send_wr;
     struct ibv_sge sgl;
@@ -177,6 +177,7 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
     if (nb_tx % kAppUnsigBatch == 0 && nb_tx != 0) {
         hrd_poll_cq(cb->conn_cq[0], 1, &wc);
     }
+    nb_tx++;
 
     wr.send_flags |= (len <= kHrdMaxInline) ? IBV_SEND_INLINE : 0;
 
@@ -201,8 +202,6 @@ ssize_t pot_rdma_write_nbyte(int sockfd, size_t len)
 
     wr.wr.rdma.remote_addr = my_qp->buf_addr + offset;
     wr.wr.rdma.rkey = my_qp->rkey;
-
-    nb_tx++;
 
     int ret = ibv_post_send(cb->conn_qp[0], &wr, &bad_send_wr);
     if (ret != 0) {
@@ -256,8 +255,15 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
         wr.num_sge = 1;
         wr.next = nullptr;
         wr.sg_list = &sgl;
-        wr.send_flags = IBV_SEND_INLINE;
     
+        wr.send_flags = nb_tx % kAppUnsigBatch == 0 ? IBV_SEND_SIGNALED : 0;
+        if (nb_tx % kAppUnsigBatch == 0 && nb_tx != 0) {
+            hrd_poll_cq(cb->conn_cq[0], 1, &wc);
+        }
+        nb_tx++;
+
+        wr.send_flags |= IBV_SEND_INLINE;
+
         cb->conn_buf[4 * MAX_TST_MSG_SIZE] = 1;
         sgl.addr = reinterpret_cast<uint64_t>(&cb->conn_buf[4 * MAX_TST_MSG_SIZE]);
         sgl.length = 1;
