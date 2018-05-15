@@ -1,14 +1,11 @@
 #!/usr/bin/env bash
-source $(dirname $0)/../scripts/utils.sh
-source $(dirname $0)/../scripts/mlx_env.sh
+source $(dirname $0)/scripts/utils.sh
+source $(dirname $0)/scripts/mlx_env.sh
 export HRD_REGISTRY_IP="10.1.2.4"
 
 drop_shm
 
-# lsync messes up permissions
-executable="../build/rw-tput-sender"
-chmod +x $executable
-
+executable="../build/rdma_throughput"
 blue "Running $1 client threads, each with $2 qps"
 
 # Check number of arguments

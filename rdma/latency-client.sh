@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-source $(dirname $0)/../scripts/utils.sh
-source $(dirname $0)/../scripts/mlx_env.sh
+source $(dirname $0)/scripts/utils.sh
+source $(dirname $0)/scripts/mlx_env.sh
 export HRD_REGISTRY_IP="10.1.2.4"
 
 drop_shm
@@ -29,10 +29,10 @@ shift
 
 # Check for non-gdb mode
 if [ "$#" -eq 0 ]; then
-  sudo -E numactl --cpunodebind=0 --membind=0 ../build/rw-latency $flags
+  sudo -E numactl --cpunodebind=0 --membind=0 ../build/rdma_latency $flags
 fi
 
 # Check for gdb mode
 if [ "$#" -eq 1 ]; then
-  sudo -E gdb -ex set follow-fork-mode child -ex run --args ../build/rw-latency $flags
+  sudo -E gdb -ex set follow-fork-mode child -ex run --args ../build/rdma_latency $flags
 fi
