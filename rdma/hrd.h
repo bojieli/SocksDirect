@@ -24,8 +24,8 @@
 
 static constexpr size_t kRoCE = true;  ///< Use RoCE
 static constexpr size_t kHrdMaxInline = 16;
-static constexpr size_t kHrdSQDepth = 128;   ///< Depth of all SEND queues
-static constexpr size_t kHrdRQDepth = 256;  ///< Depth of all RECV queues
+static constexpr size_t kHrdSQDepth = 128;  ///< Depth of all SEND queues
+static constexpr size_t kHrdRQDepth = 512;  ///< Depth of all RECV queues
 
 static constexpr uint32_t kHrdInvalidNUMANode = 9;
 static constexpr uint32_t kHrdDefaultPSN = 3185;
@@ -87,6 +87,7 @@ struct hrd_conn_config_t {
   // Required params
   size_t num_qps = 0;  // num_qps > 0 is used as a validity check
   bool use_uc;
+  bool share_cq = false;
   volatile uint8_t* prealloc_buf;
   size_t buf_size;
   int buf_shm_key;
