@@ -25,7 +25,7 @@
 static constexpr size_t kRoCE = true;  ///< Use RoCE
 static constexpr size_t kHrdMaxInline = 16;
 static constexpr size_t kHrdSQDepth = 128;   ///< Depth of all SEND queues
-static constexpr size_t kHrdRQDepth = 2048;  ///< Depth of all RECV queues
+static constexpr size_t kHrdRQDepth = 256;  ///< Depth of all RECV queues
 
 static constexpr uint32_t kHrdInvalidNUMANode = 9;
 static constexpr uint32_t kHrdDefaultPSN = 3185;
@@ -93,6 +93,7 @@ struct hrd_conn_config_t {
 
   // Optional params with their default values
   size_t sq_depth = kHrdSQDepth;
+  size_t rq_depth = kHrdRQDepth;
   size_t max_rd_atomic = 16;
 
   std::string to_string() {

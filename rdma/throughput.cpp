@@ -224,7 +224,7 @@ void run_client(thread_params_t* params) {
 
   unsigned int* credits_per_qp = reinterpret_cast<unsigned int*>(malloc(FLAGS_num_qps * sizeof(unsigned int)));
   memset(credits_per_qp, 0, FLAGS_num_qps * sizeof(unsigned int));
-  struct ibv_wc wc[kAppUnsigBatch];
+  struct ibv_wc wc[kHrdRQDepth];
 
   while (1) {
       if (FLAGS_do_write_with_imm || FLAGS_do_send) {
@@ -243,14 +243,14 @@ void run_client(thread_params_t* params) {
           wr.num_sge   = 1;
 
           for (unsigned int qp_i = 0; qp_i < FLAGS_num_qps; qp_i++) {
-            for ( ; credits_per_qp[qp_i] < kAppUnsigBatch; credits_per_qp[qp_i]++) {
+            for ( ; credits_per_qp[qp_i] < kHrdRQDepth; credits_per_qp[qp_i]++) {
                 if (ibv_post_recv(cb->conn_qp[qp_i], &wr, &bad_wr)) {
                   fprintf(stderr, "Error, ibv_post_recv() failed\n");
                   return;
                 }
             }
             
-            unsigned int completions = hrd_poll_cq_nb(cb->conn_cq[qp_i], kAppUnsigBatch, wc);
+            unsigned int completions = hrd_poll_cq_nb(cb->conn_cq[qp_i], kHrdRQDepth, wc);
             assert(credits_per_qp[qp_i] >= completions);
             credits_per_qp[qp_i] -= completions;
           }
