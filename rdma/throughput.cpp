@@ -2,8 +2,8 @@
 #include <limits>
 #include <thread>
 #include "hrd.h"
+#include <unordered_map>
 
-//static constexpr size_t FLAGS_num_qps = 1;
 static constexpr size_t kAppBufSize = 8192000;
 static constexpr bool kAppRoundOffset = true;
 static constexpr size_t kAppMaxPostlist = 64;
@@ -19,9 +19,10 @@ DEFINE_uint64(use_uc, 0, "Use unreliable connected transport?");
 DEFINE_uint64(do_read, 0, "Do RDMA reads?");
 DEFINE_uint64(do_send, 0, "Do RDMA sends?");
 DEFINE_uint64(do_write_with_imm, 0, "Do RDMA writes with immediate?");
-DEFINE_uint64(size, 0, "RDMA size");
+DEFINE_uint64(size, 0, "RDMA message size");
 DEFINE_uint64(postlist, 0, "Postlist size");
 DEFINE_uint64(num_qps, 0, "Number of queue pairs");
+DEFINE_uint64(share_cq, 0, "Share completion queue");
 
 std::array<double, kAppMaxServers> tput;
 
@@ -55,9 +56,12 @@ void run_server(thread_params_t* params) {
   hrd_conn_config_t conn_config;
   conn_config.num_qps = FLAGS_num_qps;
   conn_config.use_uc = (FLAGS_use_uc == 1);
+  conn_config.share_cq = (FLAGS_share_cq == 1);
   conn_config.prealloc_buf = nullptr;
   conn_config.buf_size = kAppBufSize;
   conn_config.buf_shm_key = -1;
+  conn_config.sq_depth = kHrdSQDepth;
+  conn_config.rq_depth = 1;
 
   struct timespec start, end;
 
@@ -100,12 +104,19 @@ void run_server(thread_params_t* params) {
   printf("main: Server %zu connected!\n", srv_gid);
   printf("Connection setup %lf ms, throughput %lf conn/s\n", seconds * 1e3, FLAGS_num_qps / seconds);
 
+  std::unordered_map<size_t,size_t> qp_map;
+  for (size_t qp_j = 0; qp_j < FLAGS_num_qps; qp_j ++) {
+      qp_map[cb->conn_qp[qp_j]->qp_num] = qp_j + 1;
+  }
+
   struct ibv_send_wr wr[kAppMaxPostlist], *bad_send_wr;
   struct ibv_sge sgl[kAppMaxPostlist];
   struct ibv_wc wc;
   size_t rolling_iter = 0;  // For performance measurement
   size_t* nb_tx = reinterpret_cast<size_t *>(malloc(FLAGS_num_qps * sizeof(size_t)));
   memset(nb_tx, 0, FLAGS_num_qps * sizeof(size_t));
+  size_t* rq_len = reinterpret_cast<size_t *>(malloc(FLAGS_num_qps * sizeof(size_t)));
+  memset(rq_len, 0, FLAGS_num_qps * sizeof(size_t));
   size_t qp_i = 0;  // Round robin between QPs across postlists
   uint64_t seed = 0xdeadbeef;
 
@@ -146,8 +157,22 @@ void run_server(thread_params_t* params) {
       wr[w_i].sg_list = &sgl[w_i];
 
       wr[w_i].send_flags = nb_tx[qp_i] % kAppUnsigBatch == 0 ? IBV_SEND_SIGNALED : 0;
-      if (nb_tx[qp_i] % kAppUnsigBatch == 0 && nb_tx[qp_i] != 0) {
-        hrd_poll_cq(cb->conn_cq[qp_i], 1, &wc);
+      if (wr[w_i].send_flags == IBV_SEND_SIGNALED) {
+        if (FLAGS_share_cq) {
+            while (rq_len[qp_i] > 0) {
+              hrd_poll_cq(cb->conn_cq[qp_i], 1, &wc);
+
+              size_t qp_j = qp_map[wc.qp_num];
+              assert(qp_j);
+              rq_len[qp_j - 1]--;
+            }
+
+            rq_len[qp_i]++;
+        }
+        else {
+            if (nb_tx[qp_i] > 0)
+              hrd_poll_cq(cb->conn_cq[qp_i], 1, &wc);
+        }
       }
 
       wr[w_i].send_flags |= (FLAGS_do_read == 0 && FLAGS_size <= kHrdMaxInline) ? IBV_SEND_INLINE : 0;
@@ -171,7 +196,7 @@ void run_server(thread_params_t* params) {
 
     int ret = ibv_post_send(cb->conn_qp[qp_i], &wr[0], &bad_send_wr);
     if (ret != 0)
-       printf("wrong ret %d\n", ret);
+       printf("wrong ret %d: %s\n", ret, strerror(ret));
     rt_assert(ret == 0);
 
     rolling_iter += FLAGS_postlist;
@@ -188,9 +213,12 @@ void run_client(thread_params_t* params) {
   hrd_conn_config_t conn_config;
   conn_config.num_qps = FLAGS_num_qps;
   conn_config.use_uc = (FLAGS_use_uc == 1);
+  conn_config.share_cq = (FLAGS_share_cq == 1);
   conn_config.prealloc_buf = nullptr;
   conn_config.buf_size = kAppBufSize;
   conn_config.buf_shm_key = -1;
+  conn_config.sq_depth = kHrdSQDepth;
+  conn_config.rq_depth = kHrdRQDepth;
 
   auto* cb = hrd_ctrl_blk_init(clt_gid, ib_port_index, kHrdInvalidNUMANode,
                                &conn_config, nullptr);
@@ -222,40 +250,57 @@ void run_client(thread_params_t* params) {
 
   printf("main: Client %zu connected!\n", clt_gid);
 
-  unsigned int* credits_per_qp = reinterpret_cast<unsigned int*>(malloc(FLAGS_num_qps * sizeof(unsigned int)));
-  memset(credits_per_qp, 0, FLAGS_num_qps * sizeof(unsigned int));
-  struct ibv_wc wc[kHrdRQDepth];
+  std::unordered_map<size_t,size_t> qp_map;
+  for (size_t qp_j = 0; qp_j < FLAGS_num_qps; qp_j ++) {
+      qp_map[cb->conn_qp[qp_j]->qp_num] = qp_j + 1;
+  }
 
-  while (1) {
-      if (FLAGS_do_write_with_imm || FLAGS_do_send) {
-          struct ibv_sge sg;
-          struct ibv_recv_wr wr;
-          struct ibv_recv_wr *bad_wr;
+  if (FLAGS_do_write_with_imm || FLAGS_do_send) {
+      struct ibv_sge sg;
+      struct ibv_recv_wr wr;
+      struct ibv_recv_wr *bad_wr;
 
-          memset(&sg, 0, sizeof(sg));
-          sg.addr      = (uintptr_t)cb->conn_buf;
-          sg.length    = FLAGS_size;
-          sg.lkey      = cb->conn_buf_mr->lkey;
+      memset(&sg, 0, sizeof(sg));
+      sg.addr      = (uintptr_t)cb->conn_buf;
+      sg.length    = FLAGS_size;
+      sg.lkey      = cb->conn_buf_mr->lkey;
 
-          memset(&wr, 0, sizeof(wr));
-          wr.wr_id     = 0;
-          wr.sg_list   = &sg;
-          wr.num_sge   = 1;
+      memset(&wr, 0, sizeof(wr));
+      wr.wr_id     = 0;
+      wr.sg_list   = &sg;
+      wr.num_sge   = 1;
 
-          for (unsigned int qp_i = 0; qp_i < FLAGS_num_qps; qp_i++) {
-            for ( ; credits_per_qp[qp_i] < kHrdRQDepth; credits_per_qp[qp_i]++) {
-                if (ibv_post_recv(cb->conn_qp[qp_i], &wr, &bad_wr)) {
+      unsigned int qp_i;
+      for (qp_i = 0; qp_i < FLAGS_num_qps; qp_i++) {
+          for (unsigned int credits = 0; credits < kHrdRQDepth; credits++) {
+              if (ibv_post_recv(cb->conn_qp[qp_i], &wr, &bad_wr)) {
                   fprintf(stderr, "Error, ibv_post_recv() failed\n");
                   return;
-                }
-            }
-            
-            unsigned int completions = hrd_poll_cq_nb(cb->conn_cq[qp_i], kHrdRQDepth, wc);
-            assert(credits_per_qp[qp_i] >= completions);
-            credits_per_qp[qp_i] -= completions;
+              }
           }
       }
-      else {
+
+      struct ibv_wc wc;
+
+      qp_i = 0;
+      while (true) {
+          size_t received = hrd_poll_cq_nb(cb->conn_cq[qp_i], 1, &wc);
+          qp_i++;
+          if (qp_i == FLAGS_num_qps)
+              qp_i = 0;
+          if (!received)
+              continue;
+
+          size_t qp_j = qp_map[wc.qp_num];
+          assert(qp_j);
+          if (ibv_post_recv(cb->conn_qp[qp_j - 1], &wr, &bad_wr)) {
+              fprintf(stderr, "Error, ibv_post_recv() failed\n");
+              return;
+          }
+      }
+  }
+  else {
+      while (1) {
           //printf("main: Client %zu: %d\n", clt_gid, cb->conn_buf[0]);
           sleep(1);
       }
@@ -263,37 +308,37 @@ void run_client(thread_params_t* params) {
 }
 
 int main(int argc, char* argv[]) {
-  gflags::ParseCommandLineFlags(&argc, &argv, true);
-  rt_assert(FLAGS_num_threads >= 1, "");
-  rt_assert(kAppUnsigBatch >= FLAGS_postlist, "");   // Postlist check
-  rt_assert(kHrdSQDepth >= 2 * FLAGS_postlist, "");  // Queue capacity check
+    gflags::ParseCommandLineFlags(&argc, &argv, true);
+    rt_assert(FLAGS_num_threads >= 1, "");
+    rt_assert(kAppUnsigBatch >= FLAGS_postlist, "");   // Postlist check
+    rt_assert(kHrdSQDepth >= 2 * FLAGS_postlist, "");  // Queue capacity check
 
-  if (FLAGS_is_client == 0) {
-    // Server
-    rt_assert(FLAGS_machine_id == std::numeric_limits<size_t>::max(), "");
-    rt_assert(FLAGS_size > 0, "");
-    //if (FLAGS_do_read == 0) rt_assert(FLAGS_size <= kHrdMaxInline, "Inl error");
+    if (FLAGS_is_client == 0) {
+        // Server
+        rt_assert(FLAGS_machine_id == std::numeric_limits<size_t>::max(), "");
+        rt_assert(FLAGS_size > 0, "");
+        //if (FLAGS_do_read == 0) rt_assert(FLAGS_size <= kHrdMaxInline, "Inl error");
 
-    rt_assert(FLAGS_postlist >= 1 && FLAGS_postlist <= kAppMaxPostlist, "");
-  }
-
-  for (size_t i = 0; i < kAppMaxServers; i++) tput[i] = 0;
-
-  std::vector<thread_params_t> param_arr(FLAGS_num_threads);
-  std::vector<std::thread> thread_arr(FLAGS_num_threads);
-
-  printf("main: Using %zu threads\n", FLAGS_num_threads);
-
-  for (size_t i = 0; i < FLAGS_num_threads; i++) {
-    if (FLAGS_is_client == 1) {
-      param_arr[i].id = (FLAGS_machine_id * FLAGS_num_threads) + i;
-      thread_arr[i] = std::thread(run_client, &param_arr[i]);
-    } else {
-      param_arr[i].id = i;
-      thread_arr[i] = std::thread(run_server, &param_arr[i]);
+        rt_assert(FLAGS_postlist >= 1 && FLAGS_postlist <= kAppMaxPostlist, "");
     }
-  }
 
-  for (auto& t : thread_arr) t.join();
-  return 0;
+    for (size_t i = 0; i < kAppMaxServers; i++) tput[i] = 0;
+
+    std::vector<thread_params_t> param_arr(FLAGS_num_threads);
+    std::vector<std::thread> thread_arr(FLAGS_num_threads);
+
+    printf("main: Using %zu threads\n", FLAGS_num_threads);
+
+    for (size_t i = 0; i < FLAGS_num_threads; i++) {
+        if (FLAGS_is_client == 1) {
+            param_arr[i].id = (FLAGS_machine_id * FLAGS_num_threads) + i;
+            thread_arr[i] = std::thread(run_client, &param_arr[i]);
+        } else {
+            param_arr[i].id = i;
+            thread_arr[i] = std::thread(run_server, &param_arr[i]);
+        }
+    }
+
+    for (auto& t : thread_arr) t.join();
+    return 0;
 }

@@ -305,9 +305,18 @@ void hrd_create_conn_qps(hrd_ctrl_blk_t* cb) {
   assert(cb->pd != nullptr && cb->resolve.ib_ctx != nullptr);
   assert(cb->conn_config.num_qps >= 1 && cb->resolve.dev_port_id >= 1);
 
+  size_t cq_size = cb->conn_config.sq_depth + cb->conn_config.rq_depth;
+  if (cb->conn_config.share_cq)
+      cq_size *= cb->conn_config.num_qps;
+
   for (size_t i = 0; i < cb->conn_config.num_qps; i++) {
-    cb->conn_cq[i] = ibv_create_cq(cb->resolve.ib_ctx, cb->conn_config.sq_depth,
+    if (i == 0 || (!cb->conn_config.share_cq)) {
+        cb->conn_cq[i] = ibv_create_cq(cb->resolve.ib_ctx, cq_size,
                                    nullptr, nullptr, 0);
+    }
+    else {
+        cb->conn_cq[i] = cb->conn_cq[0];
+    }
     rt_assert(cb->conn_cq[i] != nullptr, "Failed to create conn CQ");
 
 #if (kHrdMlx5Atomics == false)
