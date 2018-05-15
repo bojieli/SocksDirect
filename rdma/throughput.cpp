@@ -250,7 +250,9 @@ void run_client(thread_params_t* params) {
                 }
             }
             
-            credits_per_qp[qp_i] += hrd_poll_cq_nb(cb->conn_cq[qp_i], kAppUnsigBatch, wc);
+            unsigned int completions = hrd_poll_cq_nb(cb->conn_cq[qp_i], kAppUnsigBatch, wc);
+            assert(credits_per_qp[qp_i] >= completions);
+            credits_per_qp[qp_i] -= completions;
           }
       }
       else {
