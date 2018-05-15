@@ -22,6 +22,8 @@ flags="
 	--size $3 \
 	--postlist 1 \
 	--do_read 0 \
+    --do_write_with_imm 1 \
+    --do_send 0 \
 	--num_qps $2
 "
 shift

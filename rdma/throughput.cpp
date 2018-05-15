@@ -17,6 +17,8 @@ DEFINE_uint64(is_client, 0, "Is this process a client?");
 DEFINE_uint64(dual_port, 0, "Use two ports?");
 DEFINE_uint64(use_uc, 0, "Use unreliable connected transport?");
 DEFINE_uint64(do_read, 0, "Do RDMA reads?");
+DEFINE_uint64(do_send, 0, "Do RDMA sends?");
+DEFINE_uint64(do_write_with_imm, 0, "Do RDMA writes with immediate?");
 DEFINE_uint64(size, 0, "RDMA size");
 DEFINE_uint64(postlist, 0, "Postlist size");
 DEFINE_uint64(num_qps, 0, "Number of queue pairs");
@@ -110,6 +112,10 @@ void run_server(thread_params_t* params) {
   clock_gettime(CLOCK_REALTIME, &start);
 
   auto opcode = FLAGS_do_read == 0 ? IBV_WR_RDMA_WRITE : IBV_WR_RDMA_READ;
+  if (FLAGS_do_write_with_imm)
+      opcode = IBV_WR_RDMA_WRITE_WITH_IMM;
+  if (FLAGS_do_send)
+      opcode = IBV_WR_SEND;
 
   while (true) {
     if (rolling_iter >= MB(5) || rolling_iter * FLAGS_size >= MB(10000)) {
@@ -216,9 +222,41 @@ void run_client(thread_params_t* params) {
 
   printf("main: Client %zu connected!\n", clt_gid);
 
+  unsigned int* credits_per_qp = reinterpret_cast<unsigned int*>(malloc(FLAGS_num_qps * sizeof(unsigned int)));
+  memset(credits_per_qp, 0, FLAGS_num_qps * sizeof(unsigned int));
+  struct ibv_wc wc[kAppUnsigBatch];
+
   while (1) {
-    printf("main: Client %zu: %d\n", clt_gid, cb->conn_buf[0]);
-    sleep(1);
+      if (FLAGS_do_write_with_imm || FLAGS_do_send) {
+          struct ibv_sge sg;
+          struct ibv_recv_wr wr;
+          struct ibv_recv_wr *bad_wr;
+
+          memset(&sg, 0, sizeof(sg));
+          sg.addr      = (uintptr_t)cb->conn_buf;
+          sg.length    = FLAGS_size;
+          sg.lkey      = cb->conn_buf_mr->lkey;
+
+          memset(&wr, 0, sizeof(wr));
+          wr.wr_id     = 0;
+          wr.sg_list   = &sg;
+          wr.num_sge   = 1;
+
+          for (unsigned int qp_i = 0; qp_i < FLAGS_num_qps; qp_i++) {
+            for ( ; credits_per_qp[qp_i] < kAppUnsigBatch; credits_per_qp[qp_i]++) {
+                if (ibv_post_recv(cb->conn_qp[qp_i], &wr, &bad_wr)) {
+                  fprintf(stderr, "Error, ibv_post_recv() failed\n");
+                  return;
+                }
+            }
+            
+            credits_per_qp[qp_i] += hrd_poll_cq_nb(cb->conn_cq[qp_i], kAppUnsigBatch, wc);
+          }
+      }
+      else {
+          //printf("main: Client %zu: %d\n", clt_gid, cb->conn_buf[0]);
+          sleep(1);
+      }
   }
 }
 
