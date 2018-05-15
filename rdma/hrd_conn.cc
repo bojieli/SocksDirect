@@ -318,7 +318,7 @@ void hrd_create_conn_qps(hrd_ctrl_blk_t* cb) {
     create_attr.qp_type = cb->conn_config.use_uc ? IBV_QPT_UC : IBV_QPT_RC;
 
     create_attr.cap.max_send_wr = cb->conn_config.sq_depth;
-    create_attr.cap.max_recv_wr = 1;  // We don't do RECVs on conn QPs
+    create_attr.cap.max_recv_wr = cb->conn_config.sq_depth;
     create_attr.cap.max_send_sge = 1;
     create_attr.cap.max_recv_sge = 1;
     create_attr.cap.max_inline_data = kHrdMaxInline;
@@ -352,7 +352,7 @@ void hrd_create_conn_qps(hrd_ctrl_blk_t* cb) {
     create_attr.send_cq = cb->conn_cq[i];
     create_attr.recv_cq = cb->conn_cq[i];
     create_attr.cap.max_send_wr = cb->conn_config.sq_depth;
-    create_attr.cap.max_recv_wr = 1;  // We don't do RECVs on conn QPs
+    create_attr.cap.max_recv_wr = cb->conn_config.sq_depth;
     create_attr.cap.max_send_sge = 1;
     create_attr.cap.max_recv_sge = 1;
     create_attr.cap.max_inline_data = kHrdMaxInline;
