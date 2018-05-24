@@ -47,6 +47,7 @@ enum
     RES_FORK,
     RES_PUSH_FORK,
     REQ_RELAY_RECV,
+    RTS_RELAY,
     FIN_FORK
 };
 

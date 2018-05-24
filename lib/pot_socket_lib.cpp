@@ -317,7 +317,15 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
         ele.pot_fd_rw.fd = peer_fd;
         memcpy(ele.pot_fd_rw.raw, send_buffer, 9);
         SW_BARRIER;
-        buffer->q[0].push(ele);
+        while (!buffer->q[0].push_nb(ele)) 
+        {
+            monitor2proc_hook();
+            iter = thread_data->fds_wr.begin(fd);
+            buffer = &thread_sock_data->
+                    buffer[iter->buffer_idx].data;
+            
+            
+        }
         return 0;
     }
 
