@@ -147,10 +147,12 @@ public:
         ZEROCOPY_RETURN_VECTOR,
         NOP,
         CLOSE_FD,
+        RTS_RELAY_ACK,
+        RTS_RELAY_DATA,
         CLOSE_REQ_NORD,
         CLOSE_REQ_NOWR,
         CLOSE_ACK_NORD,
-        CLOSE_ACK_NOWR
+        CLOSE_ACK_NOWR,
     };
 };
 
