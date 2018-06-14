@@ -5,11 +5,12 @@
 #include <cstdint>
 #include <assert.h>
 #include <cstring>
-#include "locklessq_v2.h"
+#ifndef LOCKLESSQ_V2_HPP
+#define LOCKLESSQ_V2_HPP
 
 #define LOCKLESSQ_SIZE 512
 #define LOCKLESSQ_BITMAP_ISVALID 0x1
-#define LOCKLESSQ_BITMAP_ISDEL 0x3
+#define LOCKLESSQ_BITMAP_ISDEL 0x2
 
 #define SW_BARRIER asm volatile("" ::: "memory")
 
@@ -36,7 +37,7 @@ public:
         };
         struct __attribute__((packed)) zc_ret_t
         {
-            unsigned long page;
+            unsigned short page_lo, page_mid, page_hi;
             unsigned short num_pages;
         };
         struct __attribute__((packed)) zc_retv_t
@@ -46,7 +47,7 @@ public:
         };
         struct __attribute__((packed)) pot_rw_t
         {
-            uint8_t raw[9];
+            uint8_t raw[8];
         };
         struct __attribute__((packed)) close_t
         {
@@ -56,7 +57,7 @@ public:
 
         union __attribute__((packed))
         {
-            unsigned char raw[13];
+            unsigned char raw[8];
             fd_rw_t data_fd_rw;
             fd_rw_zc_t data_fd_rw_zc;
             fd_rw_zcv_t data_fd_rw_zcv;
@@ -80,7 +81,7 @@ private:
     bool *return_flag;
     uint32_t CREDITS_PER_RETURN;
     bool credit_disabled;
-    inline void atomic_copy16(element_t *dst, element_t *src)
+    inline void atomic_copy16(element_t *dst, const element_t *src)
     {
         asm volatile ( "movdqa (%0),%%xmm0\n"
                        "movaps %%xmm0,(%1)\n"
@@ -119,7 +120,7 @@ public:
         MASK = LOCKLESSQ_SIZE - 1;
         CREDITS_PER_RETURN = LOCKLESSQ_SIZE / 2 + 1;
         bytes_arr = reinterpret_cast<element_t *>(baseaddr);
-        return_flag = reinterpret_cast<bool *>(baseaddr + (sizeof(element_t) * LOCKLESSQ_SIZE));
+        return_flag = reinterpret_cast<bool *>(baseaddr + 2 * (sizeof(element_t) * LOCKLESSQ_SIZE));
         *return_flag = false;
         if (is_receiver)
             credits = 0;
@@ -133,9 +134,9 @@ public:
         memset(bytes_arr, 0, sizeof(element_t) * LOCKLESSQ_SIZE);
     }
 
-    inline bool push_nb(const element_t &data)
+    inline bool push_nb(const element_t &data, void* payload_ptr)
     {
-        int slots_occupied = (data.size-1)/16+1+1;
+        int slots_occupied = (data.size+15)/16+1;
         //is full?
         if (!credit_disabled && credits < slots_occupied) {
             if (*return_flag) {
@@ -147,11 +148,7 @@ public:
         }
 
         //copy the data
-        for (int i=1;i<=slots_occupied-1;++i)
-        {
-            uint32_t local_ptr = (pointer+i) & MASK;
-            bytes_arr[local_ptr] = *((element_t *)&data.payload[(i-1)*16]);
-        }
+        memcpy((void *)&bytes_arr[(pointer + 1) & MASK], payload_ptr, data.size);
         //copy the metadata
         atomic_copy16(&bytes_arr[pointer & MASK],&data);
         pointer+=slots_occupied;
@@ -170,45 +167,47 @@ public:
     }
 
 
-    inline std::tuple<bool, bool> peek(int loc, T &output)
+    inline element_t peek_meta(unsigned int loc)
     {
         loc = loc & MASK;
-        element_t ele;
-        atomic_copy16(&ele, &ringbuffer[loc]);
-        SW_BARRIER;
-        output = ele.data;
-        SW_BARRIER;
-        return std::make_tuple(ele.isvalid, ele.isdel);
+        return bytes_arr[loc];
     }
 
-    inline void set(int loc, T &input)
+    inline void set_meta(unsigned int loc, const element_t &data)
     {
         SW_BARRIER;
-        loc = loc & MASK;
-        ringbuffer[loc].data = input;
+        bytes_arr[loc & MASK]=data;
         SW_BARRIER;
     }
 
-    inline void del(unsigned int loc)
+    inline void* peek_data(unsigned int loc)
     {
         loc = loc & MASK;
-        ringbuffer[loc].isdel=true;
+        return (void*)&bytes_arr[loc].payload[0];
+    }
+
+    inline uint32_t del(unsigned int loc)
+    {
+        loc = loc & MASK;
+        bytes_arr[loc].flags|=LOCKLESSQ_BITMAP_ISDEL;
         SW_BARRIER;
         if (loc == (pointer & MASK))
         {
-            while (ringbuffer[pointer & MASK].isvalid
-                   && ringbuffer[pointer & MASK].isdel)
+            while ((bytes_arr[pointer & MASK].flags & LOCKLESSQ_BITMAP_ISVALID)
+                   && (bytes_arr[pointer & MASK].flags & LOCKLESSQ_BITMAP_ISDEL))
             {
-                ringbuffer[pointer & MASK].isvalid = false;
-                ++pointer;
-                ++credits;
-                if (credits == CREDITS_PER_RETURN) {
+                bytes_arr[pointer & MASK].flags &= ~LOCKLESSQ_BITMAP_ISVALID;
+                int slots_occupied=(bytes_arr[pointer & MASK].size + 15) / 16 + 1;
+                pointer += slots_occupied;
+                credits+=slots_occupied;
+                if (credits >= CREDITS_PER_RETURN) {
                     *return_flag = true;
-                    credits = 0;
+                    credits -= CREDITS_PER_RETURN;
                 }
                 SW_BARRIER;
             }
         }
+        return pointer;
     }
 
     inline bool isempty()
@@ -217,18 +216,19 @@ public:
         bool isempty(true);
         SW_BARRIER;
         element_t curr_blk;
-        curr_blk = ringbuffer[tmp_tail & MASK];
+        curr_blk = bytes_arr[tmp_tail & MASK];
         SW_BARRIER;
-        while (curr_blk.isvalid)
+        while (curr_blk.flags & LOCKLESSQ_BITMAP_ISVALID)
         {
-            if (!curr_blk.isdel)
+            if (curr_blk.flags & LOCKLESSQ_BITMAP_ISDEL)
             {
                 isempty = false;
                 break;
             }
-            tmp_tail++;
+            int slots_occupied=(bytes_arr[tmp_tail & MASK].size + 15) / 16 + 1;
+            tmp_tail+=slots_occupied;
             SW_BARRIER;
-            curr_blk = ringbuffer[tmp_tail & MASK];
+            curr_blk = bytes_arr[tmp_tail & MASK];
             SW_BARRIER;
         }
         return isempty;
@@ -238,6 +238,18 @@ public:
     {
         // have a cache line for return flag
         const int return_flag_size = 64;
-        return (sizeof(element_t) * SIZE) + return_flag_size;
+        return (sizeof(element_t) * LOCKLESSQ_SIZE) + return_flag_size;
+    }
+
+    inline static int getalignedmemsize()
+    {
+        return (sizeof(element_t) * LOCKLESSQ_SIZE);
+    }
+
+    inline uint32_t nextptr(uint32_t ptr)
+    {
+        return (uint32_t)(ptr + (bytes_arr[ptr & MASK].size + 15) / 16 + 1) % MASK;
     }
 };
+
+#endif
