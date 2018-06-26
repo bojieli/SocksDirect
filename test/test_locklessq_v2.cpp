@@ -11,24 +11,27 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include "../common/helper.h"
-#define MMAP_FILENAME "/dev/shm/test_q"
+#define MMAP_FILENAME "/dev/shm/"
+#define TST_NUM 10000000
 locklessq_v2 test_q_sender, test_q_receiver;
 void* startaddr(nullptr),  *duplicate_addr(nullptr), *initaddr(nullptr);
-
+int msgsize;
+int glbcounter=0;
 void* sender(void* args)
 {
     (void)args;
+    pin_thread(6);
     int counter=0;
     uint8_t payloads[2048];
     for (int i=0;i<2048;++i)
         payloads[i]=i;
-    while (counter < 1000000)
+    while (1)
     {
         locklessq_v2::element_t ele;
         ele.fd = counter;
         ele.command = 3;
         ele.flags = LOCKLESSQ_BITMAP_ISVALID;
-        ele.size = counter % 128 * 16;
+        ele.size = msgsize;
         ele.inner_element.data_fd_rw.pointer=0;
         while (!test_q_sender.push_nb(ele, &payloads[0])) SW_BARRIER;
         ++counter;
@@ -39,10 +42,11 @@ return nullptr;
 void* receiver(void* args)
 {
     (void)args;
+    pin_thread(4);
     int counter=0;
     uint8_t payloads[2048];
     int pointer=test_q_receiver.pointer;
-    while (counter < 1000000)
+    while (1)
     {
         locklessq_v2::element_t ele;
         do {
@@ -52,7 +56,7 @@ void* receiver(void* args)
         memcpy(&payloads[0], test_q_receiver.peek_data(pointer), ele.size);
 
         //Begin verify
-        if (ele.size != counter % 128 * 16)
+        if (ele.size != msgsize)
             FATAL("Meta size err");
         if (ele.flags & LOCKLESSQ_BITMAP_ISDEL)
             FATAL("element is deleted");
@@ -63,18 +67,22 @@ void* receiver(void* args)
             FATAL("Command error");
         pointer = test_q_receiver.del(pointer);
         //start to verify data
+                /*
         for (int i=0;i<ele.size;++i)
         {
             if (payloads[i] != (uint8_t)i)
                 FATAL("data err");
-        }
+        }*/
         ++counter;
+        ++glbcounter;
     }
+
     return nullptr;
 }
-int main()
+int main(int argc, char * argv[])
 {
-    int shmfd = open(MMAP_FILENAME,  O_RDWR | O_CREAT,S_IRWXU | S_IRWXG | S_IRWXO);
+    msgsize = atoi(argv[1]);
+    int shmfd = open(MMAP_FILENAME,  O_RDWR | O_TMPFILE,S_IRWXU | S_IRWXG | S_IRWXO);
     int total_size=locklessq_v2::getalignedmemsize() + ((locklessq_v2::getmemsize()-1)/(4*1024)+1)*(4*1024);
 
     if (shmfd == -1)
@@ -105,8 +113,14 @@ int main()
     test_q_sender.init(startaddr,false);
     test_q_receiver.init(startaddr, true);
     test_q_sender.init_mem();
+    TimingInit();
     pthread_create(&sender_thread, NULL, sender, nullptr);
     pthread_create(&receiver_thread, NULL, receiver, nullptr);
+    while (1)
+    {
+        sleep(1);
+        printf("%.2lf\n", (double)glbcounter/1e6);
+    }
     pthread_join(receiver_thread,NULL);
     return 0;
 }
