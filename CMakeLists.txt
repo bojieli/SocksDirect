@@ -50,8 +50,12 @@ target_link_libraries(lat_sock_onetime_server ipc)
 add_executable(demo_cpu_util test/demo_cpu_util.c common/util.c)
 add_executable(test_locklessqueue_n test/test_locklessqueue_n.cpp common/helper.c)
 add_executable(test_locklessq_v2 test/test_locklessq_v2.cpp common/locklessq_v2.hpp common/helper.c common/helper.h)
+add_executable(test_locklessq_v3 test/test_locklessq_v3.cpp common/locklessq_v3.hpp common/helper.c common/helper.h)
+
 target_link_libraries(test_locklessq_v2 pthread)
 target_link_libraries(test_locklessqueue_n pthread)
+target_link_libraries(test_locklessq_v3 pthread)
+
 add_executable(test_adjlist test/test_adjlist.cpp)
 add_executable(test_fork_client test/test_fork_client.c)
 target_link_libraries(test_fork_client ipc)

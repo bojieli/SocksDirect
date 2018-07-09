@@ -58,6 +58,13 @@ key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc)
     return shm_key;
 };
 
+key_t buffer_enlarge(pid_t tid_from, pid_t tid_to, int loc)
+{
+    key_t shm_key;
+    shm_key = 9837423+current_q_counter;
+    ++current_q_counter;
+}
+
 void buffer_del(pid_t tid_from, pid_t tid_to)
 {
     key_t buffer_key = interprocess_buf_idx[tid_from][tid_to].buffer_key;
