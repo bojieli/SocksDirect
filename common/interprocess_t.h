@@ -14,7 +14,7 @@
 #define INTERPROCESS_Q_MASK ((INTERPROCESS_SLOTS_IN_QUEUE)-1)
 #define INTERPROCESS_SLOTS_BLK_SIZE 1018
 #define MAX_FD_NUM 102400000
-
+#define MAX_QUEUE_NUM 100
 class interprocess_t
 {
 public:
