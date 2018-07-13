@@ -9,6 +9,7 @@
 #include "lib_internal.h"
 #include "fork.h"
 #include "../common/setup_sock.h"
+#include "rdma.h"
 
 pthread_key_t pthread_key;
 
@@ -145,6 +146,7 @@ void after_exec()
     pthread_setspecific(pthread_key, (void *) data);
     connect_monitor();
     usocket_init();
+    rdma_init();
 }
 
 /*

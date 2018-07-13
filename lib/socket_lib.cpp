@@ -786,7 +786,7 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
 
             //remove itself from adjlist
             iter = thread_data->fds_datawithrd.del_element(iter);
-            return iter.next();
+            return iter;
         }
     }
     else
