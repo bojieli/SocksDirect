@@ -3,16 +3,24 @@
 //
 
 #include <string>
+#include <malloc.h>
 #include "rdma.h"
-#define DEBUGON 1
+#include "../common/interprocess_t.h"
 
+#define DEBUGON 1
+#define RDMA_MAX_CONN 20
 
 static int dev_port_id=0;
 static struct ibv_context* ib_ctx=nullptr;
 static uint8_t device_id=0;
 static uint16_t port_lid=0;
 static union ibv_gid RoCE_gid;
+static struct ibv_pd * ibv_pd=nullptr;
+struct ibv_mr* buf_mr=nullptr;
 
+
+static void *MR_ptr=nullptr;
+static uint32_t MR_rkey;
 
 
 
@@ -103,8 +111,26 @@ void rdma_init()
     //2. Allocate PD
     //3. enumerate device and get dev id
 
+    //enumerate device
     enum_dev();
+    //allocate pd
+    ibv_pd = ibv_alloc_pd(ib_ctx);
+    if (ibv_pd == nullptr)
+        FATAL("Failed to create Protected Domain for RDMA");
 
+    //allocate a large buffer
+    MR_ptr = memalign(4096, (size_t)RDMA_MAX_CONN * interprocess_t::get_sharedmem_size());
+    if (MR_ptr == nullptr)
+        FATAL("Failed to create a large buffer");
+    //reg it to NIC MR
+
+    int ib_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
+                   IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
+    buf_mr = ibv_reg_mr(ibv_pd, MR_ptr,(size_t)RDMA_MAX_CONN * interprocess_t::get_sharedmem_size(),ib_flags);
+    if (buf_mr == nullptr)
+        FATAL("Failed to reg MR for RDMA");
+
+    DEBUG("RDMA Init finished!");
 }
 
 #undef DEBUGON
