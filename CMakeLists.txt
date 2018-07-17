@@ -13,7 +13,7 @@ add_library(ipc SHARED common/helper.c lib/setup_sock_lib.cpp lib/socket_lib.cpp
 target_link_libraries(ipc hrd dl pthread ibverbs)
 add_executable(monitor common/helper.c monitor/setup_sock_monitor.cpp monitor/process.cpp monitor/sock_monitor.cpp
         monitor/main.cpp common/interprocess_t.cpp common/setup_sock.h common/locklessqueue_n.hpp common/adjlist_t.hpp
-        common/metaqueue.h)
+        common/metaqueue.h monitor/rdma.cpp monitor/rdma.h)
 target_link_libraries(monitor pthread)
 #add_executable(test_attach test/test_attach.c)
 #add_executable(test_attach_old test/test_attach_old.c)
