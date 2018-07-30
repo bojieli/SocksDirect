@@ -8,6 +8,7 @@
 #include "sock_monitor.h"
 #include "../common/metaqueue.h"
 #include "../common/setup_sock.h"
+#include "rdma_monitor.h"
 #include<time.h>
 #include <tuple>
 
@@ -132,6 +133,7 @@ int main()
 {
     //pin_thread(31);
     setup_sock_monitor_init();
+    rdma_init();
     sock_monitor_init();
     process_init();
     event_loop();

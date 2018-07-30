@@ -92,9 +92,10 @@ class metaqueue_t
 public:
     locklessqueue_t<metaqueue_ctl_element, 256> q[2];
     locklessqueue_t<metaqueue_ctl_element, 256> q_emergency[2];
-    int get_sharememsize()
+    static int get_sharememsize()
     {
-        return (q[0].getmemsize() * 2 + q_emergency[1].getmemsize() * 2);
+        return (locklessqueue_t<metaqueue_ctl_element, 256>::getmemsize() * 2 +
+                locklessqueue_t<metaqueue_ctl_element, 256>::getmemsize() * 2);
     }
     void init_memlayout(uint8_t * baseaddr, int loc) //0: use the lower part to send
     {
