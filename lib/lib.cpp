@@ -9,7 +9,7 @@
 #include "lib_internal.h"
 #include "fork.h"
 #include "../common/setup_sock.h"
-#include "rdma.h"
+#include "rdma_lib.h"
 
 pthread_key_t pthread_key;
 

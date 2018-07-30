@@ -113,7 +113,7 @@ public:
                 SW_BARRIER;
                 if (q->startptr == currptr && pointer == q->pointer) ++pointer;
                 ++q->pointer;
-                if (pointer == SIZE)
+                if (q->pointer == SIZE)
                 {
                     if (q->startptr == currptr && pointer == q->pointer)
                     {
