@@ -15,7 +15,7 @@
 class rdma_pack
 {
 public:
-    int dev_port_id;
+    uint8_t dev_port_id;
     struct ibv_context* ib_ctx;
     uint8_t device_id;
     uint16_t port_lid;
@@ -29,4 +29,8 @@ public:
 
 };
 void enum_dev(rdma_pack *p);
+
+static constexpr size_t QPSQDepth = 128;  ///< Depth of all SEND queues
+static constexpr size_t QPRQDepth = 512;
+static constexpr size_t QPMaxInlineData = 16;
 #endif //IPC_DIRECT_RDMA_H

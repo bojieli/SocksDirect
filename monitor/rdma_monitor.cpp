@@ -12,14 +12,17 @@
 #include "../common/helper.h"
 #include "../common/rdma.h"
 #include "../common/metaqueue.h"
+#include "../common/darray.hpp"
 
 static int rdma_sock_fd;
 static rdma_pack rdma_monitor_context;
-
+darray_t<remote_process_t, 32> rdma_processes;
+int rdma_processes_seq;
+ibv_cq *shared_cq;
 
 void create_rdma_socket()
 {
-    rdma_sock_fd = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    rdma_sock_fd = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
     if (rdma_sock_fd == -1)
         FATAL("Failed to init RDMA setup sock, %s", strerror(errno));
     struct sockaddr_in servaddr;
@@ -61,8 +64,73 @@ void rdma_init()
     if (rdma_monitor_context.buf_mr == nullptr)
         FATAL("Failed to reg MR for RDMA");
 
+    //create a shared cq
+    shared_cq = ibv_create_cq(rdma_monitor_context.ib_ctx, QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
+
+    if (shared_cq == nullptr)
+        FATAL("Failed to create a shared CQ");
+
     create_rdma_socket();
+
+    rdma_processes.init();
+    rdma_processes_seq = 0;
     DEBUG("RDMA Init finished!");
+}
+
+bool try_new_rdma()
+{
+    int peerfd;
+    if ((peerfd = accept(rdma_sock_fd, NULL, NULL)) == -1)
+    {
+        if ((errno == EAGAIN) || (errno == EWOULDBLOCK))
+             return false;
+        else
+            FATAL("RDMA accept remote process failed with err: %s", strerror(errno));
+    }
+
+    union
+    {
+        uint8_t  rdma_parm_buffer[sizeof(qp_info_t)];
+        qp_info_t peer_qpinfo;
+    };
+    qp_info_t my_qpinfo;
+
+    my_qpinfo.qid=rdma_processes_seq;
+    ++rdma_processes_seq;
+    remote_process_t peer_qp;
+    peer_qp.qid=my_qpinfo.qid;
+    uint32_t proc_idx=rdma_processes.add(peer_qp);
+
+    ibv_qp_init_attr myqp_attr;
+    myqp_attr.send_cq = shared_cq;
+    myqp_attr.recv_cq = shared_cq;
+    myqp_attr.qp_type = IBV_QPT_RC;
+    myqp_attr.cap.max_send_wr = QPSQDepth;
+    myqp_attr.cap.max_recv_wr = QPRQDepth;
+    myqp_attr.cap.max_send_sge = 1;
+    myqp_attr.cap.max_recv_sge = 1;
+    myqp_attr.cap.max_inline_data = QPMaxInlineData;
+
+    rdma_processes[proc_idx].myqp = ibv_create_qp(rdma_monitor_context.ibv_pd, &myqp_attr);
+    if (rdma_processes[proc_idx].myqp == nullptr)
+        FATAL("Failed to create QP");
+
+    //change the QP to init state
+    ibv_qp_attr myqp_stateupdate_attr;
+    memset(&myqp_stateupdate_attr, 0, sizeof(myqp_stateupdate_attr));
+    myqp_stateupdate_attr.qp_state = IBV_QPS_INIT;
+    myqp_stateupdate_attr.pkey_index = 0;
+    myqp_stateupdate_attr.port_num = rdma_monitor_context.dev_port_id;
+    myqp_stateupdate_attr.qp_access_flags =
+            IBV_ACCESS_REMOTE_READ |
+            IBV_ACCESS_REMOTE_WRITE |
+            IBV_ACCESS_REMOTE_ATOMIC;
+    if (ibv_modify_qp(rdma_processes[proc_idx].myqp, &myqp_stateupdate_attr,
+                      IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS))
+        FATAL("Failed to set QP to init");
+
+    
+
 }
 
 #undef DEBUGON
