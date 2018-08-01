@@ -88,12 +88,11 @@ bool try_new_rdma()
             FATAL("RDMA accept remote process failed with err: %s", strerror(errno));
     }
 
-    union
-    {
-        uint8_t  rdma_parm_buffer[sizeof(qp_info_t)];
-        qp_info_t peer_qpinfo;
+
+    union {
+        uint8_t sendbuf[sizeof(qp_info_t)];
+        qp_info_t my_qpinfo;
     };
-    qp_info_t my_qpinfo;
 
     my_qpinfo.qid=rdma_processes_seq;
     ++rdma_processes_seq;
@@ -128,6 +127,22 @@ bool try_new_rdma()
     if (ibv_modify_qp(rdma_processes[proc_idx].myqp, &myqp_stateupdate_attr,
                       IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS))
         FATAL("Failed to set QP to init");
+
+    my_qpinfo.qpn = rdma_processes[proc_idx].myqp->qp_num;
+    my_qpinfo.RoCE_gid = rdma_monitor_context.RoCE_gid;
+    my_qpinfo.rkey = rdma_monitor_context.MR_rkey;
+    my_qpinfo.remote_buf_addr = (uintptr_t)(rdma_monitor_context.MR_ptr + 2 * proc_idx * metaqueue_t::get_sharememsize());
+    my_qpinfo.buf_size = 2 * proc_idx * metaqueue_t::get_sharememsize();
+    my_qpinfo.port_lid = rdma_monitor_context.port_lid;
+
+    ssize_t left_byte=sizeof(qp_info_t);
+    int currptr=0;
+    while (left_byte > 0)
+    {
+        ssize_t curr_sent_byte = send(peerfd, sendbuf[currptr]);
+        currptr += curr_sent_byte;
+        left_byte -= curr_sent_byte;
+    }
 
     
 
