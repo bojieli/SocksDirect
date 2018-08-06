@@ -34,7 +34,7 @@ void create_rdma_socket()
     if (listen(rdma_sock_fd, 10) < 0)
         FATAL("Failed to listen on RDMA setup sock, %s", strerror(errno));
 }
-
+#undef DEBUGON
 #define DEBUGON 1
 
 void rdma_init()
@@ -135,16 +135,79 @@ bool try_new_rdma()
     my_qpinfo.buf_size = 2 * proc_idx * metaqueue_t::get_sharememsize();
     my_qpinfo.port_lid = rdma_monitor_context.port_lid;
 
+    //send QP info to peer
     ssize_t left_byte=sizeof(qp_info_t);
     int currptr=0;
     while (left_byte > 0)
     {
-        ssize_t curr_sent_byte = send(peerfd, sendbuf[currptr]);
+        ssize_t curr_sent_byte = send(peerfd, &sendbuf[currptr], left_byte, MSG_WAITALL);
         currptr += curr_sent_byte;
         left_byte -= curr_sent_byte;
     }
 
-    
+    //Try to receive the info of remote QP
+    union {
+        uint8_t recvbuf[sizeof(qp_info_t)];
+        qp_info_t peer_qpinfo;
+    };
+    left_byte = sizeof(qp_info_t);
+    currptr=0;
+    while (left_byte > 0)
+    {
+        ssize_t  curr_recv_byte = recv(peerfd, &recvbuf[currptr], left_byte, MSG_WAITALL);
+        currptr += curr_recv_byte;
+        left_byte -= curr_recv_byte;
+    }
+
+    //change state to RTR
+    memset(&myqp_stateupdate_attr, 0, sizeof(myqp_stateupdate_attr));
+    myqp_stateupdate_attr.qp_state = IBV_QPS_RTR;
+    myqp_stateupdate_attr.path_mtu = IBV_MTU_4096;
+    myqp_stateupdate_attr.dest_qp_num = peer_qpinfo.qpn;
+    myqp_stateupdate_attr.rq_psn = 3185;
+
+    myqp_stateupdate_attr.ah_attr.is_global = 1;
+    myqp_stateupdate_attr.ah_attr.dlid = peer_qpinfo.port_lid;
+    myqp_stateupdate_attr.ah_attr.sl = 0;
+    myqp_stateupdate_attr.ah_attr.src_path_bits = 0;
+    myqp_stateupdate_attr.ah_attr.port_num = rdma_monitor_context.dev_port_id;  // Local port!
+
+    auto& grh = myqp_stateupdate_attr.ah_attr.grh;
+    grh.dgid.global.interface_id = peer_qpinfo.RoCE_gid.global.interface_id;
+    grh.dgid.global.subnet_prefix = peer_qpinfo.RoCE_gid.global.subnet_prefix;
+    grh.sgid_index = 0;
+    grh.hop_limit = 1;
+
+    myqp_stateupdate_attr.max_dest_rd_atomic = 16;
+    myqp_stateupdate_attr.min_rnr_timer = 12;
+    int rtr_flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
+                    IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
+
+    if (ibv_modify_qp(rdma_processes[proc_idx].myqp, &myqp_stateupdate_attr, rtr_flags)) {
+        FATAL("Failed to modify QP from INIT to RTR");
+    }
+
+    //set QP to RTS
+    memset(&myqp_stateupdate_attr, 0, sizeof(myqp_stateupdate_attr));
+    myqp_stateupdate_attr.qp_state = IBV_QPS_RTS;
+    myqp_stateupdate_attr.sq_psn = 3185;
+
+    int rts_flags = IBV_QP_STATE | IBV_QP_SQ_PSN | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY |
+                                                   IBV_QP_MAX_QP_RD_ATOMIC;
+    myqp_stateupdate_attr.timeout = 14;
+    myqp_stateupdate_attr.retry_cnt = 7;
+    myqp_stateupdate_attr.rnr_retry = 7;
+    myqp_stateupdate_attr.max_rd_atomic = 16;
+    myqp_stateupdate_attr.max_dest_rd_atomic = 16;
+        rts_flags |= IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY |
+                     IBV_QP_MAX_QP_RD_ATOMIC;
+
+
+    if (ibv_modify_qp(rdma_processes[proc_idx].myqp, &myqp_stateupdate_attr, rts_flags)) {
+        FATAL("Failed to modify QP from RTR to RTS");
+    }
+    return true;
+
 
 }
 
