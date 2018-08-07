@@ -526,6 +526,8 @@ int close(int fildes)
     return 0;
 }
 
+
+
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
     //init
@@ -534,7 +536,9 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     char addr_str[100];
     inet_ntop(AF_INET, ((void *) &((struct sockaddr_in *) address)->sin_addr), addr_str, address_len);
     if (strcmp(addr_str, "127.0.0.1") != 0)
+    {
         FATAL("not support unlocal address");
+    }
     if (address->sa_family != AF_INET)
         FATAL("Only support TCP connection");
     thread_data_t *data;

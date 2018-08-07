@@ -100,33 +100,7 @@ bool try_new_rdma()
     peer_qp.qid=my_qpinfo.qid;
     uint32_t proc_idx=rdma_processes.add(peer_qp);
 
-    ibv_qp_init_attr myqp_attr;
-    myqp_attr.send_cq = shared_cq;
-    myqp_attr.recv_cq = shared_cq;
-    myqp_attr.qp_type = IBV_QPT_RC;
-    myqp_attr.cap.max_send_wr = QPSQDepth;
-    myqp_attr.cap.max_recv_wr = QPRQDepth;
-    myqp_attr.cap.max_send_sge = 1;
-    myqp_attr.cap.max_recv_sge = 1;
-    myqp_attr.cap.max_inline_data = QPMaxInlineData;
-
-    rdma_processes[proc_idx].myqp = ibv_create_qp(rdma_monitor_context.ibv_pd, &myqp_attr);
-    if (rdma_processes[proc_idx].myqp == nullptr)
-        FATAL("Failed to create QP");
-
-    //change the QP to init state
-    ibv_qp_attr myqp_stateupdate_attr;
-    memset(&myqp_stateupdate_attr, 0, sizeof(myqp_stateupdate_attr));
-    myqp_stateupdate_attr.qp_state = IBV_QPS_INIT;
-    myqp_stateupdate_attr.pkey_index = 0;
-    myqp_stateupdate_attr.port_num = rdma_monitor_context.dev_port_id;
-    myqp_stateupdate_attr.qp_access_flags =
-            IBV_ACCESS_REMOTE_READ |
-            IBV_ACCESS_REMOTE_WRITE |
-            IBV_ACCESS_REMOTE_ATOMIC;
-    if (ibv_modify_qp(rdma_processes[proc_idx].myqp, &myqp_stateupdate_attr,
-                      IBV_QP_STATE | IBV_QP_PKEY_INDEX | IBV_QP_PORT | IBV_QP_ACCESS_FLAGS))
-        FATAL("Failed to set QP to init");
+    rdma_processes[proc_idx].myqp = rdma_create_qp(shared_cq, &rdma_monitor_context);
 
     my_qpinfo.qpn = rdma_processes[proc_idx].myqp->qp_num;
     my_qpinfo.RoCE_gid = rdma_monitor_context.RoCE_gid;
@@ -159,53 +133,10 @@ bool try_new_rdma()
         left_byte -= curr_recv_byte;
     }
 
-    //change state to RTR
-    memset(&myqp_stateupdate_attr, 0, sizeof(myqp_stateupdate_attr));
-    myqp_stateupdate_attr.qp_state = IBV_QPS_RTR;
-    myqp_stateupdate_attr.path_mtu = IBV_MTU_4096;
-    myqp_stateupdate_attr.dest_qp_num = peer_qpinfo.qpn;
-    myqp_stateupdate_attr.rq_psn = 3185;
-
-    myqp_stateupdate_attr.ah_attr.is_global = 1;
-    myqp_stateupdate_attr.ah_attr.dlid = peer_qpinfo.port_lid;
-    myqp_stateupdate_attr.ah_attr.sl = 0;
-    myqp_stateupdate_attr.ah_attr.src_path_bits = 0;
-    myqp_stateupdate_attr.ah_attr.port_num = rdma_monitor_context.dev_port_id;  // Local port!
-
-    auto& grh = myqp_stateupdate_attr.ah_attr.grh;
-    grh.dgid.global.interface_id = peer_qpinfo.RoCE_gid.global.interface_id;
-    grh.dgid.global.subnet_prefix = peer_qpinfo.RoCE_gid.global.subnet_prefix;
-    grh.sgid_index = 0;
-    grh.hop_limit = 1;
-
-    myqp_stateupdate_attr.max_dest_rd_atomic = 16;
-    myqp_stateupdate_attr.min_rnr_timer = 12;
-    int rtr_flags = IBV_QP_STATE | IBV_QP_AV | IBV_QP_PATH_MTU | IBV_QP_DEST_QPN |
-                    IBV_QP_RQ_PSN | IBV_QP_MAX_DEST_RD_ATOMIC | IBV_QP_MIN_RNR_TIMER;
-
-    if (ibv_modify_qp(rdma_processes[proc_idx].myqp, &myqp_stateupdate_attr, rtr_flags)) {
-        FATAL("Failed to modify QP from INIT to RTR");
-    }
-
-    //set QP to RTS
-    memset(&myqp_stateupdate_attr, 0, sizeof(myqp_stateupdate_attr));
-    myqp_stateupdate_attr.qp_state = IBV_QPS_RTS;
-    myqp_stateupdate_attr.sq_psn = 3185;
-
-    int rts_flags = IBV_QP_STATE | IBV_QP_SQ_PSN | IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY |
-                                                   IBV_QP_MAX_QP_RD_ATOMIC;
-    myqp_stateupdate_attr.timeout = 14;
-    myqp_stateupdate_attr.retry_cnt = 7;
-    myqp_stateupdate_attr.rnr_retry = 7;
-    myqp_stateupdate_attr.max_rd_atomic = 16;
-    myqp_stateupdate_attr.max_dest_rd_atomic = 16;
-        rts_flags |= IBV_QP_TIMEOUT | IBV_QP_RETRY_CNT | IBV_QP_RNR_RETRY |
-                     IBV_QP_MAX_QP_RD_ATOMIC;
-
-
-    if (ibv_modify_qp(rdma_processes[proc_idx].myqp, &myqp_stateupdate_attr, rts_flags)) {
-        FATAL("Failed to modify QP from RTR to RTS");
-    }
+    rdma_connect_remote_qp(rdma_processes[proc_idx].myqp,&rdma_monitor_context, &peer_qpinfo);
+    //save rkey and buf addr
+    rdma_processes[proc_idx].rkey = peer_qpinfo.rkey;
+    rdma_processes[proc_idx].remote_buf_ptr = peer_qpinfo.remote_buf_addr;
     return true;
 
 

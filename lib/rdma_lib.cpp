@@ -11,10 +11,12 @@
 #define DEBUGON 1
 #define RDMA_MAX_CONN 20
 
+#include <map>
+#include <bits/unordered_map.h>
 
+std::unordered_map<uint32_t, bool> remote_monitor;
 
 static rdma_pack rdma_lib_context;
-
 void rdma_init()
 {
     //several things
