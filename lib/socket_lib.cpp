@@ -528,6 +528,7 @@ int close(int fildes)
     return 0;
 }
 
+#define DEBUGON 1
 int connect_with_rdma_stub(int socket, struct in_addr remote_addr)
 {
     /*
@@ -539,9 +540,12 @@ int connect_with_rdma_stub(int socket, struct in_addr remote_addr)
      * 2. Inquiry whether pre-existing RDMA connections
      */
     rdma_metaqueue * q2monitor = rdma_try_connect_remote_monitor(remote_addr);
+    DEBUG("RDMA Connection to monitor Finished!");
     return 0;
 }
 
+#undef DEBUGON
+#define DEBUGON 0
 
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {

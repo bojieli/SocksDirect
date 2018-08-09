@@ -90,6 +90,7 @@ void enum_dev(rdma_pack *p)
 ibv_qp * rdma_create_qp(ibv_cq* cq, const rdma_pack * rdma_context)
 {
     ibv_qp_init_attr myqp_attr;
+    memset(&myqp_attr, 0, sizeof(struct ibv_qp_init_attr));
     myqp_attr.send_cq = cq;
     myqp_attr.recv_cq = cq;
     myqp_attr.qp_type = IBV_QPT_RC;
@@ -101,7 +102,7 @@ ibv_qp * rdma_create_qp(ibv_cq* cq, const rdma_pack * rdma_context)
     ibv_qp *qp;
     qp=ibv_create_qp(rdma_context->ibv_pd, &myqp_attr);
     if (qp == nullptr)
-        FATAL("Failed to create QP");
+        FATAL("Failed to create QP, %s", strerror(errno));
     ibv_qp_attr myqp_stateupdate_attr;
     memset(&myqp_stateupdate_attr, 0, sizeof(myqp_stateupdate_attr));
     myqp_stateupdate_attr.qp_state = IBV_QPS_INIT;
