@@ -105,8 +105,13 @@ bool try_new_rdma()
     my_qpinfo.qpn = rdma_processes[proc_idx].myqp->qp_num;
     my_qpinfo.RoCE_gid = rdma_monitor_context.RoCE_gid;
     my_qpinfo.rkey = rdma_monitor_context.MR_rkey;
-    my_qpinfo.remote_buf_addr = (uintptr_t)(rdma_monitor_context.MR_ptr + 2 * proc_idx * metaqueue_t::get_sharememsize());
-    my_qpinfo.buf_size = 2 * proc_idx * metaqueue_t::get_sharememsize();
+
+    //The metaqueue contain for lockless_q, each lockless_q contain 256 element and a return flag
+    //We could notice that only send buffer is required for RDMA.
+     // The buf addr stores the base addr of the whole remote structure, include both send and recv
+    my_qpinfo.remote_buf_addr =
+            (uintptr_t)(rdma_monitor_context.MR_ptr + proc_idx * metaqueue_t::get_sharememsize());
+    my_qpinfo.buf_size =  metaqueue_t::get_sharememsize();
     my_qpinfo.port_lid = rdma_monitor_context.port_lid;
 
     //send QP info to peer

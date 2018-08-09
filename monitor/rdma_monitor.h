@@ -5,7 +5,6 @@
 #ifndef IPC_DIRECT_RDMA_MONITOR_H
 #define IPC_DIRECT_RDMA_MONITOR_H
 
-#define RDMA_SOCK_PORT 3000
 #define MAX_RDMA_CONN_NUM 32
 
 #include <infiniband/verbs.h>

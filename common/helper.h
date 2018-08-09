@@ -74,6 +74,7 @@ enum
 extern "C"
 {
 #endif
+#define RDMA_SOCK_PORT 3000
 
 extern pid_t gettid();
 

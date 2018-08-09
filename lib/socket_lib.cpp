@@ -14,6 +14,7 @@
 #include "../common/metaqueue.h"
 #include <sys/ioctl.h>
 #include "fork.h"
+#include "rdma_lib.h"
 
 pthread_key_t pthread_sock_key;
 #undef DEBUGON
@@ -405,6 +406,7 @@ int thread_sock_data_t::newbuffer(key_t key, int loc)
     buffer[lowest_available].isvalid = true;
     buffer[lowest_available].data.init(key, loc);
     buffer[lowest_available].shmemkey = key;
+    buffer[lowest_available].isRDMA = false;
     (*bufferhash)[key]=lowest_available;
     ++total_num;
     if (total_num == BUFFERNUM)
@@ -526,6 +528,19 @@ int close(int fildes)
     return 0;
 }
 
+int connect_with_rdma_stub(int socket, struct in_addr remote_addr)
+{
+    /*
+     * In this stub, it needs do several things:
+     * 1. check whether RDMA connection to remote monitor exists
+     *     If not exist:
+     *         Create TCP connection
+     *         negotiate QP, assign metaqueue
+     * 2. Inquiry whether pre-existing RDMA connections
+     */
+    rdma_metaqueue * q2monitor = rdma_try_connect_remote_monitor(remote_addr);
+    return 0;
+}
 
 
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
@@ -535,12 +550,16 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     socket = MAX_FD_ID - socket;
     char addr_str[100];
     inet_ntop(AF_INET, ((void *) &((struct sockaddr_in *) address)->sin_addr), addr_str, address_len);
-    if (strcmp(addr_str, "127.0.0.1") != 0)
-    {
-        FATAL("not support unlocal address");
-    }
     if (address->sa_family != AF_INET)
         FATAL("Only support TCP connection");
+    if (strcmp(addr_str, "127.0.0.1") != 0)
+    {
+        struct in_addr remote_addr_int;
+        if (!inet_aton(addr_str, &remote_addr_int))
+            FATAL("Invalid remote addr");
+        connect_with_rdma_stub(socket, remote_addr_int);
+        FATAL("not support unlocal address");
+    }
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (!data->fds_datawithrd.is_keyvalid(socket))
@@ -576,6 +595,8 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     fd_rd_list_t peer_fd_rd;
     peer_fd_rd.child[0] = peer_fd_rd.child[1] = -1;
     peer_fd_rd.status = 0;
+
+    //if a connection between two process already exists, no new buffer is needed
     if ((idx = thread_buf->isexist(key)) != -1)
         peer_fd_rd.buffer_idx = idx;
     else

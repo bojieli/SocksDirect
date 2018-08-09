@@ -5,6 +5,7 @@
 #ifndef IPC_DIRECT_SOCKET_LIB_H
 #define IPC_DIRECT_SOCKET_LIB_H
 #include "../common/darray.hpp"
+#include "rdma_lib.h"
 #ifdef __cplusplus
 extern "C"
 {
@@ -79,7 +80,10 @@ public:
         bool isvalid;
         int loc;
         key_t shmemkey;
-        buffer_t() : isvalid(false)
+        bool isRDMA;
+        qp_info_t qpdata;
+        int rdma_buf_idx;
+        buffer_t() : isvalid(false), isRDMA(false)
         {}
     } buffer[BUFFERNUM];
 
