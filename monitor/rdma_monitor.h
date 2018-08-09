@@ -18,4 +18,5 @@ struct remote_process_t
 };
 
 void rdma_init();
+extern bool try_new_rdma();
 #endif //IPC_DIRECT_RDMA_H

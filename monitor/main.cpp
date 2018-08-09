@@ -122,6 +122,7 @@ static void event_loop()
         if ((round & 0xFFFF) == 0)
         {
             try_accept_new_proc();
+            try_new_rdma();
             process_chk_remove();
             sock_resource_gc();
         }
