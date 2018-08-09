@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <infiniband/verbs.h>
 #include "../common/helper.h"
+#include "metaqueue.h"
 
 class rdma_pack
 {
@@ -49,4 +50,8 @@ extern void rdma_connect_remote_qp(ibv_qp *qp, const rdma_pack * rdma_context, c
 static constexpr size_t QPSQDepth = 128;  ///< Depth of all SEND queues
 static constexpr size_t QPRQDepth = 512;
 static constexpr size_t QPMaxInlineData = 16;
+
+typedef metaqueue_ctl_element (*metaqueue_array_ptr_t)[256];
+
+
 #endif //IPC_DIRECT_RDMA_H
