@@ -26,7 +26,6 @@ public:
 
 
     void *MR_ptr;
-    uint32_t MR_rkey;
 
 };
 
@@ -46,7 +45,8 @@ void enum_dev(rdma_pack *p);
 //give cq and context, create a CQ and set to INIT state
 extern ibv_qp * rdma_create_qp(ibv_cq* cq, const rdma_pack * rdma_context);
 extern void rdma_connect_remote_qp(ibv_qp *qp, const rdma_pack * rdma_context, const qp_info_t * remote_qp_info);
-
+extern void post_rdma_write(metaqueue_ctl_element * ele, rdma_pack *context,
+                            uintptr_t remote_addr, uint32_t rkey, ibv_qp * qp);
 static constexpr size_t QPSQDepth = 128;  ///< Depth of all SEND queues
 static constexpr size_t QPRQDepth = 512;
 static constexpr size_t QPMaxInlineData = 16;

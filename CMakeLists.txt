@@ -9,7 +9,8 @@ endif (COMMAND cmake_policy)
 add_library(hrd SHARED rdma/hrd_conn.cc rdma/hrd_util.cc)
 target_link_libraries(hrd ibverbs memcached numa pthread)
 add_library(ipc SHARED common/helper.c lib/setup_sock_lib.cpp lib/socket_lib.cpp lib/lib.cpp common/interprocess_t.cpp
-        lib/lib_internal.h common/setup_sock.h common/darray.hpp common/locklessqueue_n.hpp lib/fork.cpp lib/pot_socket_lib.cpp lib/pot_socket_lib.h common/locklessq_v2.hpp lib/rdma_lib.cpp lib/rdma_lib.h common/rdma.cpp common/rdma.h)
+        lib/lib_internal.h common/setup_sock.h common/darray.hpp common/locklessqueue_n.hpp lib/fork.cpp lib/pot_socket_lib.cpp
+        lib/pot_socket_lib.h common/locklessq_v2.hpp lib/rdma_lib.cpp lib/rdma_lib.h common/rdma.cpp common/rdma.h)
 target_link_libraries(ipc hrd dl pthread ibverbs)
 add_executable(monitor common/helper.c monitor/setup_sock_monitor.cpp monitor/process.cpp monitor/sock_monitor.cpp
         monitor/main.cpp common/interprocess_t.cpp common/setup_sock.h common/locklessqueue_n.hpp common/adjlist_t.hpp

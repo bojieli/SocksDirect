@@ -6,6 +6,7 @@
 #include <cstdio>
 #include <tuple>
 #include <cassert>
+#include <infiniband/verbs.h>
 
 #define SW_BARRIER asm volatile("" ::: "memory")
 
@@ -210,6 +211,13 @@ public:
         const int return_flag_size = 64;
         return (sizeof(element_t) * SIZE) + return_flag_size;
     }
+
+    inline void * __get_addr()
+    {
+        return (void*)&ringbuffer[(pointer-1) & MASK];
+    }
+
+
 
 };
 
