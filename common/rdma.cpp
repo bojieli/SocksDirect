@@ -170,3 +170,35 @@ void rdma_connect_remote_qp(ibv_qp *qp, const rdma_pack * rdma_context, const qp
         FATAL("Failed to modify QP from RTR to RTS");
     }
 }
+
+void post_rdma_write(metaqueue_ctl_element * ele, rdma_pack *context,
+                            uintptr_t remote_addr, uint32_t rkey, ibv_qp * qp)
+{
+
+    struct ibv_send_wr wr, *bad_send_wr;
+    struct ibv_sge sgl;
+    struct ibv_wc wc;
+
+    wr.opcode = IBV_WR_RDMA_WRITE;
+    wr.num_sge = 1;
+    wr.next = nullptr;
+    wr.sg_list = &sgl;
+
+    wr.send_flags = 0;
+
+
+    sgl.addr = (uint64_t) ele;
+    sgl.length = 16;
+    sgl.lkey = context->buf_mr->lkey;
+
+
+    wr.wr.rdma.remote_addr = (uint64_t)remote_addr;
+    wr.wr.rdma.rkey = rkey;
+
+    int ret = ibv_post_send(qp, &wr, &bad_send_wr);
+    if (ret != 0) {
+        FATAL("wrong ret %d", ret);
+        return;
+    }
+    return;
+}

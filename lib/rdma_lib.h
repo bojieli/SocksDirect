@@ -19,6 +19,7 @@ public:
     qp_info_t qp_info;
     void* baseaddr;
     int sender_credits;
+    metaqueue_t queue;
 };
 extern void rdma_init();
 extern rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr);

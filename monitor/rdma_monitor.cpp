@@ -77,6 +77,17 @@ void rdma_init()
     DEBUG("RDMA Init finished!");
 }
 
+void test_rdma_recv(int proc_idx) {
+    //Actually we do nothing here and run an infinity loop
+    metaqueue_t * metaqueue_ptr = &rdma_processes[proc_idx].metaqueue;
+    metaqueue_ctl_element ele;
+    while (true)
+    {
+        while (!metaqueue_ptr->q[1].pop_nb(ele));
+        printf("%x\n", *((int *)&ele.raw));
+    }
+}
+
 bool try_new_rdma()
 {
     int peerfd;
@@ -104,7 +115,7 @@ bool try_new_rdma()
 
     my_qpinfo.qpn = rdma_processes[proc_idx].myqp->qp_num;
     my_qpinfo.RoCE_gid = rdma_monitor_context.RoCE_gid;
-    my_qpinfo.rkey = rdma_monitor_context.MR_rkey;
+    my_qpinfo.rkey = rdma_monitor_context.buf_mr->rkey;
 
     //The metaqueue contain for lockless_q, each lockless_q contain 256 element and a return flag
     //We could notice that only send buffer is required for RDMA.
@@ -142,7 +153,18 @@ bool try_new_rdma()
     //save rkey and buf addr
     rdma_processes[proc_idx].rkey = peer_qpinfo.rkey;
     rdma_processes[proc_idx].remote_buf_ptr = peer_qpinfo.remote_buf_addr;
+
+    //The next thing we need to do is to init the metaqueue
+    rdma_processes[proc_idx].metaqueue.init_memlayout((uint8_t *)my_qpinfo.remote_buf_addr,0);
+    rdma_processes[proc_idx].metaqueue.mem_init();
+
+    //Why not do test here?
+#if DEBUGON == 1
+    test_rdma_recv(proc_idx);
+#endif
     return true;
+
+
 
 
 }

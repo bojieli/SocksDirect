@@ -15,6 +15,7 @@ struct remote_process_t
     uint32_t rkey;
     intptr_t remote_buf_ptr;
     int32_t qid;
+    metaqueue_t metaqueue;
 };
 
 void rdma_init();

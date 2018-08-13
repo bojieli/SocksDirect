@@ -10,6 +10,7 @@
 #include "rdma_lib.h"
 #include "../common/interprocess_t.h"
 #include "../common/rdma.h"
+#include "../common/metaqueue.h"
 
 #define DEBUGON 1
 #define RDMA_MAX_CONN 20
@@ -60,6 +61,7 @@ void rdma_init()
                    IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
     rdma_lib_context.buf_mr = ibv_reg_mr(rdma_lib_context.ibv_pd, rdma_lib_context.MR_ptr,
                                          shared_buf_size,ib_flags);
+    DEBUG("Mem region size %d, lkey %d, rkey %d", rdma_lib_context.buf_mr->length, rdma_lib_context.buf_mr->lkey, rdma_lib_context.buf_mr->rkey);
     if (rdma_lib_context.buf_mr == nullptr)
         FATAL("Failed to reg MR for RDMA");
 
@@ -115,7 +117,7 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
 
         my_qpinfo.qpn = metaqueue.qp->qp_num;
         my_qpinfo.RoCE_gid = rdma_lib_context.RoCE_gid;
-        my_qpinfo.rkey = rdma_lib_context.MR_rkey;
+        my_qpinfo.rkey = rdma_lib_context.buf_mr->rkey;
         my_qpinfo.remote_buf_addr = rdma_lib_private_info.local_metaqueue_base_addr +
                 rdma_buffer_seq * metaqueue_t::get_sharememsize();
         my_qpinfo.buf_size =  metaqueue_t::get_sharememsize();
@@ -151,8 +153,21 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         //Store the addr and rkey
         metaqueue.qp_info.rkey = peer_qpinfo.rkey;
         metaqueue.qp_info.remote_buf_addr = peer_qpinfo.remote_buf_addr;
-
-
+        metaqueue.baseaddr = (void *)my_qpinfo.remote_buf_addr;
+        metaqueue.queue.init_memlayout((uint8_t *)metaqueue.baseaddr, 1);
+        metaqueue.queue.mem_init();
+        remote_monitor[remote_addr.s_addr]=metaqueue;
+        uint32_t cnt(0);
+        while (true)
+        {
+            metaqueue_ctl_element ele;
+            ele.command = REQ_NOP;
+            ele.test_payload = ++cnt;
+            metaqueue.queue.q[0].push(ele);
+            post_rdma_write((metaqueue_ctl_element *)metaqueue.queue.q[0].__get_addr(),&rdma_lib_context,
+                            (uintptr_t)((uint8_t *)metaqueue.qp_info.remote_buf_addr + ((uint8_t *)metaqueue.queue.q[0].__get_addr()-(uint8_t *)metaqueue.baseaddr)),
+            metaqueue.qp_info.rkey, metaqueue.qp);
+        }
     }
     return nullptr;
 }
