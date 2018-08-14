@@ -157,6 +157,29 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         metaqueue.queue.init_memlayout((uint8_t *)metaqueue.baseaddr, 1);
         metaqueue.queue.mem_init();
         remote_monitor[remote_addr.s_addr]=metaqueue;
+
+        //We should block here until peer QP created
+
+        ssize_t curr_byte;
+        do
+        {
+            curr_byte = send(sock_fd, &sendbuf[0], 1, MSG_WAITALL);
+            if (curr_byte == -1)
+            {
+                FATAL("Failed to send RDMA QP ACK to peer :%s", strerror(errno));
+            }
+        } while (curr_byte != 1);
+        do
+        {
+            curr_byte = recv(sock_fd, &recvbuf[0], 1, MSG_WAITALL);
+            if (curr_byte == -1)
+            {
+                FATAL("Failed to get RDMA QP ACK from peer :%s", strerror(errno));
+            }
+        } while (curr_byte != 1);
+        shutdown(sock_fd, SHUT_RDWR);
+
+#if DEBUGON == 1
         uint32_t cnt(0);
         while (true)
         {
@@ -168,6 +191,7 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
                             (uintptr_t)((uint8_t *)metaqueue.qp_info.remote_buf_addr + ((uint8_t *)metaqueue.queue.q[0].__get_addr()-(uint8_t *)metaqueue.baseaddr)),
             metaqueue.qp_info.rkey, metaqueue.qp);
         }
+#endif
     }
     return nullptr;
 }
