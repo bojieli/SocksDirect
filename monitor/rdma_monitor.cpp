@@ -158,6 +158,27 @@ bool try_new_rdma()
     rdma_processes[proc_idx].metaqueue.init_memlayout((uint8_t *)my_qpinfo.remote_buf_addr,0);
     rdma_processes[proc_idx].metaqueue.mem_init();
 
+    //We should block here until peer QP created
+
+    sendbuf[0]=1;
+    ssize_t curr_byte;
+    do
+    {
+        curr_byte = send(peerfd, &sendbuf[0], 1, MSG_WAITALL);
+        if (curr_byte == -1)
+        {
+            FATAL("Failed to send RDMA QP ACK to peer :%s", strerror(errno));
+        }
+    } while (curr_byte != 1);
+    do
+    {
+        curr_byte = recv(peerfd, &recvbuf[0], 1, MSG_WAITALL);
+        if (curr_byte == -1)
+        {
+            FATAL("Failed to get RDMA QP ACK from peer :%s", strerror(errno));
+        }
+    } while (curr_byte != 1);
+    shutdown(peerfd, SHUT_RDWR);
     //Why not do test here?
 #if DEBUGON == 1
     test_rdma_recv(proc_idx);
