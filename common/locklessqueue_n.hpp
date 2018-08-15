@@ -7,6 +7,8 @@
 #include <tuple>
 #include <cassert>
 #include <infiniband/verbs.h>
+#include "../common/rdma_struct.h"
+#include "../common/rdma.h"
 
 #define SW_BARRIER asm volatile("" ::: "memory")
 
@@ -23,10 +25,18 @@ public:
     };
 private:
     element_t *ringbuffer;
-    bool *return_flag;
+    volatile bool *return_flag;
     uint32_t credits;
     uint32_t CREDITS_PER_RETURN;
     bool credit_disabled;
+
+    bool isRDMA;
+    uint64_t rdma_remote_baseaddr;
+    uint32_t rdma_lkey, rdma_rkey;
+    ibv_qp* rdma_qp;
+    ibv_cq* rdma_cq;
+
+
 private:
     inline void atomic_copy16(element_t *dst, element_t *src)
     {
@@ -46,7 +56,7 @@ public:
     };
     uint32_t MASK;
 
-    locklessqueue_t() : ringbuffer(nullptr), pointer(0), MASK(SIZE - 1)
+    locklessqueue_t() : ringbuffer(nullptr),  isRDMA(false),pointer(0),MASK(SIZE - 1)
     {
         assert((sizeof(element_t)==16));
     }
@@ -57,13 +67,24 @@ public:
         MASK = SIZE - 1;
         CREDITS_PER_RETURN = SIZE / 2 + 1;
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
-        return_flag = reinterpret_cast<bool *>(baseaddr + (sizeof(element_t) * SIZE));
+        return_flag = reinterpret_cast<bool *>((uint8_t *)baseaddr + (sizeof(element_t) * SIZE));
         *return_flag = false;
+        isRDMA=false;
         if (is_receiver)
             credits = 0;
         else
             credits = SIZE;
         credit_disabled = false;
+    }
+
+    inline void initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey, uint64_t _remote_addr)
+    {
+        isRDMA = true;
+        rdma_lkey = _lkey;
+        rdma_rkey = _rkey;
+        rdma_remote_baseaddr = _remote_addr;
+        rdma_qp = _qp;
+        rdma_cq = _cq;
     }
 
     inline void init_mem()
@@ -92,6 +113,14 @@ public:
 
         uint32_t local_ptr = pointer & MASK;
         atomic_copy16(&ringbuffer[local_ptr], &ele);
+        //isRDMA
+        if (isRDMA)
+        {
+            post_rdma_write(&ringbuffer[local_ptr],
+                            rdma_remote_baseaddr + ((uint8_t *) &ringbuffer[local_ptr] - (uint8_t *) ringbuffer),
+                            rdma_lkey, rdma_rkey, rdma_qp, rdma_cq, 16);
+        }
+
         pointer++;
         credits--;
         return true;
@@ -176,6 +205,12 @@ public:
                 if (credits == CREDITS_PER_RETURN) {
                     *return_flag = true;
                     credits = 0;
+
+                    //RDMA? Push flag to sender side
+                    post_rdma_write(return_flag,
+                                    rdma_remote_baseaddr + ((uint8_t *)return_flag - (uint8_t *)ringbuffer),
+                                    rdma_lkey,rdma_rkey,rdma_qp, rdma_cq, 1);
+
                 }
                 SW_BARRIER;
             }

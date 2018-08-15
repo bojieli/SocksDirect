@@ -100,11 +100,11 @@ public:
     void init_memlayout(uint8_t * baseaddr, int loc) //0: use the lower part to send
     {
         q[loc].init(baseaddr, loc);
-        baseaddr += q[0].getmemsize();
+        baseaddr += q[loc].getmemsize();
         q[1 - loc].init(baseaddr, 1 - loc);
-        baseaddr += q[1].getmemsize();
+        baseaddr += q[1-loc].getmemsize();
         q_emergency[loc].init(baseaddr, loc);
-        baseaddr += q[1].getmemsize();
+        baseaddr += q[loc].getmemsize();
         q_emergency[1 - loc].init(baseaddr, 1 - loc);
     }
     void mem_init()
@@ -113,6 +113,19 @@ public:
         q[1].init_mem();
         q_emergency[0].init_mem();
         q_emergency[1].init_mem();
+    }
+    void initRDMA(ibv_qp *_qp, ibv_cq * _cq, uint32_t _lkey, uint32_t _rkey, uint64_t _remote_addr, int loc)
+    {
+        uint64_t remote_mem_addr(_remote_addr);
+        q[loc].initRDMA(_qp, _cq, _lkey, _rkey, remote_mem_addr);
+        remote_mem_addr += q[loc].getmemsize();
+        q[1-loc].initRDMA(_qp, _cq, _lkey, _rkey, remote_mem_addr);
+        remote_mem_addr += q[1-loc].getmemsize();
+        q_emergency[loc].initRDMA(_qp, _cq, _lkey, _rkey, remote_mem_addr);
+        remote_mem_addr += q_emergency[loc].getmemsize();
+        q_emergency[1-loc].initRDMA(_qp, _cq, _lkey, _rkey, remote_mem_addr);
+
+
     }
 
 };
