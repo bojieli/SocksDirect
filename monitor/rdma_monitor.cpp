@@ -81,10 +81,14 @@ void test_rdma_recv(int proc_idx) {
     //Actually we do nothing here and run an infinity loop
     metaqueue_t * metaqueue_ptr = &rdma_processes[proc_idx].metaqueue;
     metaqueue_ctl_element ele;
+    unsigned int cnt=0;
     while (true)
     {
         while (!metaqueue_ptr->q[1].pop_nb(ele));
-        printf("%x\n", *((int *)&ele.raw));
+        ++cnt;
+        if (cnt % 10000000 == 0)
+            printf("10M\n");
+        //printf("%x\n", *((int *)&ele.raw));
     }
 }
 
@@ -157,7 +161,12 @@ bool try_new_rdma()
     //The next thing we need to do is to init the metaqueue
     rdma_processes[proc_idx].metaqueue.init_memlayout((uint8_t *)my_qpinfo.remote_buf_addr,0);
     rdma_processes[proc_idx].metaqueue.mem_init();
-
+    rdma_processes[proc_idx].metaqueue.initRDMA(rdma_processes[proc_idx].myqp,
+                                                shared_cq,
+                                                rdma_monitor_context.buf_mr->lkey,
+                                                rdma_processes[proc_idx].rkey,
+                                                rdma_processes[proc_idx].remote_buf_ptr,
+                                                0);
     //We should block here until peer QP created
 
     sendbuf[0]=1;

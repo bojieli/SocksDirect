@@ -61,7 +61,7 @@ void rdma_init()
                    IBV_ACCESS_REMOTE_WRITE | IBV_ACCESS_REMOTE_ATOMIC;
     rdma_lib_context.buf_mr = ibv_reg_mr(rdma_lib_context.ibv_pd, rdma_lib_context.MR_ptr,
                                          shared_buf_size,ib_flags);
-    DEBUG("Mem region size %d, lkey %d, rkey %d", rdma_lib_context.buf_mr->length, rdma_lib_context.buf_mr->lkey, rdma_lib_context.buf_mr->rkey);
+    DEBUG("Mem region size %u, lkey %d, rkey %d", rdma_lib_context.buf_mr->length, rdma_lib_context.buf_mr->lkey, rdma_lib_context.buf_mr->rkey);
     if (rdma_lib_context.buf_mr == nullptr)
         FATAL("Failed to reg MR for RDMA");
 
@@ -155,6 +155,9 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         metaqueue.qp_info.remote_buf_addr = peer_qpinfo.remote_buf_addr;
         metaqueue.baseaddr = (void *)my_qpinfo.remote_buf_addr;
         metaqueue.queue.init_memlayout((uint8_t *)metaqueue.baseaddr, 1);
+        metaqueue.queue.initRDMA(metaqueue.qp, rdma_lib_private_info.shared_cq,
+                                 rdma_lib_context.buf_mr->lkey, metaqueue.qp_info.rkey,
+        metaqueue.qp_info.remote_buf_addr, 1);
         metaqueue.queue.mem_init();
         remote_monitor[remote_addr.s_addr]=metaqueue;
 
@@ -187,9 +190,9 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
             ele.command = REQ_NOP;
             ele.test_payload = ++cnt;
             metaqueue.queue.q[0].push(ele);
-            post_rdma_write((metaqueue_ctl_element *)metaqueue.queue.q[0].__get_addr(),&rdma_lib_context,
-                            (uintptr_t)((uint8_t *)metaqueue.qp_info.remote_buf_addr + ((uint8_t *)metaqueue.queue.q[0].__get_addr()-(uint8_t *)metaqueue.baseaddr)),
-            metaqueue.qp_info.rkey, metaqueue.qp);
+            //post_rdma_write(metaqueue.queue.q[0].__get_addr(),&rdma_lib_context,
+            //                (uintptr_t)((uint8_t *)metaqueue.qp_info.remote_buf_addr + ((uint8_t *)metaqueue.queue.q[0].__get_addr()-(uint8_t *)metaqueue.baseaddr)),
+            //metaqueue.qp_info.rkey, metaqueue.qp);
         }
 #endif
     }

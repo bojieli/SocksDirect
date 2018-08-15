@@ -9,6 +9,8 @@
 
 #include <infiniband/verbs.h>
 #include "../common/rdma.h"
+#include "../common/metaqueue.h"
+
 struct remote_process_t
 {
     ibv_qp* myqp;

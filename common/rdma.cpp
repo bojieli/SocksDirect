@@ -171,13 +171,21 @@ void rdma_connect_remote_qp(ibv_qp *qp, const rdma_pack * rdma_context, const qp
     }
 }
 
-void post_rdma_write(metaqueue_ctl_element * ele, rdma_pack *context,
-                            uintptr_t remote_addr, uint32_t rkey, ibv_qp * qp)
+void post_rdma_write(volatile void * ele, uintptr_t remote_addr, uint32_t lkey, uint32_t rkey, ibv_qp * qp, ibv_cq * cq, size_t len)
 {
 
+    static unsigned int wqe_cnt=0;
     struct ibv_send_wr wr, *bad_send_wr;
     struct ibv_sge sgl;
     struct ibv_wc wc;
+
+    int32_t ret;
+    do
+    {
+        ret = ibv_poll_cq(cq, 1, &wc);
+        if (ret < 0)
+            FATAL("Poll CQ Err %s", strerror(ret));
+    } while (ret > 0);
 
     wr.opcode = IBV_WR_RDMA_WRITE;
     wr.num_sge = 1;
@@ -188,14 +196,24 @@ void post_rdma_write(metaqueue_ctl_element * ele, rdma_pack *context,
 
 
     sgl.addr = (uint64_t) ele;
-    sgl.length = 16;
-    sgl.lkey = context->buf_mr->lkey;
+    sgl.length = len;
+    sgl.lkey = lkey;
 
 
     wr.wr.rdma.remote_addr = (uint64_t)remote_addr;
     wr.wr.rdma.rkey = rkey;
 
-    int ret = ibv_post_send(qp, &wr, &bad_send_wr);
+    /*
+     * Caveat: You must regularly request CQE, otherwise CPU
+     * won't know whether WQE finished, finally lead to ENOMEM because
+     * Send Queue used up.
+     */
+    ++wqe_cnt;
+    if (wqe_cnt % 64 == 0)
+        wr.send_flags |= IBV_SEND_SIGNALED;
+
+
+    ret = ibv_post_send(qp, &wr, &bad_send_wr);
     if (ret != 0) {
         FATAL("wrong ret %d", ret);
         return;
