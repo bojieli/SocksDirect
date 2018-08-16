@@ -207,10 +207,12 @@ public:
                     credits = 0;
 
                     //RDMA? Push flag to sender side
-                    post_rdma_write(return_flag,
-                                    rdma_remote_baseaddr + ((uint8_t *)return_flag - (uint8_t *)ringbuffer),
-                                    rdma_lkey,rdma_rkey,rdma_qp, rdma_cq, 1);
-
+                    if(isRDMA) 
+                    {
+                        post_rdma_write(return_flag,
+                                        rdma_remote_baseaddr + ((uint8_t *) return_flag - (uint8_t *) ringbuffer),
+                                        rdma_lkey, rdma_rkey, rdma_qp, rdma_cq, 1);
+                    }
                 }
                 SW_BARRIER;
             }
