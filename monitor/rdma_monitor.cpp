@@ -13,12 +13,13 @@
 #include "../common/rdma.h"
 #include "../common/metaqueue.h"
 #include "../common/darray.hpp"
+#include "process.h"
 
 static int rdma_sock_fd;
 static rdma_pack rdma_monitor_context;
 darray_t<remote_process_t, 32> rdma_processes;
 int rdma_processes_seq;
-ibv_cq *shared_cq;
+ibv_cq *shared_recv_cq;
 
 void create_rdma_socket()
 {
@@ -35,7 +36,7 @@ void create_rdma_socket()
         FATAL("Failed to listen on RDMA setup sock, %s", strerror(errno));
 }
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 
 void rdma_init()
 {
@@ -65,9 +66,9 @@ void rdma_init()
         FATAL("Failed to reg MR for RDMA");
 
     //create a shared cq
-    shared_cq = ibv_create_cq(rdma_monitor_context.ib_ctx, QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
+    shared_recv_cq = ibv_create_cq(rdma_monitor_context.ib_ctx, QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
 
-    if (shared_cq == nullptr)
+    if (shared_recv_cq == nullptr)
         FATAL("Failed to create a shared CQ");
 
     create_rdma_socket();
@@ -114,8 +115,13 @@ bool try_new_rdma()
     remote_process_t peer_qp;
     peer_qp.qid=my_qpinfo.qid;
     uint32_t proc_idx=rdma_processes.add(peer_qp);
-
-    rdma_processes[proc_idx].myqp = rdma_create_qp(shared_cq, &rdma_monitor_context);
+    //create a shared cq
+    rdma_processes[proc_idx].send_cq = ibv_create_cq(rdma_monitor_context.ib_ctx,
+            QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
+    if (rdma_processes[proc_idx].send_cq == nullptr)
+        FATAL("Failed to create send CQ.");
+    rdma_processes[proc_idx].myqp = rdma_create_qp(rdma_processes[proc_idx].send_cq,
+            shared_recv_cq, &rdma_monitor_context);
 
     my_qpinfo.qpn = rdma_processes[proc_idx].myqp->qp_num;
     my_qpinfo.RoCE_gid = rdma_monitor_context.RoCE_gid;
@@ -162,7 +168,7 @@ bool try_new_rdma()
     rdma_processes[proc_idx].metaqueue.init_memlayout((uint8_t *)my_qpinfo.remote_buf_addr,0);
     rdma_processes[proc_idx].metaqueue.mem_init();
     rdma_processes[proc_idx].metaqueue.initRDMA(rdma_processes[proc_idx].myqp,
-                                                shared_cq,
+                                                rdma_processes[proc_idx].send_cq,
                                                 rdma_monitor_context.buf_mr->lkey,
                                                 rdma_processes[proc_idx].rkey,
                                                 rdma_processes[proc_idx].remote_buf_ptr,
@@ -192,10 +198,9 @@ bool try_new_rdma()
 #if DEBUGON == 1
     test_rdma_recv(proc_idx);
 #endif
+
+    process_add_rdma(&rdma_processes[proc_idx].metaqueue, proc_idx);
     return true;
-
-
-
 
 }
 

@@ -22,14 +22,18 @@ extern "C" {
 
 struct process_sturc
 {
+    bool isRDMA;
     pid_t pid,tid;
     key_t uniq_shmem_id;
     uint64_t token;
     metaqueue_t metaqueue; //0: process send to monitor 1: monitor sent to process
+    uint64_t glb_ref;
 };
 #define MAX_PROCESS_NUM 1024
 
 extern std::tuple<key_t, uint64_t> process_add(pid_t pid, pid_t tid);
+
+extern void process_add_rdma(const metaqueue_t * metaqueue, int rdma_proc_idx);
 
 extern void process_init();
 

@@ -19,7 +19,6 @@ typedef struct
 {
     key_t buffer_key;
     int loc;
-    std::vector<key_t> buffer_key_vec;
 } interprocess_buf_map_t;
 typedef std::unordered_map<int, interprocess_buf_map_t> per_proc_map_t;
 typedef std::unordered_map<int, per_proc_map_t> interprocess_buf_hashtable_t;
