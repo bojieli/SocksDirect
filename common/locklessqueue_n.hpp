@@ -126,6 +126,7 @@ public:
         return true;
     }
 
+
     inline void push(const T &data)
     {
         while (!push_nb(data));
@@ -207,7 +208,7 @@ public:
                     credits = 0;
 
                     //RDMA? Push flag to sender side
-                    if(isRDMA) 
+                    if(isRDMA)
                     {
                         post_rdma_write(return_flag,
                                         rdma_remote_baseaddr + ((uint8_t *) return_flag - (uint8_t *) ringbuffer),

@@ -29,6 +29,7 @@ std::tuple<key_t, uint64_t> process_add(pid_t pid, pid_t tid)
     int id=process.add(curr_proc);
     curr_proc.tid = tid;
     curr_proc.pid = pid;
+    curr_proc.isRDMA=false;
     curr_proc.token = (uint64_t)rand();
     if ((curr_proc.uniq_shmem_id = ftok(SHM_NAME, id + 2)) < 0)
         FATAL("Failed to get the key of shared memory, errno: %d", errno);
@@ -45,6 +46,15 @@ std::tuple<key_t, uint64_t> process_add(pid_t pid, pid_t tid)
     process[id]=curr_proc;
     tidmap[tid] = id;
     return std::make_tuple(ret_val, curr_proc.token);
+}
+
+void process_add_rdma(const metaqueue_t * metaqueue, int rdma_proc_idx)
+{
+    process_sturc curr_proc;
+    curr_proc.metaqueue = *metaqueue;
+    curr_proc.isRDMA = true;
+    curr_proc.glb_ref = (uint64_t)(1<<64) + rdma_proc_idx;
+    int id=process.add(curr_proc);
 }
 
 metaqueue_t * process_gethandler_byqid(int qid)
@@ -76,6 +86,9 @@ void process_chk_remove()
     char dirstr[100];
     for (int i=process_iterator_init();i!=-1;i=process_iterator_next(i))
     {
+        //If RDMA, I cannot check
+        //TODO: RDMA dead check
+        if (process[i].isRDMA) continue;
         sprintf(dirstr, basestr, process[i].pid, process[i].tid);
         struct stat sb;
         if (!(stat(dirstr, &sb) == 0 && S_ISDIR(sb.st_mode)))

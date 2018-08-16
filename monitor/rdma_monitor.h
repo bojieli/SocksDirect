@@ -14,6 +14,7 @@
 struct remote_process_t
 {
     ibv_qp* myqp;
+    ibv_cq* send_cq;
     uint32_t rkey;
     intptr_t remote_buf_ptr;
     int32_t qid;

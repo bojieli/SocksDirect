@@ -100,6 +100,8 @@ static void event_processer(metaqueue_t *q, int qid)
             recv_takeover_handler(&req_body, qid);
             break;
         case REQ_NOP:
+            printf("%x\n", *((int *)&req_body.raw));
+            break;
         default:
             break;
     }

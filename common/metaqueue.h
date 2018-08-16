@@ -57,12 +57,15 @@ typedef struct __attribute__((packed))
     int peer_fd;
 } command_relay_recv_t;
 
+
+//This struct response to the father process
 typedef struct __attribute__((packed))
 {
     key_t oldshmemkey;
     key_t newshmemkey;
 } resp_fork_t;
 
+//This response to the peer of fork
 typedef struct __attribute__((packed))
 {
     key_t oldshmemkey;
@@ -125,9 +128,13 @@ public:
         remote_mem_addr += q_emergency[loc].getmemsize();
         q_emergency[1-loc].initRDMA(_qp, _cq, _lkey, _rkey, remote_mem_addr);
 
-
     }
 
+    /* This func need to be used with special caution because may lead to deadlock*/
+    void push_longmsg(size_t len, void* addr)
+    {
+
+    }
 };
 
 #endif //IPC_DIRECT_METAQUEUE_H

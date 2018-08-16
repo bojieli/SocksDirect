@@ -52,8 +52,7 @@ key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc)
     interprocess_buf_idx[tid_to][tid_from].buffer_key = shm_key;
 
     interprocess_key2tid[shm_key] = std::make_pair(tid_from, tid_to);
-    interprocess_buf_idx[tid_from][tid_to].buffer_key_vec.push_back(shm_key);
-    interprocess_buf_idx[tid_to][tid_from].buffer_key_vec.push_back(shm_key);
+
 
     return shm_key;
 };

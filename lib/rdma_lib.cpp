@@ -105,7 +105,7 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         }
 
         //Now try to Create QP
-        metaqueue.qp = rdma_create_qp(rdma_lib_private_info.shared_cq,&rdma_lib_context);
+        metaqueue.qp = rdma_create_qp(rdma_lib_private_info.shared_cq,rdma_lib_private_info.shared_cq,&rdma_lib_context);
 
         //Now exchange QP info
 
@@ -196,7 +196,7 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         }
 #endif
     }
-    return nullptr;
+    return &remote_monitor[remote_addr.s_addr];
 }
 
 #undef DEBUGON

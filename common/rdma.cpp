@@ -87,12 +87,12 @@ void enum_dev(rdma_pack *p)
     FATAL("Failed to enumerate device");
 }
 
-ibv_qp * rdma_create_qp(ibv_cq* cq, const rdma_pack * rdma_context)
+ibv_qp * rdma_create_qp(ibv_cq* send_cq, ibv_cq *recv_cq, const rdma_pack * rdma_context)
 {
     ibv_qp_init_attr myqp_attr;
     memset(&myqp_attr, 0, sizeof(struct ibv_qp_init_attr));
-    myqp_attr.send_cq = cq;
-    myqp_attr.recv_cq = cq;
+    myqp_attr.send_cq = send_cq;
+    myqp_attr.recv_cq = recv_cq;
     myqp_attr.qp_type = IBV_QPT_RC;
     myqp_attr.cap.max_send_wr = QPSQDepth;
     myqp_attr.cap.max_recv_wr = QPRQDepth;
