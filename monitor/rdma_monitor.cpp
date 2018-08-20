@@ -65,7 +65,7 @@ void rdma_init()
     if (rdma_monitor_context.buf_mr == nullptr)
         FATAL("Failed to reg MR for RDMA");
 
-    //create a shared cq
+    //create a shared send_cq
     shared_recv_cq = ibv_create_cq(rdma_monitor_context.ib_ctx, QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
 
     if (shared_recv_cq == nullptr)
@@ -115,7 +115,7 @@ bool try_new_rdma()
     remote_process_t peer_qp;
     peer_qp.qid=my_qpinfo.qid;
     uint32_t proc_idx=rdma_processes.add(peer_qp);
-    //create a shared cq
+    //create a shared send_cq
     rdma_processes[proc_idx].send_cq = ibv_create_cq(rdma_monitor_context.ib_ctx,
             QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
     if (rdma_processes[proc_idx].send_cq == nullptr)

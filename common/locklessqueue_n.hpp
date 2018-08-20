@@ -250,11 +250,6 @@ public:
         return (sizeof(element_t) * SIZE) + return_flag_size;
     }
 
-    inline void * __get_addr()
-    {
-        return (void*)&ringbuffer[(pointer-1) & MASK];
-    }
-
 
 
 };
