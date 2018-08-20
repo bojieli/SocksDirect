@@ -7,6 +7,7 @@
 #include "../common/darray.hpp"
 #include "rdma_lib.h"
 #ifdef __cplusplus
+#include <utility>
 extern "C"
 {
 #endif
@@ -66,6 +67,8 @@ void usocket_init();
 extern pthread_key_t pthread_sock_key;
 const int BUFFERNUM = 100;
 
+
+
 class thread_sock_data_t
 {
 public:
@@ -81,7 +84,7 @@ public:
         int loc;
         key_t shmemkey;
         bool isRDMA;
-        qp_info_t qpdata;
+        rdma_peer_t rdma_info;
         int rdma_buf_idx;
         buffer_t() : isvalid(false), isRDMA(false)
         {}
@@ -93,6 +96,8 @@ public:
     int isexist(key_t key);
 
     int newbuffer(key_t key, int loc);
+    std::pair<int, rdma_self_pack_t *>  newbuffer_rdma(key_t key, int loc);
+
 };
 void monitor2proc_hook();
 

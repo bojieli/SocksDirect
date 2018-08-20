@@ -28,7 +28,8 @@ struct rdma_lib_private_info_t
 
 } rdma_lib_private_info;
 static rdma_pack rdma_lib_context;
-static int rdma_buffer_seq=0;
+static int rdma_metaqueue_buffer_seq=0;
+static int rdma_interprocess_seq=0;
 
 void rdma_init()
 {
@@ -67,7 +68,7 @@ void rdma_init()
 
 
 
-    //create a shared cq
+    //create a shared send_cq
     rdma_lib_private_info.shared_cq = ibv_create_cq(rdma_lib_context.ib_ctx, QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
 
     if (rdma_lib_private_info.shared_cq == nullptr)
@@ -75,6 +76,30 @@ void rdma_init()
 
 
     DEBUG("RDMA Init finished!");
+}
+
+rdma_self_pack_t * lib_new_qp()
+{
+    rdma_self_pack_t * ret = new rdma_self_pack_t;
+    //Create a CQ for sender part
+    ret->send_cq = ibv_create_cq(rdma_lib_context.ib_ctx, QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
+    ret->recv_cq = rdma_lib_private_info.shared_cq;
+    ret->qp = rdma_create_qp(ret->send_cq, ret->recv_cq, &rdma_lib_context);
+    ret->rkey = rdma_lib_context.buf_mr->rkey;
+    ret->localptr = (uint64_t) ((uint8_t *)rdma_lib_private_info.local_interprocess_base_addr +
+            interprocess_t::get_sharedmem_size() * rdma_interprocess_seq);
+    ++rdma_interprocess_seq;
+    ret->qpn = ret->qp->qp_num;
+    ret->RoCE_gid = rdma_lib_context.RoCE_gid;
+    ret->rkey = rdma_lib_context.buf_mr->rkey;
+    ret->buf_size =  interprocess_t::get_sharedmem_size();
+    ret->port_lid = rdma_lib_context.port_lid;
+    return ret;
+}
+
+rdma_pack *rdma_get_pack()
+{
+    return &rdma_lib_context;
 }
 
 rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
@@ -119,11 +144,11 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         my_qpinfo.RoCE_gid = rdma_lib_context.RoCE_gid;
         my_qpinfo.rkey = rdma_lib_context.buf_mr->rkey;
         my_qpinfo.remote_buf_addr = rdma_lib_private_info.local_metaqueue_base_addr +
-                rdma_buffer_seq * metaqueue_t::get_sharememsize();
+                rdma_metaqueue_buffer_seq * metaqueue_t::get_sharememsize();
         my_qpinfo.buf_size =  metaqueue_t::get_sharememsize();
         my_qpinfo.port_lid = rdma_lib_context.port_lid;
 
-        rdma_buffer_seq++;
+        rdma_metaqueue_buffer_seq++;
 
         ssize_t left_byte=sizeof(qp_info_t);
         int currptr=0;

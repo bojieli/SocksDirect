@@ -10,11 +10,13 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cstdarg>
+#include <utility>
 #include "lib_internal.h"
 #include "../common/metaqueue.h"
 #include <sys/ioctl.h>
 #include "fork.h"
 #include "rdma_lib.h"
+#include "../common/rdma_struct.h"
 
 pthread_key_t pthread_sock_key;
 #undef DEBUGON
@@ -417,6 +419,31 @@ int thread_sock_data_t::newbuffer(key_t key, int loc)
 }
 
 
+std::pair<int, rdma_self_pack_t *>  thread_sock_data_t::newbuffer_rdma(key_t key, int loc)
+{
+    buffer[lowest_available].loc = loc;
+    buffer[lowest_available].isvalid = true;
+    buffer[lowest_available].shmemkey = key;
+    buffer[lowest_available].isRDMA = true;
+    (*bufferhash)[key]=lowest_available;
+    ++total_num;
+    if (total_num == BUFFERNUM)
+        FATAL("Dynamic allocation not implemented!");
+
+    //Init RDMA QP
+    rdma_self_pack_t * rdma_self_qp  = lib_new_qp();
+    buffer[lowest_available].rdma_info.rkey = rdma_self_qp->rkey;
+    buffer[lowest_available].rdma_info.myqp = rdma_self_qp->qp;
+    buffer[lowest_available].rdma_info.remote_buf_ptr = rdma_self_qp->localptr;
+    buffer[lowest_available].rdma_info.send_cq = rdma_self_qp->send_cq;
+    buffer[lowest_available].rdma_info.qid = -1;
+    int ret = lowest_available;
+    ++lowest_available;
+    return std::make_pair(ret, rdma_self_qp);
+}
+
+
+
 void usocket_init()
 {
     thread_data_t *data;
@@ -529,7 +556,7 @@ int close(int fildes)
 }
 
 #define DEBUGON 1
-int connect_with_rdma_stub(int socket, struct in_addr remote_addr)
+metaqueue_t * connect_with_rdma_stub(int socket, struct in_addr remote_addr)
 {
     /*
      * In this stub, it needs do several things:
@@ -541,7 +568,7 @@ int connect_with_rdma_stub(int socket, struct in_addr remote_addr)
      */
     rdma_metaqueue * q2monitor = rdma_try_connect_remote_monitor(remote_addr);
     DEBUG("RDMA Connection to monitor Finished!");
-    return 0;
+    return &(q2monitor->queue);
 }
 
 #undef DEBUGON
@@ -556,14 +583,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     inet_ntop(AF_INET, ((void *) &((struct sockaddr_in *) address)->sin_addr), addr_str, address_len);
     if (address->sa_family != AF_INET)
         FATAL("Only support TCP connection");
-    if (strcmp(addr_str, "127.0.0.1") != 0)
-    {
-        struct in_addr remote_addr_int;
-        if (!inet_aton(addr_str, &remote_addr_int))
-            FATAL("Invalid remote addr");
-        connect_with_rdma_stub(socket, remote_addr_int);
-        FATAL("not support unlocal address");
-    }
+
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (!data->fds_datawithrd.is_keyvalid(socket))
@@ -574,6 +594,20 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     if (data->fds_datawithrd[socket].property.tcp.isopened) close(socket);
     data->fds_datawithrd[socket].type = USOCKET_TCP_CONNECT;
     data->fds_datawithrd[socket].property.tcp.isopened=true;
+
+    metaqueue_t *q2monitor;
+    bool isRDMA(false);
+    if (strcmp(addr_str, "127.0.0.1") != 0)
+    {
+        struct in_addr remote_addr_int;
+        if (!inet_aton(addr_str, &remote_addr_int))
+            FATAL("Invalid remote addr");
+        q2monitor = connect_with_rdma_stub(socket, remote_addr_int);
+        isRDMA = true;
+        //FATAL("not support unlocal address");
+    } else
+        q2monitor = &(data->metaqueue);
+
     unsigned short port;
     port = ntohs(((struct sockaddr_in *) address)->sin_port);
 
@@ -582,7 +616,9 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     req_data.command = REQ_CONNECT;
     req_data.req_connect.fd = socket;
     req_data.req_connect.port = port;
-    data->metaqueue.q[0].push(req_data);
+    req_data.req_connect.isRDMA = isRDMA;
+
+    q2monitor->q[0].push(req_data);
     while (!data->metaqueue.q[1].pop_nb(res_data));
     if (res_data.command != RES_SUCCESS)
         return -1;
@@ -603,20 +639,43 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     //if a connection between two process already exists, no new buffer is needed
     if ((idx = thread_buf->isexist(key)) != -1)
         peer_fd_rd.buffer_idx = idx;
-    else
-        idx = peer_fd_rd.buffer_idx = thread_buf->newbuffer(key, loc);
+    else {
+        if (!isRDMA)
+            idx = peer_fd_rd.buffer_idx = thread_buf->newbuffer(key, loc);
+        else
+        {
+            rdma_self_pack_t* rdma_self_qpinfo;
+            //TODO:Do the negotiation
+            std::tie(idx, rdma_self_qpinfo) =  thread_buf->newbuffer_rdma(key, loc);
+            peer_fd_rd.buffer_idx = idx;
+            metaqueue_long_msg_rdmainfo_t rdmainfo;
+            rdmainfo.shm_key = key;
+            rdma_pack * rdma_lib_pack;
+            rdmainfo.qpinfo.RoCE_gid = rdma_lib_pack->RoCE_gid;
+            rdmainfo.qpinfo.qpn = rdma_self_qpinfo->qpn;
+            rdmainfo.qpinfo.qid = -1;
+            rdmainfo.qpinfo.rkey = rdma_self_qpinfo->rkey;
+            rdmainfo.qpinfo.remote_buf_addr = rdma_self_qpinfo->localptr;
+            rdmainfo.qpinfo.port_lid = rdma_lib_pack->port_lid;
+            rdmainfo.qpinfo.buf_size = rdma_self_qpinfo->buf_size;
+            q2monitor->push_longmsg(sizeof(metaqueue_long_msg_rdmainfo_t), (void *)&rdmainfo, RDMA_QP_INFO);
+
+        }
+    }
     auto peerfd_iter = data->fds_datawithrd.add_element(socket, peer_fd_rd);
     fd_wr_list_t peer_fd_wr;
     peer_fd_wr.status = 0;
     peer_fd_wr.buffer_idx = peer_fd_rd.buffer_idx;
     auto wr_iter = data->fds_wr.add_element(socket, peer_fd_wr);
+    data->fds_wr.set_ptr_to(socket, wr_iter);
+
 
     //wait for ACK from peer
     interprocess_t *buffer;
     interprocess_t::queue_t::element element;
     buffer = &thread_buf->buffer[idx].data;
-    (*buffer->sender_turn[0])[socket] = true;
-    data->fds_wr.set_ptr_to(socket, wr_iter);
+    if (!isRDMA)
+        (*buffer->sender_turn[0])[socket] = true;
     bool isFind = false;
     while (true)
     {
