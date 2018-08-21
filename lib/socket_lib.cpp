@@ -554,7 +554,7 @@ int close(int fildes)
     data->fds_wr.del_key(fildes);
     return 0;
 }
-
+#undef DEBUGON
 #define DEBUGON 1
 metaqueue_t * connect_with_rdma_stub(int socket, struct in_addr remote_addr)
 {
@@ -619,7 +619,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     req_data.req_connect.isRDMA = isRDMA;
 
     q2monitor->q[0].push(req_data);
-    while (!data->metaqueue.q[1].pop_nb(res_data));
+    while (!q2monitor->q[1].pop_nb(res_data));
     if (res_data.command != RES_SUCCESS)
         return -1;
     //printf("%d\n", res_data.data.sock_connect_res.shm_key);
@@ -651,6 +651,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             metaqueue_long_msg_rdmainfo_t rdmainfo;
             rdmainfo.shm_key = key;
             rdma_pack * rdma_lib_pack;
+            rdma_lib_pack = rdma_get_pack();
             rdmainfo.qpinfo.RoCE_gid = rdma_lib_pack->RoCE_gid;
             rdmainfo.qpinfo.qpn = rdma_self_qpinfo->qpn;
             rdmainfo.qpinfo.qid = -1;
@@ -659,6 +660,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             rdmainfo.qpinfo.port_lid = rdma_lib_pack->port_lid;
             rdmainfo.qpinfo.buf_size = rdma_self_qpinfo->buf_size;
             q2monitor->push_longmsg(sizeof(metaqueue_long_msg_rdmainfo_t), (void *)&rdmainfo, RDMA_QP_INFO);
+            delete rdma_self_qpinfo;
 
         }
     }
@@ -719,6 +721,11 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     while (!data->metaqueue.q[1].pop_nb(element));
     if (element.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
+    if (element.resp_connect.isRDMA)
+    {
+        errno = EBADF;
+        return -1;
+    }
     if (!data->fds_datawithrd.is_keyvalid(sockfd) || data->fds_datawithrd[sockfd].type != USOCKET_TCP_LISTEN)
     {
         errno = EBADF;

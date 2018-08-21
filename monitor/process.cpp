@@ -14,6 +14,7 @@
 #include <unordered_map>
 #include <cstdlib>
 #include "sock_monitor.h"
+#include "../lib/rdma_lib.h"
 
 static darray_t<process_sturc, MAX_PROCESS_NUM> process;
 static std::unordered_map<pid_t, int> tidmap;
@@ -197,5 +198,33 @@ void recv_takeover_handler(metaqueue_ctl_element *req_body, int qid)
     process[dest_qid].metaqueue.q_emergency[0].push(*req_body);
 }
 
+void long_msg_handler(metaqueue_ctl_element * req_body, int qid)
+{
+    int len=req_body->long_msg_head.len;
+    int subcommand = req_body->long_msg_head.subcommand;
+    if (subcommand != RDMA_QP_INFO)
+        FATAL("Invalid subcommand");
+    metaqueue_t * req_metaqueue(nullptr), * res_metaqueue(nullptr);
+    req_metaqueue = &process[qid].metaqueue;
+    metaqueue_long_msg_rdmainfo_t* rdma_send_info_ptr =  (metaqueue_long_msg_rdmainfo_t *)req_metaqueue->pop_longmsg(len);
+    int key = rdma_send_info_ptr->shm_key;
+    //We need to find which process is map to the key
+    if (rdma_key2qid.find(key) == rdma_key2qid.end())
+        FATAL("Failed to find the shm key");
+    int qid1,qid2, peerqid;
+    std::tie(qid1, qid2) = rdma_key2qid[key];
+    if (process[qid].isRDMA)
+                peerqid = qid1;
+    else
+        peerqid = qid2;
+
+    if (peerqid == qid)
+        FATAL("Failed to find peer qid");
+    //Find the metaqueue of the peerqid
+    res_metaqueue = &process[peerqid].metaqueue;
+    res_metaqueue->push_longmsg(len,rdma_send_info_ptr, RDMA_QP_INFO);
+    DEBUG("Monitor relay QPinfo finished!");
+    free(rdma_send_info_ptr);
+}
 
 #undef DEBUGON
