@@ -101,7 +101,8 @@ rdma_pack *rdma_get_pack()
 {
     return &rdma_lib_context;
 }
-
+#undef DEBUGON
+#define DEBUGON 0
 rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
 {
     //First check whether existing connection exist to the remote monitor

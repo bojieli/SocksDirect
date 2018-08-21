@@ -163,6 +163,7 @@ public:
             memcpy((void *)ele.raw,curr_ptr, this_len);
             while (!q[0].push_nb(ele));
             len_left -= this_len;
+            curr_ptr += this_len;
         }
     }
     /*We assume head already been poped
@@ -182,9 +183,11 @@ public:
             if (ele.command != LONG_MSG)
                 FATAL("Pop long msg failed, invalid type.");
             size_t this_len = len_left>13?13:len_left;
-            len_left -= this_len;
             memcpy(currptr, (void*)ele.raw,this_len);
+            len_left -= this_len;
+            currptr += this_len;
         }
+        return addr;
     }
 };
 

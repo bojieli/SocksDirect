@@ -33,6 +33,8 @@ extern std::unordered_map<key_t, std::pair<int, int>> interprocess_key2tid;
 //Map (qid, rdmaqid)->shmem
 typedef std::unordered_map <uint64_t, interprocess_buf_map_t> rdma_l1_hash_t;
 typedef std::unordered_map <uint64_t , rdma_l1_hash_t> rdma_l2_hash_t;
+extern std::unordered_map<key_t, std::pair<int, int>> rdma_key2qid;
+
 
 
 #ifdef __cplusplus

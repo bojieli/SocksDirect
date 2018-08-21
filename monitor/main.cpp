@@ -64,6 +64,7 @@ static void ping_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element 
     (*res_body).test_payload = ~req_body->test_payload;
 }
 
+
 inline
 static void event_processer(metaqueue_t *q, int qid)
 {
@@ -100,7 +101,10 @@ static void event_processer(metaqueue_t *q, int qid)
             recv_takeover_handler(&req_body, qid);
             break;
         case REQ_NOP:
-            printf("%x\n", *((int *)&req_body.raw));
+            //printf("%x\n", *((int *)&req_body.raw));
+            break;
+        case LONG_MSG_HEAD:
+            long_msg_handler(&req_body, qid);
             break;
         default:
             break;

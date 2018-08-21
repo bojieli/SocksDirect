@@ -22,6 +22,8 @@ static interprocess_buf_hashtable_t interprocess_buf_idx;
 static adjlist<monitor_sock_node_t, 65536, monitor_sock_adjlist_t, 1000> ports;
 static int current_q_counter = 0;
 std::unordered_map<key_t, std::pair<int, int>> interprocess_key2tid;
+std::unordered_map<key_t, std::pair<int, int>> rdma_key2qid;
+
 
 static rdma_l2_hash_t rdma_id2key;
 
@@ -67,6 +69,9 @@ key_t buffer_new_rdma(uint64_t qid, uint64_t rdmaqid, int loc)
 
     rdma_id2key[qid][rdmaqid].loc = loc;
     rdma_id2key[qid][rdmaqid].buffer_key = shm_key;
+
+    rdma_key2qid[shm_key] = std::make_pair(qid, rdmaqid);
+
     return shm_key;
 }
 
