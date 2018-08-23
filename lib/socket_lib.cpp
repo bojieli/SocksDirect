@@ -660,7 +660,17 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             rdmainfo.qpinfo.port_lid = rdma_lib_pack->port_lid;
             rdmainfo.qpinfo.buf_size = rdma_self_qpinfo->buf_size;
             q2monitor->push_longmsg(sizeof(metaqueue_long_msg_rdmainfo_t), (void *)&rdmainfo, RDMA_QP_INFO);
-            delete rdma_self_qpinfo;
+
+            //Try to get the QP info from the monitor
+            metaqueue_ctl_element element;
+            while (!q2monitor->q[1].pop_nb(element));
+            if (element.command != LONG_MSG_HEAD || element.long_msg_head.subcommand != RDMA_QP_INFO)
+                FATAL("Invalid RDMA info");
+            metaqueue_long_msg_rdmainfo_t *peer_rdmainfo;
+            peer_rdmainfo = (metaqueue_long_msg_rdmainfo_t *)q2monitor->pop_longmsg(element.long_msg_head.len);
+
+            printf("Connect Finished\n");
+            while (1);
 
         }
     }
@@ -708,6 +718,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     return 0;
 }
 
+
 int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     if (sockfd < FD_DELIMITER) return ORIG(accept4, (sockfd, addr, addrlen, flags));
@@ -721,11 +732,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     while (!data->metaqueue.q[1].pop_nb(element));
     if (element.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
-    if (element.resp_connect.isRDMA)
-    {
-        errno = EBADF;
-        return -1;
-    }
+
     if (!data->fds_datawithrd.is_keyvalid(sockfd) || data->fds_datawithrd[sockfd].type != USOCKET_TCP_LISTEN)
     {
         errno = EBADF;
@@ -736,6 +743,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     key_t key = element.resp_connect.shm_key;
     int loc = element.resp_connect.loc;
     auto peer_fd = element.resp_connect.fd;
+    bool isRDMA = element.resp_connect.isRDMA;
     DEBUG("Accept new connection, key %d, loc %d", key, loc);
     file_struc_rd_t nfd_rd;
     fd_rd_list_t npeerfd_rd;
@@ -752,7 +760,42 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     if ((idx = sock_data->isexist(key)) != -1)
         npeerfd_rd.buffer_idx = idx;
     else
-        idx = npeerfd_rd.buffer_idx = sock_data->newbuffer(key, loc);
+    {
+        if (!isRDMA)
+            idx = npeerfd_rd.buffer_idx = sock_data->newbuffer(key, loc);
+        else
+        {
+            //It is the RDMA connection, create a RDMA buffer, get the peer QP info, connect QP, reply ACK
+            rdma_self_pack_t* rdma_self_qpinfo;
+            //TODO:Do the negotiation
+            std::tie(idx, rdma_self_qpinfo) =  sock_data->newbuffer_rdma(key, loc);
+            //The next thing we need to do is to connect the QP
+            while (!data->metaqueue.q[1].pop_nb(element));
+            if (element.command != LONG_MSG_HEAD || element.long_msg_head.subcommand != RDMA_QP_INFO)
+                FATAL("Invalid RDMA info");
+            metaqueue_long_msg_rdmainfo_t *peer_rdmainfo;
+            peer_rdmainfo = (metaqueue_long_msg_rdmainfo_t *)data->metaqueue.pop_longmsg(element.long_msg_head.len);
+            rdma_connect_remote_qp(rdma_self_qpinfo->qp, rdma_get_pack(), &(peer_rdmainfo->qpinfo));
+            //The next thing we should do is to send my QPinfo to the peer
+            memset(peer_rdmainfo, 0, sizeof(metaqueue_long_msg_rdmainfo_t));
+            peer_rdmainfo->shm_key = key;
+            peer_rdmainfo->qpinfo.rkey = rdma_self_qpinfo->rkey;
+            peer_rdmainfo->qpinfo.remote_buf_addr = rdma_self_qpinfo->localptr;
+            peer_rdmainfo->qpinfo.port_lid = rdma_self_qpinfo->port_lid;
+            peer_rdmainfo->qpinfo.buf_size = rdma_self_qpinfo->buf_size;
+            peer_rdmainfo->qpinfo.qpn = rdma_self_qpinfo->qpn;
+            peer_rdmainfo->qpinfo.qid = -1;
+            peer_rdmainfo->qpinfo.RoCE_gid = rdma_self_qpinfo->RoCE_gid;
+            data->metaqueue.push_longmsg(sizeof(metaqueue_long_msg_rdmainfo_t), (void*)peer_rdmainfo, RDMA_QP_INFO);
+            free((void*)peer_rdmainfo);
+            npeerfd_rd.buffer_idx = idx;
+
+            //Wait for the ACK for the peer
+            printf("Ack required\n");
+            while (1);
+        }
+
+    }
     npeerfd_rd.child[0] = npeerfd_rd.child[1] = -1;
     npeerfd_rd.status = 0;
     data->fds_datawithrd.add_element(idx_nfd, npeerfd_rd);
@@ -765,7 +808,11 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 
 
     interprocess_t *buffer = &sock_data->buffer[idx].data;
-    (*buffer->sender_turn[0])[idx_nfd] = true;
+    if (!isRDMA)
+    {
+        //If it is not RDMA, change RDMA pointer
+        (*buffer->sender_turn[0])[idx_nfd] = true;
+    }
     data->fds_wr.set_ptr_to(idx_nfd, iter_wr);
     interprocess_t::queue_t::element inter_element;
     inter_element.command = interprocess_t::cmd::NEW_FD;

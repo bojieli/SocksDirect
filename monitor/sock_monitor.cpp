@@ -179,7 +179,7 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
     res_to_listener.resp_connect.loc = !loc;
     res_to_listener.resp_connect.fd = req_body->req_connect.fd;
     res_to_listener.resp_connect.port = port;
-    res_to_listener.req_connect.isRDMA = isRDMA;
+    res_to_listener.resp_connect.isRDMA = isRDMA;
 
     metaqueue_t * q2listener = process_gethandler_byqid(peer_qid);
     q2listener->q[0].push(res_to_listener);
