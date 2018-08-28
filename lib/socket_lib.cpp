@@ -143,8 +143,10 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
     if (snd_clk_curr_iter->status & FD_STATUS_Q_ISOLATED)
     {
         DEBUG("The Q of current clk ptr has been isolated. polled by sender");
-        auto polling_q_ptr = &(thread_sock_data->buffer[snd_clk_curr_iter->buffer_idx].data.q[0]);
-        auto polling_buffer_ptr = &(thread_sock_data->buffer[snd_clk_curr_iter->buffer_idx].data.b[0]);
+        auto polling_q_ptr = &(dynamic_cast<interprocess_local_t *>
+        (thread_sock_data->buffer[snd_clk_curr_iter->buffer_idx].data)->q[0]);
+        auto polling_buffer_ptr = &(dynamic_cast<interprocess_local_t *>
+        (thread_sock_data->buffer[snd_clk_curr_iter->buffer_idx].data)->b[0]);
         unsigned int q_mask = polling_q_ptr->MASK;
         unsigned int q_ptr = polling_q_ptr->pointer;
         unsigned int old_q_ptr = q_ptr;
@@ -186,9 +188,11 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
                         int req_size = sizeof(interprocess_t::buffer_t::element::data);
                         blk_ptr = polling_buffer_ptr->popdata_nomemrelease(blk_ptr, req_size, tmp_data_buffer);
                         //push one block of data
-                        auto push_data_buffer_ptr = &(thread_sock_data->buffer[req_iter->buffer_idx].data.b[0]);
+                        auto push_data_buffer_ptr = &(dynamic_cast<interprocess_local_t *>
+                        (thread_sock_data->buffer[req_iter->buffer_idx].data)->b[0]);
                         int write_ptr = push_data_buffer_ptr->pushdata(tmp_data_buffer, req_size);
-                        auto push_data_metadata_q_ptr = &(thread_sock_data->buffer[req_iter->buffer_idx].data.q[0]);
+                        auto push_data_metadata_q_ptr = &(dynamic_cast<interprocess_local_t *>
+                        (thread_sock_data->buffer[req_iter->buffer_idx].data)->q[0]);
                         interprocess_t::queue_t::element push_data_metadata;
                         push_data_metadata.command = interprocess_t::cmd::DATA_TRANSFER;
                         push_data_metadata.data_fd_rw.fd = receiver_fd;
@@ -200,7 +204,8 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
                 }
                 else
                 {
-                    auto push_data_metadata_q_ptr = &(thread_sock_data->buffer[req_iter->buffer_idx].data.q[0]);
+                    auto push_data_metadata_q_ptr = &(dynamic_cast<interprocess_local_t *>(
+                            thread_sock_data->buffer[req_iter->buffer_idx].data)->q[0]);
                     push_data_metadata_q_ptr->push(tmp);
                 }
                 polling_q_ptr->del(q_ptr);
@@ -218,9 +223,11 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
     }
 
     SW_BARRIER;
-    (*(thread_sock_data->buffer[snd_clk_curr_iter->buffer_idx].data.sender_turn[0]))[myfd] = false;
+    (*(dynamic_cast<interprocess_local_t *>(thread_sock_data->buffer[snd_clk_curr_iter->buffer_idx].data)->
+            sender_turn[0]))[myfd] = false;
     SW_BARRIER;
-    (*(thread_sock_data->buffer[req_iter->buffer_idx].data.sender_turn[0]))[myfd] = true;
+    (*(dynamic_cast<interprocess_local_t *>(thread_sock_data->buffer[req_iter->buffer_idx].data)
+            ->sender_turn[0]))[myfd] = true;
     SW_BARRIER;
     thread_data->fds_wr.set_ptr_to(myfd, req_iter);
     SW_BARRIER;
@@ -406,7 +413,8 @@ int thread_sock_data_t::newbuffer(key_t key, int loc)
 {
     buffer[lowest_available].loc = loc;
     buffer[lowest_available].isvalid = true;
-    buffer[lowest_available].data.init(key, loc);
+    buffer[lowest_available].data = new interprocess_local_t;
+    dynamic_cast<interprocess_local_t *>(buffer[lowest_available].data)->init(key, loc);
     buffer[lowest_available].shmemkey = key;
     buffer[lowest_available].isRDMA = false;
     (*bufferhash)[key]=lowest_available;
@@ -530,13 +538,13 @@ int close(int fildes)
         for (auto iter = data->fds_datawithrd.begin(fildes); !iter.end(); )
         {
             fd_rd_list_t peer_adj_item = *iter;
-            interprocess_t *interprocess;
-            interprocess = &sock_data->buffer[peer_adj_item.buffer_idx].data;
+            interprocess_n_t *interprocess;
+            interprocess = sock_data->buffer[peer_adj_item.buffer_idx].data;
             interprocess_t::queue_t::element ele;
             ele.command=interprocess_t::cmd::CLOSE_FD;
             ele.close_fd.req_fd=fildes;
             ele.close_fd.peer_fd=data->fds_datawithrd[fildes].peer_fd;
-            interprocess->q[0].push(ele);
+            interprocess->push_data(ele, 0, nullptr);
             iter = data->fds_datawithrd.del_element(iter);
         }
     }
@@ -645,7 +653,6 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         else
         {
             rdma_self_pack_t* rdma_self_qpinfo;
-            //TODO:Do the negotiation
             std::tie(idx, rdma_self_qpinfo) =  thread_buf->newbuffer_rdma(key, loc);
             peer_fd_rd.buffer_idx = idx;
             metaqueue_long_msg_rdmainfo_t rdmainfo;
@@ -683,11 +690,48 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 
 
     //wait for ACK from peer
-    interprocess_t *buffer;
-    interprocess_t::queue_t::element element;
-    buffer = &thread_buf->buffer[idx].data;
+    interprocess_n_t *buffer;
+    buffer = thread_buf->buffer[idx].data;
     if (!isRDMA)
-        (*buffer->sender_turn[0])[socket] = true;
+        (*(dynamic_cast<interprocess_local_t *>(buffer)->sender_turn[0]))[socket] = true;
+
+    bool isvalid(false), isdel(true);
+    bool isFind(false);
+
+
+
+    do
+    {
+        interprocess_t::queue_t::element ele;
+        auto iter = buffer->begin();
+        while (true) {
+            std::tie(isvalid, isdel) = iter.peek(ele);
+            if (!isvalid) break;
+            if (isdel)
+            {
+                iter = iter.next();
+                continue;
+            }
+            if (ele.command == interprocess_t::cmd::NEW_FD)
+            {
+                data->fds_datawithrd[socket].peer_fd = ele.data_fd_notify.fd;
+                DEBUG("peer fd: %d\n",ele.data_fd_notify.fd);
+                SW_BARRIER;
+                iter.del();
+                isFind = true;
+                break;
+            } else
+            {
+                iter = iter.next();
+                continue;
+            }
+        }
+        iter.destroy();
+    } while (!isFind);
+
+
+    /*
+    interprocess_t::queue_t::element element;
     bool isFind = false;
     while (true)
     {
@@ -714,7 +758,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         }
         if (isFind) break;
         //printf("not found\n");
-    }
+    }*/
     return 0;
 }
 
@@ -767,7 +811,6 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
         {
             //It is the RDMA connection, create a RDMA buffer, get the peer QP info, connect QP, reply ACK
             rdma_self_pack_t* rdma_self_qpinfo;
-            //TODO:Do the negotiation
             std::tie(idx, rdma_self_qpinfo) =  sock_data->newbuffer_rdma(key, loc);
             //The next thing we need to do is to connect the QP
             while (!data->metaqueue.q[1].pop_nb(element));
@@ -807,11 +850,11 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     auto iter_wr = data->fds_wr.add_element(idx_nfd, npeerfd_wr);
 
 
-    interprocess_t *buffer = &sock_data->buffer[idx].data;
+    interprocess_n_t *buffer = sock_data->buffer[idx].data;
     if (!isRDMA)
     {
         //If it is not RDMA, change RDMA pointer
-        (*buffer->sender_turn[0])[idx_nfd] = true;
+        (*dynamic_cast<interprocess_local_t *>(buffer)->sender_turn[0])[idx_nfd] = true;
     }
     data->fds_wr.set_ptr_to(idx_nfd, iter_wr);
     interprocess_t::queue_t::element inter_element;
@@ -819,7 +862,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     inter_element.data_fd_notify.fd = idx_nfd;
     //printf("currfd: %d\n", curr_fd);
     SW_BARRIER;
-    buffer->q[0].push(inter_element);
+    buffer->push_data(inter_element,0, nullptr);
     return MAX_FD_ID - idx_nfd;
 }
 
@@ -873,25 +916,30 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     auto iter = thread_data->fds_wr.begin(fd);
-    interprocess_t *buffer = &thread_sock_data->
+    interprocess_n_t *buffer = thread_sock_data->
             buffer[iter->buffer_idx].data;
     int peer_fd = thread_data->fds_datawithrd[fd].peer_fd;
 
     size_t total_size(0);
     for (int i = 0; i < iovcnt; ++i)
     {
-        short startloc = buffer->b[0].pushdata(reinterpret_cast<uint8_t *>(iov[i].iov_base), iov[i].iov_len);
+        /*short startloc = buffer->b[0].pushdata(reinterpret_cast<uint8_t *>(iov[i].iov_base), iov[i].iov_len);
         if (startloc == -1) {
             errno = ENOMEM;
             return -1;
         }
-        total_size += iov[i].iov_len;
         interprocess_t::queue_t::element ele;
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
         ele.data_fd_rw.fd = peer_fd;
         ele.data_fd_rw.pointer = startloc;
         SW_BARRIER;
-        buffer->q[0].push(ele);
+        buffer->q[0].push(ele);*/
+        interprocess_t::queue_t::element ele;
+        ele.command = interprocess_t::cmd::DATA_TRANSFER;
+        ele.data_fd_rw.fd = peer_fd;
+        buffer->push_data(ele,iov[i].iov_len, reinterpret_cast<uint8_t *>(iov[i].iov_base));
+        total_size += iov[i].iov_len;
+
     }
     return total_size;
 }
@@ -918,7 +966,7 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
     if (iter->child[0] != -1 || iter->child[1] != -1)
     {
         //if it has child
-        if (thread_sock_data->buffer[iter->buffer_idx].data.q[1].isempty())
+        if (dynamic_cast<interprocess_local_t *>(thread_sock_data->buffer[iter->buffer_idx].data)->q[1].isempty())
         {
             //remove itself and add its children
             if (iter->child[0] != -1)
@@ -934,7 +982,8 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
     else
     {
         //check whether clock pointer is point to itself, if not
-        if (!(*(thread_sock_data->buffer[iter->buffer_idx].data.sender_turn[1]))[thread_data->fds_datawithrd[myfd].peer_fd])
+        if (!(*(dynamic_cast<interprocess_local_t *>(thread_sock_data->buffer[iter->buffer_idx].data)
+                ->sender_turn[1]))[thread_data->fds_datawithrd[myfd].peer_fd])
         {
             //send takeover msg to monitor
             metaqueue_ctl_element ele;
@@ -957,17 +1006,19 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         (int target_fd, 
          adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator& iter,
-         int &loc_in_buffer_has_blk, thread_data_t *thread_data, thread_sock_data_t *thread_sock_data)
+         interprocess_n_t::iterator &loc_in_buffer_has_blk,
+         thread_data_t *thread_data, thread_sock_data_t *thread_sock_data)
 {
     
-    interprocess_t *buffer = &(thread_sock_data->buffer[iter->buffer_idx].data);
-    uint8_t pointer = buffer->q[1].tail;
+    interprocess_n_t *buffer = (thread_sock_data->buffer[iter->buffer_idx].data);
+    //uint8_t pointer = buffer->q[1].tail;
+    auto iter_ele = buffer->begin();
     SW_BARRIER;
     while (true)
     {  //for same fd(buffer), iterate each available slot
         interprocess_t::queue_t::element ele;
         bool ele_isvalid, ele_isdel;
-        std::tie(ele_isvalid, ele_isdel) = buffer->q[1].peek(pointer, ele);
+        std::tie(ele_isvalid, ele_isdel) = iter_ele.peek(ele);
         SW_BARRIER;
         if (!ele_isvalid)
             break;
@@ -978,7 +1029,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 if (ele.close_fd.peer_fd == target_fd &&
                     ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
                 {
-                    buffer->q[1].del(pointer);
+                    iter_ele.del();
                     DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
                     
                     iter = thread_data->fds_datawithrd.del_element(iter);
@@ -991,21 +1042,18 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
                 } else {
                     if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
-                        buffer->q[1].del(pointer);
+                        iter_ele.del();
                 }
             }
 
             if (ele.command == interprocess_t::cmd::DATA_TRANSFER &&
                 ele.data_fd_rw.fd == target_fd)
             {
-                loc_in_buffer_has_blk = pointer;
+                loc_in_buffer_has_blk = iter_ele;
                 return ITERATE_FD_IN_BUFFER_STATE::FIND;
             }
         }
-        if (buffer->q[1].tail > pointer)
-            pointer = buffer->q[1].tail;
-        else
-            ++pointer;
+        iter.next();
     }
     iter = recv_empty_hook(iter, target_fd);
     return ITERATE_FD_IN_BUFFER_STATE::NOTFIND;
@@ -1096,17 +1144,17 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     }*/
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    interprocess_t *buffer_has_blk(nullptr);
-    int loc_has_blk(-1);
+    interprocess_n_t *buffer_has_blk(nullptr);
+    interprocess_n_t::iterator loc_has_blk(nullptr);
     bool isFind(false);
     do //if blocking infinate loop
     {
         auto iter = thread_data->fds_datawithrd.begin(sockfd);
         while (true) //iterate different peer fd
         {
-            int ret_loc(-1);
+            interprocess_n_t::iterator ret_loc(nullptr);
             bool isFin(false);
-            interprocess_t *buffer = &(thread_sock_data->buffer[iter->buffer_idx].data);
+            interprocess_n_t * buffer = (thread_sock_data->buffer[iter->buffer_idx].data);
             ITERATE_FD_IN_BUFFER_STATE ret_state = recvfrom_iter_fd_in_buf(sockfd, iter, ret_loc, thread_data, thread_sock_data);
             switch (ret_state)
             {
@@ -1138,7 +1186,9 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     } else {
         //printf("found blk loc %d\n", loc_has_blk);
         interprocess_t::queue_t::element ele;
-        buffer_has_blk->q[1].peek(loc_has_blk, ele);
+        loc_has_blk.peek(ele);
+        ret = buffer_has_blk->pop_data(&loc_has_blk, ret, (void *) buf);
+        /*
         short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
         if (blk == -1)
         {
@@ -1149,7 +1199,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         {
             ele.data_fd_rw.pointer = blk;
             buffer_has_blk->q[1].set(loc_has_blk, ele);
-        }
+        }*/
     }
     return ret;
 }
