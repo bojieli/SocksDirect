@@ -5,6 +5,7 @@
 #ifndef IPC_DIRECT_SOCKET_LIB_H
 #define IPC_DIRECT_SOCKET_LIB_H
 #include "../common/darray.hpp"
+#include "../common/interprocess_t_n.hpp"
 #include "rdma_lib.h"
 #ifdef __cplusplus
 #include <utility>
@@ -62,7 +63,6 @@ void usocket_init();
 #ifdef __cplusplus
 
 #include <unordered_map>
-#include "../common/interprocess_t.h"
 
 extern pthread_key_t pthread_sock_key;
 const int BUFFERNUM = 100;
@@ -79,7 +79,7 @@ public:
     class buffer_t
     {
     public:
-        interprocess_t data;
+        interprocess_n_t * data;
         bool isvalid;
         int loc;
         key_t shmemkey;
