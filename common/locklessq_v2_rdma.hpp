@@ -10,14 +10,14 @@
 #include <assert.h>
 #include <cstring>
 #include "interprocess_t_n.hpp"
-
+#include "rdma.h"
 #define LOCKLESSQ_SIZE 512
 #define LOCKLESSQ_BITMAP_ISVALID 0x1
 #define LOCKLESSQ_BITMAP_ISDEL 0x2
 
 #define SW_BARRIER asm volatile("" ::: "memory")
 
-class locklessq_v2: public RDMA_flow_ctl_t::unpushed_data_t
+class locklessq_v2_rdma: public RDMA_flow_ctl_t::unpushed_data_t
 {
 public:
 
@@ -117,15 +117,16 @@ public:
     };
     uint32_t MASK;
 
-    locklessq_v2() : bytes_arr(nullptr), pointer(0), RDMA_pointer(0), MASK(LOCKLESSQ_SIZE - 1), RDMA_flow_ctl(nullptr)
+    locklessq_v2_rdma() : bytes_arr(nullptr), pointer(0), RDMA_pointer(0), MASK(LOCKLESSQ_SIZE - 1), RDMA_flow_ctl(nullptr),remote_baseaddr(0)
     {
         assert((sizeof(element_t)==16));
         is_recv = false;
     }
 
-    inline void init(void *baseaddr, bool is_receiver, RDMA_flow_ctl_t * _RDMA_ctl)
+    inline void init(void *baseaddr, uint64_t _remote_addr, bool is_receiver, RDMA_flow_ctl_t * _RDMA_ctl)
     {
         pointer = RDMA_pointer = 0;
+        remote_baseaddr = _remote_addr;
         is_recv = is_receiver;
         RDMA_flow_ctl = _RDMA_ctl;
         RDMA_flow_ctl->reg(this);

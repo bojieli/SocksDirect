@@ -675,7 +675,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
                 FATAL("Invalid RDMA info");
             metaqueue_long_msg_rdmainfo_t *peer_rdmainfo;
             peer_rdmainfo = (metaqueue_long_msg_rdmainfo_t *)q2monitor->pop_longmsg(element.long_msg_head.len);
-
+            rdma_connect_remote_qp(rdma_self_qpinfo->qp, rdma_get_pack(), &(peer_rdmainfo->qpinfo));
             printf("Connect Finished\n");
             while (1);
 
