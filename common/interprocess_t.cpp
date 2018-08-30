@@ -9,7 +9,7 @@
 #include "../common/helper.h"
 #include "locklessqueue_n.hpp"
 
-interprocess_t::buffer_t::buffer_t() : mem(nullptr), avail_slots(nullptr)
+interprocess_t::buffer_t::buffer_t() : mem(nullptr), avail_slots(nullptr), isRDMA(false)
 {
 }
 
@@ -17,12 +17,25 @@ void interprocess_t::buffer_t::init(element *_mem, locklessqueue_t<int, 2048> *_
 {
     mem = _mem;
     avail_slots = _avail_slots;
+    isRDMA = false;
 
 }
 
 void interprocess_t::buffer_t::init_mem()
 {
     avail_slots->init_mem();
+}
+
+inline void interprocess_t::buffer_t::initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey,
+                                               uint64_t _remote_addr_mem, uint64_t _remote_addr_avail_slots)
+{
+    avail_slots->initRDMA(_qp, _cq, _lkey, _rkey, _remote_addr_avail_slots);
+    isRDMA = true;
+    rdma_lkey = _lkey;
+    rdma_rkey = _rkey;
+    rdma_remote_baseaddr = _remote_addr_mem;
+    rdma_qp = _qp;
+    rdma_cq = _cq;
 }
 
 short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size) volatile
@@ -38,12 +51,28 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size) volatile
         SW_BARRIER;
         if (!isAvail)
         {
+            /*
             if (prev_blk != -1)
                 popdata(prev_blk, size, nullptr);
-            return -1;
+            return -1;*/
+            return ret;
+
         }
         if (prev_blk != -1)
+        {
             mem[prev_blk].next_ptr = blk;
+            //Do some RDMA write
+            if (isRDMA) {
+                post_rdma_write((void *) &mem[prev_blk],
+                                rdma_remote_baseaddr + ((uint8_t *) &mem[prev_blk] - (uint8_t *) mem),
+                                rdma_lkey,
+                                rdma_rkey,
+                                rdma_qp,
+                                rdma_cq,
+                                sizeof(element)
+                );
+            }
+        }
         mem[blk].offset = 0;
         int true_size = size_left < sizeof(interprocess_t::buffer_t::element::data) ?
                         size_left : sizeof(interprocess_t::buffer_t::element::data);
@@ -54,6 +83,19 @@ short interprocess_t::buffer_t::pushdata(uint8_t *start_ptr, int size) volatile
         if (size_left == 0) mem[blk].next_ptr = -1;
         if (prev_blk == -1) ret = blk;
         prev_blk = blk;
+    }
+
+    //Write the last block to remote
+    if (isRDMA && (prev_blk != -1))
+    {
+        post_rdma_write((void *) &mem[prev_blk],
+                        rdma_remote_baseaddr + ((uint8_t *) &mem[prev_blk] - (uint8_t *) mem),
+                        rdma_lkey,
+                        rdma_rkey,
+                        rdma_qp,
+                        rdma_cq,
+                        sizeof(element)
+        );
     }
     return ret;
 }
@@ -194,3 +236,48 @@ void interprocess_t::monitor_init(void *baseaddr) {
     
 }
 
+
+//This function need to be called after the init of interprocess_t
+void interprocess_t::initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey,
+              uint64_t _remote_base_addr, void *baseaddr, int loc)
+{
+    uint64_t remoteaddr(_remote_base_addr);
+    int myloc = loc;
+    int peer_loc = 1 - loc;
+
+    memset(baseaddr, 0, get_sharedmem_size());
+
+    uint64_t my_b_avail_remote_addr=remoteaddr;
+    b_avail[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
+    remoteaddr += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
+
+    uint64_t peer_b_avail_remote_addr=remoteaddr;
+    b_avail[peer_loc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
+    for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
+        b_avail[peer_loc].push(i);
+    remoteaddr += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
+
+    q[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
+    remoteaddr += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
+
+    q[peer_loc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
+    remoteaddr += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
+
+    b[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr, my_b_avail_remote_addr);
+    remoteaddr += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
+    b[peer_loc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr, peer_b_avail_remote_addr);
+    remoteaddr += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
+
+    q_emergency[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
+    remoteaddr += locklessqueue_t<queue_t::element, 256>::getmemsize();
+    q_emergency[peer_loc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
+    peer_loc += locklessqueue_t<queue_t::element, 256>::getmemsize();
+
+    pthread_mutexattr_t mutexattr;
+    pthread_mutexattr_init(&mutexattr);
+    pthread_mutexattr_setpshared(&mutexattr, PTHREAD_PROCESS_SHARED);
+    if (pthread_mutex_init(rd_mutex, &mutexattr) != 0)
+        FATAL("Error to init mutex");
+
+
+}
