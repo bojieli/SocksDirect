@@ -23,4 +23,6 @@ struct remote_process_t
 
 void rdma_init();
 extern bool try_new_rdma();
+extern void rdma_ack_handler(metaqueue_ctl_element * req_ele, int qid);
+
 #endif //IPC_DIRECT_RDMA_H

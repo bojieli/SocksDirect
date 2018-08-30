@@ -49,6 +49,8 @@ void process_chk_remove();
 
 extern pid_t process_gettid(int qid);
 
+extern bool process_isRDMA(int qid);
+
 extern void fork_handler(metaqueue_ctl_element *req_body, int qid);
 
 extern void recv_takeover_handler(metaqueue_ctl_element *req_body, int qid);
