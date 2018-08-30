@@ -23,7 +23,7 @@ extern ibv_qp * rdma_create_qp(ibv_cq* send_cq, ibv_cq* recv_cq, const rdma_pack
 extern void rdma_connect_remote_qp(ibv_qp *qp, const rdma_pack * rdma_context, const qp_info_t * remote_qp_info);
 extern void post_rdma_write(volatile void * ele, uintptr_t remote_addr, uint32_t lkey, uint32_t rkey, ibv_qp * qp, ibv_cq * cq, size_t len);
 
-static constexpr size_t QPSQDepth = 512;  ///< Depth of all SEND queues
+static constexpr size_t QPSQDepth = 2560;  ///< Depth of all SEND queues
 static constexpr size_t QPRQDepth = 512;
 static constexpr size_t QPMaxInlineData = 16;
 

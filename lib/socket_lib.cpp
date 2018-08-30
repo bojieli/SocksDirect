@@ -676,8 +676,21 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             metaqueue_long_msg_rdmainfo_t *peer_rdmainfo;
             peer_rdmainfo = (metaqueue_long_msg_rdmainfo_t *)q2monitor->pop_longmsg(element.long_msg_head.len);
             rdma_connect_remote_qp(rdma_self_qpinfo->qp, rdma_get_pack(), &(peer_rdmainfo->qpinfo));
+
+            //Reply ACK to server
+            thread_buf->buffer[idx].data = new interprocess_local_t;
+            void* interprocess_t_baseaddr =  (void *)rdma_self_qpinfo->localptr;
+            //Note: Client use the lower side to send
+            dynamic_cast<interprocess_local_t *>(thread_buf->buffer[idx].data)->init(interprocess_t_baseaddr, loc);
+            dynamic_cast<interprocess_local_t *>(thread_buf->buffer[idx].data)->
+                    initRDMA(rdma_self_qpinfo->qp, rdma_self_qpinfo->send_cq,rdma_lib_pack->buf_mr->lkey,
+                            peer_rdmainfo->qpinfo.rkey, peer_rdmainfo->qpinfo.remote_buf_addr, interprocess_t_baseaddr, loc);
+
+            interprocess_t::queue_t::element ele;
+            ele.command = interprocess_t::cmd::RDMA_ACK;
+            thread_buf->buffer[idx].data->push_data(ele, 0, nullptr);
             printf("Connect Finished\n");
-            while (1);
+            //while (1);
 
         }
     }
@@ -835,7 +848,18 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 
             //Wait for the ACK for the peer
             printf("Ack required\n");
-            while (1);
+            void* interprocess_t_baseaddr =  (void *)rdma_self_qpinfo->localptr;
+            //Note: Client use the lower side to send
+            sock_data->buffer[idx].data = new interprocess_local_t;
+            dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->init(interprocess_t_baseaddr, loc);
+            dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->
+                    initRDMA(rdma_self_qpinfo->qp, rdma_self_qpinfo->send_cq,rdma_get_pack()->buf_mr->lkey,
+                             peer_rdmainfo->qpinfo.rkey, peer_rdmainfo->qpinfo.remote_buf_addr, interprocess_t_baseaddr, loc);
+
+            interprocess_t::queue_t::element ele;
+            while(!dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->q[1].pop_nb(ele));
+            printf("server conn fin\n");
+            //while (1);
         }
 
     }
