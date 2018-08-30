@@ -832,6 +832,8 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
             metaqueue_long_msg_rdmainfo_t *peer_rdmainfo;
             peer_rdmainfo = (metaqueue_long_msg_rdmainfo_t *)data->metaqueue.pop_longmsg(element.long_msg_head.len);
             rdma_connect_remote_qp(rdma_self_qpinfo->qp, rdma_get_pack(), &(peer_rdmainfo->qpinfo));
+            //save the remote addr
+            uint64_t remote_addr = peer_rdmainfo->qpinfo.remote_buf_addr;
             //The next thing we should do is to send my QPinfo to the peer
             memset(peer_rdmainfo, 0, sizeof(metaqueue_long_msg_rdmainfo_t));
             peer_rdmainfo->shm_key = key;
@@ -854,7 +856,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
             dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->init(interprocess_t_baseaddr, loc);
             dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->
                     initRDMA(rdma_self_qpinfo->qp, rdma_self_qpinfo->send_cq,rdma_get_pack()->buf_mr->lkey,
-                             peer_rdmainfo->qpinfo.rkey, peer_rdmainfo->qpinfo.remote_buf_addr, interprocess_t_baseaddr, loc);
+                             peer_rdmainfo->qpinfo.rkey, remote_addr, interprocess_t_baseaddr, loc);
 
             interprocess_t::queue_t::element ele;
             while(!dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->q[1].pop_nb(ele));
