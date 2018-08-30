@@ -24,7 +24,7 @@ public:
         bool isdel;
     };
 private:
-    element_t *ringbuffer;
+    volatile element_t *ringbuffer;
     volatile bool *return_flag;
     uint32_t credits;
     uint32_t CREDITS_PER_RETURN;
@@ -38,7 +38,7 @@ private:
 
 
 private:
-    inline void atomic_copy16(element_t *dst, element_t *src)
+    inline void atomic_copy16(element_t *dst, volatile element_t *src)
     {
         asm volatile ( "movdqa (%0),%%xmm0\n"
                        "movaps %%xmm0,(%1)\n"
@@ -46,7 +46,16 @@ private:
                        : "r" (src), "r" (dst)
                        : "xmm0" );
     }
-    
+
+    inline void atomic_copy16(volatile element_t *dst, element_t *src)
+    {
+        asm volatile ( "movdqa (%0),%%xmm0\n"
+                       "movaps %%xmm0,(%1)\n"
+        : /* no output registers */
+        : "r" (src), "r" (dst)
+        : "xmm0" );
+    }
+
 public:
     union
     {
@@ -89,7 +98,11 @@ public:
 
     inline void init_mem()
     {
-        memset(ringbuffer, 0, sizeof(element_t) * SIZE);
+        //memset(ringbuffer, 0, sizeof(element_t) * SIZE);
+        element_t ele={};
+        memset(&ele, 0, sizeof(element_t));
+        for (int i=0;i<SIZE;++i)
+            atomic_copy16(&ringbuffer[i], &ele);
     }
 
     inline bool push_nb(const T &data)
@@ -186,7 +199,12 @@ public:
     {
         SW_BARRIER;
         loc = loc & MASK;
-        ringbuffer[loc].data = input;
+        element_t ele;
+        ele.data = input;
+        ele.isvalid = ringbuffer[loc].isvalid;
+        ele.isdel = ringbuffer[loc].isdel;
+        atomic_copy16(&ringbuffer[loc], &ele);
+        //ringbuffer[loc].data = input;
         SW_BARRIER;
     }
 
@@ -226,7 +244,8 @@ public:
         bool isempty(true);
         SW_BARRIER;
         element_t curr_blk;
-        curr_blk = ringbuffer[tmp_tail & MASK];
+        atomic_copy16(&curr_blk, &ringbuffer[tmp_tail & MASK]);
+        //curr_blk = (const locklessqueue_t<metaqueue_ctl_element, 256u>::element_t&)ringbuffer[tmp_tail & MASK];
         SW_BARRIER;
         while (curr_blk.isvalid)
         {
@@ -237,7 +256,8 @@ public:
             }
             tmp_tail++;
             SW_BARRIER;
-            curr_blk = ringbuffer[tmp_tail & MASK];
+            atomic_copy16(&curr_blk, &ringbuffer[tmp_tail & MASK]);
+            //curr_blk = ringbuffer[tmp_tail & MASK];
             SW_BARRIER;
         }
         return isempty;
