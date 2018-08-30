@@ -227,4 +227,9 @@ void long_msg_handler(metaqueue_ctl_element * req_body, int qid)
     free(rdma_send_info_ptr);
 }
 
+bool process_isRDMA(int qid)
+{
+    return process[qid].isRDMA;
+}
+
 #undef DEBUGON

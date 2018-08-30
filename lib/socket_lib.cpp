@@ -686,9 +686,10 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
                     initRDMA(rdma_self_qpinfo->qp, rdma_self_qpinfo->send_cq,rdma_lib_pack->buf_mr->lkey,
                             peer_rdmainfo->qpinfo.rkey, peer_rdmainfo->qpinfo.remote_buf_addr, interprocess_t_baseaddr, loc);
 
-            interprocess_t::queue_t::element ele;
-            ele.command = interprocess_t::cmd::RDMA_ACK;
-            thread_buf->buffer[idx].data->push_data(ele, 0, nullptr);
+            metaqueue_ctl_element ele;
+            ele.command = RDMA_QP_ACK;
+            ele.req_relay_recv.shmem = key;
+            q2monitor->q[0].push(ele);
             printf("Connect Finished\n");
             //while (1);
 
@@ -834,6 +835,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
             rdma_connect_remote_qp(rdma_self_qpinfo->qp, rdma_get_pack(), &(peer_rdmainfo->qpinfo));
             //save the remote addr
             uint64_t remote_addr = peer_rdmainfo->qpinfo.remote_buf_addr;
+            uint32_t remote_rkey = peer_rdmainfo->qpinfo.rkey;
             //The next thing we should do is to send my QPinfo to the peer
             memset(peer_rdmainfo, 0, sizeof(metaqueue_long_msg_rdmainfo_t));
             peer_rdmainfo->shm_key = key;
@@ -850,16 +852,19 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 
             //Wait for the ACK for the peer
             printf("Ack required\n");
+            metaqueue_ctl_element ele;
+            while (!data->metaqueue.q[1].pop_nb(ele));
+            if (ele.command != RDMA_QP_ACK)
+                FATAL("ACK Failed");
             void* interprocess_t_baseaddr =  (void *)rdma_self_qpinfo->localptr;
             //Note: Client use the lower side to send
             sock_data->buffer[idx].data = new interprocess_local_t;
             dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->init(interprocess_t_baseaddr, loc);
             dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->
                     initRDMA(rdma_self_qpinfo->qp, rdma_self_qpinfo->send_cq,rdma_get_pack()->buf_mr->lkey,
-                             peer_rdmainfo->qpinfo.rkey, remote_addr, interprocess_t_baseaddr, loc);
+                             remote_rkey, remote_addr, interprocess_t_baseaddr, loc);
 
-            interprocess_t::queue_t::element ele;
-            while(!dynamic_cast<interprocess_local_t *>(sock_data->buffer[idx].data)->q[1].pop_nb(ele));
+            
             printf("server conn fin\n");
             //while (1);
         }
@@ -1081,7 +1086,9 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         }
         iter.next();
     }
-    iter = recv_empty_hook(iter, target_fd);
+    
+    if (!thread_sock_data->buffer[iter->buffer_idx].isRDMA)
+        iter = recv_empty_hook(iter, target_fd);
     return ITERATE_FD_IN_BUFFER_STATE::NOTFIND;
 }
 

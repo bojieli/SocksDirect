@@ -106,6 +106,8 @@ static void event_processer(metaqueue_t *q, int qid)
         case LONG_MSG_HEAD:
             long_msg_handler(&req_body, qid);
             break;
+        case RDMA_QP_ACK:
+            rdma_ack_handler(&req_body, qid);
         default:
             break;
     }

@@ -13,6 +13,7 @@
 #include "../common/rdma.h"
 #include "../common/metaqueue.h"
 #include "../common/darray.hpp"
+#include "sock_monitor.h"
 #include "process.h"
 
 static int rdma_sock_fd;
@@ -203,5 +204,28 @@ bool try_new_rdma()
     return true;
 
 }
+
+void rdma_ack_handler(metaqueue_ctl_element * req_ele, int qid)
+{
+    metaqueue_t * res_metaqueue(nullptr);
+    int key = req_ele->req_relay_recv.shmem;
+    //We need to find which process is map to the key
+    if (rdma_key2qid.find(key) == rdma_key2qid.end())
+        FATAL("Failed to find the shm key");
+    int qid1,qid2, peerqid;
+    std::tie(qid1, qid2) = rdma_key2qid[key];
+    if (!process_isRDMA(qid1))
+        peerqid = qid1;
+    else
+        peerqid = qid2;
+
+    if (peerqid == qid)
+        FATAL("Failed to find peer qid");
+    //Find the metaqueue of the peerqid
+    res_metaqueue = process_gethandler_byqid(peerqid);
+    res_metaqueue->q[0].push(*req_ele);
+    DEBUG("Monitor relay QP ACK finished!");
+}
+
 
 #undef DEBUGON
