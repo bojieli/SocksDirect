@@ -27,9 +27,8 @@ void interprocess_t::buffer_t::init_mem()
 }
 
 inline void interprocess_t::buffer_t::initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey,
-                                               uint64_t _remote_addr_mem, uint64_t _remote_addr_avail_slots)
+                                               uint64_t _remote_addr_mem)
 {
-    avail_slots->initRDMA(_qp, _cq, _lkey, _rkey, _remote_addr_avail_slots);
     isRDMA = true;
     rdma_lkey = _lkey;
     rdma_rkey = _rkey;
@@ -245,7 +244,12 @@ void interprocess_t::initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t
     int myloc = loc;
     int peer_loc = 1 - loc;
 
-    memset(baseaddr, 0, get_sharedmem_size());
+    //memset(baseaddr, 0, get_sharedmem_size());
+
+    b_avail[1].setpointer(0);
+    b_avail[0].setpointer(0);
+    b_avail[0].enable_credit();
+    b_avail[1].enable_credit();
 
     uint64_t my_b_avail_remote_addr=remoteaddr;
     b_avail[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
@@ -254,7 +258,7 @@ void interprocess_t::initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t
     uint64_t peer_b_avail_remote_addr=remoteaddr;
     b_avail[peer_loc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
     for (unsigned short i = 0; i < INTERPROCESS_SLOTS_IN_BUFFER; ++i)
-        b_avail[peer_loc].push(i);
+        b_avail[1].push(i);
     remoteaddr += locklessqueue_t<int, 2*INTERPROCESS_SLOTS_IN_BUFFER>::getmemsize();
 
     q[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
@@ -263,9 +267,9 @@ void interprocess_t::initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t
     q[peer_loc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
     remoteaddr += locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE>::getmemsize();
 
-    b[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr, my_b_avail_remote_addr);
+    b[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
     remoteaddr += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
-    b[peer_loc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr, peer_b_avail_remote_addr);
+    b[peer_loc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
     remoteaddr += sizeof(buffer_t::element) * INTERPROCESS_SLOTS_IN_BUFFER;
 
     q_emergency[myloc].initRDMA(_qp, _cq, _lkey, _rkey, remoteaddr);
