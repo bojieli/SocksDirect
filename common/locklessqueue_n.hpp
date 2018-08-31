@@ -154,6 +154,11 @@ public:
     {
         credit_disabled = true;
     }
+    
+    inline void enable_credit()
+    {
+        credit_disabled = false;
+    }
 
     //true: success false: fail
     inline bool pop_nb(T &data)

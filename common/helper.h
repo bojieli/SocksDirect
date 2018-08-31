@@ -54,6 +54,7 @@ enum
     LONG_MSG,
     LONG_MSG_HEAD,
     RDMA_QP_INFO,
+    RDMA_QP_ACK
 };
 
 #define FD_STATUS_CLOSE_FLG_NRD_REQ 1

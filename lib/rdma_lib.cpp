@@ -88,6 +88,7 @@ rdma_self_pack_t * lib_new_qp()
     ret->rkey = rdma_lib_context.buf_mr->rkey;
     ret->localptr = (uint64_t) ((uint8_t *)rdma_lib_private_info.local_interprocess_base_addr +
             interprocess_t::get_sharedmem_size() * rdma_interprocess_seq);
+    memset((void*)ret->localptr, 0, interprocess_t::get_sharedmem_size());
     ++rdma_interprocess_seq;
     ret->qpn = ret->qp->qp_num;
     ret->RoCE_gid = rdma_lib_context.RoCE_gid;

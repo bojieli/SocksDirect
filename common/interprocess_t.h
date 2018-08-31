@@ -52,7 +52,7 @@ public:
         short popdata_nomemrelease(unsigned short src, int &size, uint8_t *user_buf) volatile ;
 
         void initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey,
-                      uint64_t _remote_addr_mem, uint64_t _remote_addr_avail_slots);
+                      uint64_t _remote_addr_mem);
 
         locklessqueue_t<int, 2048> *avail_slots;
 
