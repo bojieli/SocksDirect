@@ -304,7 +304,7 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     auto iter = thread_data->fds_wr.begin(fd);
-    interprocess_t *buffer = &thread_sock_data->
+    interprocess_n_t *buffer = thread_sock_data->
             buffer[iter->buffer_idx].data;
     int peer_fd = thread_data->fds_datawithrd[fd].peer_fd;
     interprocess_t::queue_t::element ele;
@@ -317,7 +317,15 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
         ele.pot_fd_rw.fd = peer_fd;
         memcpy(ele.pot_fd_rw.raw, send_buffer, 9);
         SW_BARRIER;
-        buffer->q[0].push(ele);
+        while (!dynamic_cast<interprocess_local_t *>(buffer)->q[0].push_nb(ele))
+        {
+            monitor2proc_hook();
+            iter = thread_data->fds_wr.begin(fd);
+            buffer = thread_sock_data->
+                    buffer[iter->buffer_idx].data;
+            
+            
+        }
         return 0;
     }
 
@@ -346,16 +354,14 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
             ele.data_fd_rw_zc.page_high = (unsigned short)(phys_addrs[0] >> 32);
             ele.data_fd_rw_zc.page_low = (unsigned int)(phys_addrs[0]);
             SW_BARRIER;
-            buffer->q[0].push(ele);
+            buffer->push_data(ele,0, nullptr);
         }
         else { // send in a vector
-            short startloc = buffer->b[0].pushdata((uint8_t *)phys_addrs, sizeof(unsigned long) * num_pages);
             ele.command = interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR;
             ele.data_fd_rw_zcv.fd = peer_fd;
             ele.data_fd_rw_zcv.num_pages = num_pages;
-            ele.data_fd_rw_zcv.pointer = startloc;
             SW_BARRIER;
-            buffer->q[0].push(ele);
+            buffer->push_data(ele, sizeof(unsigned long) * num_pages, phys_addrs);
         }
 
         send_buffer += num_pages * PAGE_SIZE;
@@ -365,12 +371,11 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
 fallback:
     if (numofbytes > 0)
     {
-        short startloc = buffer->b[0].pushdata(send_buffer, numofbytes);
+        //short startloc = buffer->b[0].pushdata(send_buffer, numofbytes);
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
         ele.data_fd_rw.fd = peer_fd;
-        ele.data_fd_rw.pointer = startloc;
         SW_BARRIER;
-        buffer->q[0].push(ele);
+        buffer->push_data(ele, numofbytes, send_buffer);
         return 0;
 
     }
@@ -388,20 +393,22 @@ enum ITERATE_FD_IN_BUFFER_STATE
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         (int target_fd,
          adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator& iter,
-         int &loc_in_buffer_has_blk, thread_data_t *thread_data, thread_sock_data_t *thread_sock_data)
+         interprocess_n_t::iterator &loc_in_buffer_has_blk,
+         thread_data_t *thread_data, thread_sock_data_t *thread_sock_data)
 {
 
-    interprocess_t *buffer = &(thread_sock_data->buffer[iter->buffer_idx].data);
-    uint8_t pointer = buffer->q[1].tail;
+    interprocess_n_t *buffer = (thread_sock_data->buffer[iter->buffer_idx].data);
+    //uint8_t pointer = buffer->q[1].tail
+    auto iter_ele = buffer->begin();
     bool islockrequired = (bool)(iter->status & FD_STATUS_RD_RECV_FORKED);
     if (islockrequired)
-        pthread_mutex_lock(buffer->rd_mutex);
+        pthread_mutex_lock(dynamic_cast<interprocess_local_t *>(buffer)->rd_mutex);
     SW_BARRIER;
     while (true)
     {  //for same fd(buffer), iterate each available slot
         interprocess_t::queue_t::element ele;
         bool ele_isvalid, ele_isdel;
-        std::tie(ele_isvalid, ele_isdel) = buffer->q[1].peek(pointer, ele);
+        std::tie(ele_isvalid, ele_isdel) = iter_ele.peek(ele);
         SW_BARRIER;
         if (!ele_isvalid)
             break;
@@ -413,7 +420,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     if (ele.close_fd.peer_fd == target_fd &&
                         ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
                     {
-                        buffer->q[1].del(pointer);
+                        iter_ele.del();
                         DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
 
                         iter = thread_data->fds_datawithrd.del_element(iter);
@@ -422,15 +429,15 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                             DEBUG("Destroyed self fd %d.", target_fd);
                             thread_data->fds_datawithrd.del_key(target_fd);
                             if (islockrequired)
-                                pthread_mutex_unlock(buffer->rd_mutex);
+                                pthread_mutex_unlock(dynamic_cast<interprocess_local_t *>(buffer)->rd_mutex);
                             return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
                         }
                         if (islockrequired)
-                            pthread_mutex_unlock(buffer->rd_mutex);
+                            pthread_mutex_unlock(dynamic_cast<interprocess_local_t *>(buffer)->rd_mutex);
                         return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
                     } else {
                         if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
-                            buffer->q[1].del(pointer);
+                            iter_ele.del();
                     }
                     break;
                 }
@@ -441,9 +448,9 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 {
                     if (ele.data_fd_rw.fd == target_fd)
                     {
-                        loc_in_buffer_has_blk = pointer;
+                        loc_in_buffer_has_blk = iter_ele;
                         if (islockrequired)
-                            pthread_mutex_unlock(buffer->rd_mutex);
+                            pthread_mutex_unlock(dynamic_cast<interprocess_local_t *>(buffer)->rd_mutex);
                         return ITERATE_FD_IN_BUFFER_STATE::FIND;
                     }
                     break;
@@ -464,7 +471,8 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     int num_pages = ele.zc_retv.num_pages;
                     unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
                     int size = sizeof(unsigned long) * num_pages;
-                    short blk = buffer->b[1].popdata(ele.zc_retv.pointer, size, (uint8_t *) received_pages);
+
+                 /*   short blk = buffer->b[1].popdata(ele.zc_retv.pointer, size, (uint8_t *) received_pages);
                     if (blk == -1)
                     {
                         buffer->q[1].del(blk);
@@ -472,7 +480,9 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     {
                         ele.zc_retv.pointer = blk;
                         buffer->q[1].set(blk, ele);
-                    }
+                    }*/
+
+                    buffer->pop_data(&iter_ele, size, (void*)received_pages);
 
                     for (int i=0; i<num_pages; i++) {
                         enqueue_free_page(received_pages[i]);
@@ -485,23 +495,26 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 {
                         if (ele.pot_fd_rw.fd == target_fd)
                     {
-                        loc_in_buffer_has_blk = pointer;
+                        loc_in_buffer_has_blk = iter_ele;
                         if (islockrequired)
-                            pthread_mutex_unlock(buffer->rd_mutex);
+                            pthread_mutex_unlock(dynamic_cast<interprocess_local_t *>(buffer)->rd_mutex);
                         return ITERATE_FD_IN_BUFFER_STATE::FIND;
                     }
                     break;
                 }
             } // end switch
         }
+        /*
         if (buffer->q[1].tail > pointer)
             pointer = buffer->q[1].tail;
         else
             ++pointer;
+            */
+        iter_ele.next();
     }
     iter = recv_empty_hook(iter, target_fd);
     if (islockrequired)
-        pthread_mutex_unlock(buffer->rd_mutex);
+        pthread_mutex_unlock(dynamic_cast<interprocess_local_t *>(buffer)->rd_mutex);
     return ITERATE_FD_IN_BUFFER_STATE::NOTFIND;
 }
 
@@ -510,7 +523,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
 
 
 static inline void map_and_return_pages(void *buf, unsigned long *received_pages,
-    interprocess_t *ret_queue, int num_pages)
+     int num_pages)
 {
         static bool initialized = false;
         if (!initialized) {
@@ -580,17 +593,17 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
     monitor2proc_hook();
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    interprocess_t *buffer_has_blk(nullptr);
-    int loc_has_blk(-1);
+    interprocess_n_t  *buffer_has_blk(nullptr);
+    interprocess_n_t::iterator loc_has_blk(nullptr);
     bool isFind(false);
     do //if blocking infinate loop
     {
         auto iter = thread_data->fds_datawithrd.begin(sockfd);
         while (true) //iterate different peer fd
         {
-            int ret_loc(-1);
+            interprocess_n_t::iterator ret_loc(nullptr);
             bool isFin(false);
-            interprocess_t *buffer = &(thread_sock_data->buffer[iter->buffer_idx].data);
+            interprocess_n_t *buffer = (thread_sock_data->buffer[iter->buffer_idx].data);
             ITERATE_FD_IN_BUFFER_STATE ret_state = recvfrom_iter_fd_in_buf(sockfd, iter, ret_loc, thread_data, thread_sock_data);
             switch (ret_state)
             {
@@ -622,9 +635,11 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
     } else {
         //printf("found blk loc %d\n", loc_has_blk);
         interprocess_t::queue_t::element ele;
-        buffer_has_blk->q[1].peek(loc_has_blk, ele);
+        loc_has_blk.peek(ele);
         if (ele.command == interprocess_t::cmd::DATA_TRANSFER)
         {
+            ret = buffer_has_blk->pop_data(&loc_has_blk,len, buf);
+            /*
             short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
             if (blk == -1)
             {
@@ -633,7 +648,7 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
             {
                 ele.data_fd_rw.pointer = blk;
                 buffer_has_blk->q[1].set(loc_has_blk, ele);
-            }
+            }*/
         }
         if (ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY)
         {
@@ -643,13 +658,15 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
             for (int i=0; i<num_pages; i++) {
                 received_pages[i] = phys_page + i;
             }
-            map_and_return_pages(buf, received_pages, buffer_has_blk, num_pages);
+            map_and_return_pages(buf, received_pages, num_pages);
             free(received_pages);
         }
         if (ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR)
         {
             int num_pages = ele.data_fd_rw_zcv.num_pages;
             unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+            buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long) * num_pages, (void *)received_pages);
+            /*
             short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw_zcv.pointer, ret, (uint8_t *) received_pages);
             if (blk == -1)
             {
@@ -658,9 +675,9 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
             {
                 ele.data_fd_rw.pointer = blk;
                 buffer_has_blk->q[1].set(loc_has_blk, ele);
-            }
+            } */
 
-            map_and_return_pages(buf, received_pages, buffer_has_blk, num_pages);
+            map_and_return_pages(buf, received_pages, num_pages);
             free(received_pages);
         }
         if (ele.command == interprocess_t::cmd::NOP)
@@ -668,9 +685,10 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
             memcpy(buf, ele.pot_fd_rw.raw, 9);
             ret = 9;
             SW_BARRIER;
-            buffer_has_blk->q[1].del(loc_has_blk);
+            loc_has_blk.del();
             SW_BARRIER;
         }
+        loc_has_blk.destroy();
     }
     return ret;
 }

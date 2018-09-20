@@ -6,6 +6,9 @@
 #include <cstdio>
 #include <tuple>
 #include <cassert>
+#include <infiniband/verbs.h>
+#include "../common/rdma_struct.h"
+#include "../common/rdma.h"
 
 #define SW_BARRIER asm volatile("" ::: "memory")
 
@@ -21,13 +24,21 @@ public:
         bool isdel;
     };
 private:
-    element_t *ringbuffer;
-    bool *return_flag;
+    volatile element_t *ringbuffer;
+    volatile bool *return_flag;
     uint32_t credits;
     uint32_t CREDITS_PER_RETURN;
     bool credit_disabled;
+
+    bool isRDMA;
+    uint64_t rdma_remote_baseaddr;
+    uint32_t rdma_lkey, rdma_rkey;
+    ibv_qp* rdma_qp;
+    ibv_cq* rdma_cq;
+
+
 private:
-    inline void atomic_copy16(element_t *dst, element_t *src)
+    inline void atomic_copy16(element_t *dst, volatile element_t *src)
     {
         asm volatile ( "movdqa (%0),%%xmm0\n"
                        "movaps %%xmm0,(%1)\n"
@@ -35,7 +46,16 @@ private:
                        : "r" (src), "r" (dst)
                        : "xmm0" );
     }
-    
+
+    inline void atomic_copy16(volatile element_t *dst, element_t *src)
+    {
+        asm volatile ( "movdqa (%0),%%xmm0\n"
+                       "movaps %%xmm0,(%1)\n"
+        : /* no output registers */
+        : "r" (src), "r" (dst)
+        : "xmm0" );
+    }
+
 public:
     union
     {
@@ -45,7 +65,7 @@ public:
     };
     uint32_t MASK;
 
-    locklessqueue_t() : ringbuffer(nullptr), pointer(0), MASK(SIZE - 1)
+    locklessqueue_t() : ringbuffer(nullptr),  isRDMA(false),pointer(0),MASK(SIZE - 1)
     {
         assert((sizeof(element_t)==16));
     }
@@ -56,8 +76,9 @@ public:
         MASK = SIZE - 1;
         CREDITS_PER_RETURN = SIZE / 2 + 1;
         ringbuffer = reinterpret_cast<element_t *>(baseaddr);
-        return_flag = reinterpret_cast<bool *>(baseaddr + (sizeof(element_t) * SIZE));
+        return_flag = reinterpret_cast<bool *>((uint8_t *)baseaddr + (sizeof(element_t) * SIZE));
         *return_flag = false;
+        isRDMA=false;
         if (is_receiver)
             credits = 0;
         else
@@ -65,9 +86,23 @@ public:
         credit_disabled = false;
     }
 
+    inline void initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey, uint64_t _remote_addr)
+    {
+        isRDMA = true;
+        rdma_lkey = _lkey;
+        rdma_rkey = _rkey;
+        rdma_remote_baseaddr = _remote_addr;
+        rdma_qp = _qp;
+        rdma_cq = _cq;
+    }
+
     inline void init_mem()
     {
-        memset(ringbuffer, 0, sizeof(element_t) * SIZE);
+        //memset(ringbuffer, 0, sizeof(element_t) * SIZE);
+        element_t ele={};
+        memset(&ele, 0, sizeof(element_t));
+        for (int i=0;i<SIZE;++i)
+            atomic_copy16(&ringbuffer[i], &ele);
     }
 
     inline bool push_nb(const T &data)
@@ -91,10 +126,19 @@ public:
 
         uint32_t local_ptr = pointer & MASK;
         atomic_copy16(&ringbuffer[local_ptr], &ele);
+        //isRDMA
+        if (isRDMA)
+        {
+            post_rdma_write(&ringbuffer[local_ptr],
+                            rdma_remote_baseaddr + ((uint8_t *) &ringbuffer[local_ptr] - (uint8_t *) ringbuffer),
+                            rdma_lkey, rdma_rkey, rdma_qp, rdma_cq, 16);
+        }
+
         pointer++;
         credits--;
         return true;
     }
+
 
     inline void push(const T &data)
     {
@@ -109,6 +153,11 @@ public:
     inline void disable_credit()
     {
         credit_disabled = true;
+    }
+    
+    inline void enable_credit()
+    {
+        credit_disabled = false;
     }
 
     //true: success false: fail
@@ -155,7 +204,12 @@ public:
     {
         SW_BARRIER;
         loc = loc & MASK;
-        ringbuffer[loc].data = input;
+        element_t ele;
+        ele.data = input;
+        ele.isvalid = ringbuffer[loc].isvalid;
+        ele.isdel = ringbuffer[loc].isdel;
+        atomic_copy16(&ringbuffer[loc], &ele);
+        //ringbuffer[loc].data = input;
         SW_BARRIER;
     }
 
@@ -175,6 +229,14 @@ public:
                 if (credits == CREDITS_PER_RETURN) {
                     *return_flag = true;
                     credits = 0;
+
+                    //RDMA? Push flag to sender side
+                    if(isRDMA)
+                    {
+                        post_rdma_write(return_flag,
+                                        rdma_remote_baseaddr + ((uint8_t *) return_flag - (uint8_t *) ringbuffer),
+                                        rdma_lkey, rdma_rkey, rdma_qp, rdma_cq, 1);
+                    }
                 }
                 SW_BARRIER;
             }
@@ -187,7 +249,8 @@ public:
         bool isempty(true);
         SW_BARRIER;
         element_t curr_blk;
-        curr_blk = ringbuffer[tmp_tail & MASK];
+        atomic_copy16(&curr_blk, &ringbuffer[tmp_tail & MASK]);
+        //curr_blk = (const locklessqueue_t<metaqueue_ctl_element, 256u>::element_t&)ringbuffer[tmp_tail & MASK];
         SW_BARRIER;
         while (curr_blk.isvalid)
         {
@@ -198,7 +261,8 @@ public:
             }
             tmp_tail++;
             SW_BARRIER;
-            curr_blk = ringbuffer[tmp_tail & MASK];
+            atomic_copy16(&curr_blk, &ringbuffer[tmp_tail & MASK]);
+            //curr_blk = ringbuffer[tmp_tail & MASK];
             SW_BARRIER;
         }
         return isempty;
@@ -210,6 +274,8 @@ public:
         const int return_flag_size = 64;
         return (sizeof(element_t) * SIZE) + return_flag_size;
     }
+
+
 
 };
 

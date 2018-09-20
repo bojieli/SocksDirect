@@ -14,7 +14,7 @@
 #define INTERPROCESS_Q_MASK ((INTERPROCESS_SLOTS_IN_QUEUE)-1)
 #define INTERPROCESS_SLOTS_BLK_SIZE 1018
 #define MAX_FD_NUM 102400000
-
+#define MAX_QUEUE_NUM 100
 class interprocess_t
 {
 public:
@@ -24,6 +24,12 @@ public:
         class element;
     private:
         element *mem;
+
+        bool isRDMA;
+        uint64_t rdma_remote_baseaddr;
+        uint32_t rdma_lkey, rdma_rkey;
+        ibv_qp* rdma_qp;
+        ibv_cq* rdma_cq;
     public:
         class element
         {
@@ -45,6 +51,8 @@ public:
         short popdata(unsigned short src, int &size, uint8_t *user_buf) volatile ;
         short popdata_nomemrelease(unsigned short src, int &size, uint8_t *user_buf) volatile ;
 
+        void initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey,
+                      uint64_t _remote_addr_mem);
 
         locklessqueue_t<int, 2048> *avail_slots;
 
@@ -135,6 +143,9 @@ public:
 
     void init(void *baseaddr, int loc);
 
+    void initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey,
+                  uint64_t _remote_base_addr, void *baseaddr,int loc);
+
     static void monitor_init(void *baseaddr);
 
     enum cmd
@@ -147,10 +158,13 @@ public:
         ZEROCOPY_RETURN_VECTOR,
         NOP,
         CLOSE_FD,
+        RDMA_ACK,
+        RTS_RELAY_ACK,
+        RTS_RELAY_DATA,
         CLOSE_REQ_NORD,
         CLOSE_REQ_NOWR,
         CLOSE_ACK_NORD,
-        CLOSE_ACK_NOWR
+        CLOSE_ACK_NOWR,
     };
 };
 

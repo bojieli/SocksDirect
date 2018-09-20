@@ -22,6 +22,10 @@ static interprocess_buf_hashtable_t interprocess_buf_idx;
 static adjlist<monitor_sock_node_t, 65536, monitor_sock_adjlist_t, 1000> ports;
 static int current_q_counter = 0;
 std::unordered_map<key_t, std::pair<int, int>> interprocess_key2tid;
+std::unordered_map<key_t, std::pair<int, int>> rdma_key2qid;
+
+
+static rdma_l2_hash_t rdma_id2key;
 
 const per_proc_map_t * buff_get_handler(pid_t tid)
 {
@@ -52,9 +56,31 @@ key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc)
     interprocess_buf_idx[tid_to][tid_from].buffer_key = shm_key;
 
     interprocess_key2tid[shm_key] = std::make_pair(tid_from, tid_to);
-    
+
+
     return shm_key;
 };
+
+key_t buffer_new_rdma(uint64_t qid, uint64_t rdmaqid, int loc)
+{
+    key_t shm_key;
+    shm_key = 9837423+current_q_counter;
+    ++current_q_counter;
+
+    rdma_id2key[qid][rdmaqid].loc = loc;
+    rdma_id2key[qid][rdmaqid].buffer_key = shm_key;
+
+    rdma_key2qid[shm_key] = std::make_pair(qid, rdmaqid);
+
+    return shm_key;
+}
+
+key_t buffer_enlarge(pid_t tid_from, pid_t tid_to, int loc)
+{
+    key_t shm_key;
+    shm_key = 9837423+current_q_counter;
+    ++current_q_counter;
+}
 
 void buffer_del(pid_t tid_from, pid_t tid_to)
 {
@@ -102,6 +128,7 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
 {
     unsigned short port;
     port = req_body->req_connect.port;
+    bool isRDMA = req_body->req_connect.isRDMA;
     if (!ports[port].is_listening)
     {
         res_body->resp_command.res_code = RES_ERROR;
@@ -116,18 +143,33 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
 
     key_t shm_key;
     int loc;
-    per_proc_map_t * per_proc_map = &interprocess_buf_idx[process_gettid(qid)];
-    if (per_proc_map->find(process_gettid(peer_qid)) == per_proc_map->end())
+
+    if (!isRDMA)
     {
-        loc = 0;
-        pid_t selftid = process_gettid(qid);
-        pid_t peertid = process_gettid(peer_qid);
-        shm_key = buffer_new(selftid, peertid, loc);
+        per_proc_map_t *per_proc_map = &interprocess_buf_idx[process_gettid(qid)];
+        if (per_proc_map->find(process_gettid(peer_qid)) == per_proc_map->end()) {
+            loc = 0;
+            pid_t selftid = process_gettid(qid);
+            pid_t peertid = process_gettid(peer_qid);
+            shm_key = buffer_new(selftid, peertid, loc);
+        } else {
+            shm_key = (*per_proc_map)[process_gettid(peer_qid)].buffer_key;
+            loc = (*per_proc_map)[process_gettid(peer_qid)].loc;
+        }
     } else
     {
-        shm_key = (*per_proc_map)[process_gettid(peer_qid)].buffer_key;
-        loc = (*per_proc_map)[process_gettid(peer_qid)].loc;
+        rdma_l1_hash_t *per_proc_rdma_map = &rdma_id2key[peer_qid];
+        if (per_proc_rdma_map->find(qid) == per_proc_rdma_map->end())
+        {
+            loc = 0;
+            shm_key = buffer_new_rdma(peer_qid, qid, 0);
+        } else
+        {
+            shm_key = (*per_proc_rdma_map)[qid].buffer_key;
+            loc = 0;
+        }
     }
+
     res_body->resp_connect.shm_key = shm_key;
     res_body->resp_connect.loc = loc;
     res_body->command = RES_SUCCESS;
@@ -137,6 +179,8 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
     res_to_listener.resp_connect.loc = !loc;
     res_to_listener.resp_connect.fd = req_body->req_connect.fd;
     res_to_listener.resp_connect.port = port;
+    res_to_listener.resp_connect.isRDMA = isRDMA;
+
     metaqueue_t * q2listener = process_gethandler_byqid(peer_qid);
     q2listener->q[0].push(res_to_listener);
 }
