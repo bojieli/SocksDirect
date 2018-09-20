@@ -47,7 +47,14 @@ enum
     RES_FORK,
     RES_PUSH_FORK,
     REQ_RELAY_RECV,
-    FIN_FORK
+    RTS_RELAY,
+    FIN_FORK,
+    REQ_RDMA_CONNECT,
+    RES_RDMA_NEWCONNECTION,
+    LONG_MSG,
+    LONG_MSG_HEAD,
+    RDMA_QP_INFO,
+    RDMA_QP_ACK
 };
 
 #define FD_STATUS_CLOSE_FLG_NRD_REQ 1
@@ -71,6 +78,7 @@ enum
 extern "C"
 {
 #endif
+#define RDMA_SOCK_PORT 3000
 
 extern pid_t gettid();
 

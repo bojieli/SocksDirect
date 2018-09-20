@@ -8,6 +8,7 @@
 #include "sock_monitor.h"
 #include "../common/metaqueue.h"
 #include "../common/setup_sock.h"
+#include "rdma_monitor.h"
 #include<time.h>
 #include <tuple>
 
@@ -63,6 +64,7 @@ static void ping_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element 
     (*res_body).test_payload = ~req_body->test_payload;
 }
 
+
 inline
 static void event_processer(metaqueue_t *q, int qid)
 {
@@ -99,6 +101,13 @@ static void event_processer(metaqueue_t *q, int qid)
             recv_takeover_handler(&req_body, qid);
             break;
         case REQ_NOP:
+            //printf("%x\n", *((int *)&req_body.raw));
+            break;
+        case LONG_MSG_HEAD:
+            long_msg_handler(&req_body, qid);
+            break;
+        case RDMA_QP_ACK:
+            rdma_ack_handler(&req_body, qid);
         default:
             break;
     }
@@ -121,6 +130,7 @@ static void event_loop()
         if ((round & 0xFFFF) == 0)
         {
             try_accept_new_proc();
+            try_new_rdma();
             process_chk_remove();
             sock_resource_gc();
         }
@@ -132,6 +142,7 @@ int main()
 {
     //pin_thread(31);
     setup_sock_monitor_init();
+    rdma_init();
     sock_monitor_init();
     process_init();
     event_loop();

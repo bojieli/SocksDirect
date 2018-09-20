@@ -5,7 +5,10 @@
 #ifndef IPC_DIRECT_SOCKET_LIB_H
 #define IPC_DIRECT_SOCKET_LIB_H
 #include "../common/darray.hpp"
+#include "../common/interprocess_t_n.hpp"
+#include "rdma_lib.h"
 #ifdef __cplusplus
+#include <utility>
 extern "C"
 {
 #endif
@@ -60,10 +63,11 @@ void usocket_init();
 #ifdef __cplusplus
 
 #include <unordered_map>
-#include "../common/interprocess_t.h"
 
 extern pthread_key_t pthread_sock_key;
 const int BUFFERNUM = 100;
+
+
 
 class thread_sock_data_t
 {
@@ -75,11 +79,14 @@ public:
     class buffer_t
     {
     public:
-        interprocess_t data;
+        interprocess_n_t * data;
         bool isvalid;
         int loc;
         key_t shmemkey;
-        buffer_t() : isvalid(false)
+        bool isRDMA;
+        rdma_peer_t rdma_info;
+        int rdma_buf_idx;
+        buffer_t() : isvalid(false), isRDMA(false)
         {}
     } buffer[BUFFERNUM];
 
@@ -89,6 +96,8 @@ public:
     int isexist(key_t key);
 
     int newbuffer(key_t key, int loc);
+    std::pair<int, rdma_self_pack_t *>  newbuffer_rdma(key_t key, int loc);
+
 };
 void monitor2proc_hook();
 

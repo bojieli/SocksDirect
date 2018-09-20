@@ -22,14 +22,18 @@ extern "C" {
 
 struct process_sturc
 {
+    bool isRDMA;
     pid_t pid,tid;
     key_t uniq_shmem_id;
     uint64_t token;
     metaqueue_t metaqueue; //0: process send to monitor 1: monitor sent to process
+    uint64_t glb_ref;
 };
 #define MAX_PROCESS_NUM 1024
 
 extern std::tuple<key_t, uint64_t> process_add(pid_t pid, pid_t tid);
+
+extern void process_add_rdma(const metaqueue_t * metaqueue, int rdma_proc_idx);
 
 extern void process_init();
 
@@ -45,8 +49,11 @@ void process_chk_remove();
 
 extern pid_t process_gettid(int qid);
 
+extern bool process_isRDMA(int qid);
+
 extern void fork_handler(metaqueue_ctl_element *req_body, int qid);
 
 extern void recv_takeover_handler(metaqueue_ctl_element *req_body, int qid);
+extern void long_msg_handler(metaqueue_ctl_element * req_body, int qid);
 
 #endif //IPC_DIRECT_PROCESS_H
