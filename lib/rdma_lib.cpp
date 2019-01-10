@@ -13,8 +13,8 @@
 #include "../common/metaqueue.h"
 
 #define DEBUGON 1
-#define RDMA_MAX_CONN 20
-#define RDMA_MAX_METAQUEUE 20
+#define RDMA_MAX_CONN 4
+#define RDMA_MAX_METAQUEUE 4
 
 
 std::unordered_map<uint32_t, rdma_metaqueue > remote_monitor;
@@ -50,12 +50,13 @@ void rdma_init()
                     (size_t)RDMA_MAX_CONN * interprocess_t::get_sharedmem_size() +
                     (size_t)RDMA_MAX_METAQUEUE * metaqueue_t::get_sharememsize();
     rdma_lib_context.MR_ptr = memalign(4096, shared_buf_size);
+    printf("%lldbytes\n", shared_buf_size);
     rdma_lib_private_info.local_metaqueue_base_addr = (uintptr_t)rdma_lib_context.MR_ptr;
     rdma_lib_private_info.local_interprocess_base_addr = (uintptr_t)(rdma_lib_context.MR_ptr +
             (size_t)RDMA_MAX_METAQUEUE * metaqueue_t::get_sharememsize());
 
     if (rdma_lib_context.MR_ptr == nullptr)
-        FATAL("Failed to create a large buffer");
+        FATAL("Failed to create a large buffer %s", strerror(errno));
     //reg it to NIC MR
 
     int ib_flags = IBV_ACCESS_LOCAL_WRITE | IBV_ACCESS_REMOTE_READ |
