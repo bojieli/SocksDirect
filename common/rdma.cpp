@@ -55,11 +55,11 @@ void enum_dev(rdma_pack *p)
                 continue;
             }
 
-            if (port_attr.link_layer != IBV_LINK_LAYER_ETHERNET) {
+            /*if (port_attr.link_layer != IBV_LINK_LAYER_ETHERNET) {
                 FATAL(
                         "Transport type required is RoCE but port link layer is %s"
                         ,link_layer_str(port_attr.link_layer).c_str());
-            }
+            }*/
 
             DEBUG("RDMA  NIC bind to device %d, port %d. Name %s.\n",
                   dev_i, port_i, dev_list[dev_i]->name);

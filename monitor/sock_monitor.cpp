@@ -49,11 +49,14 @@ key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc)
         FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
 
     interprocess_t::monitor_init(baseaddr);
-    interprocess_buf_idx[tid_from][tid_to].loc = loc;
-    interprocess_buf_idx[tid_from][tid_to].buffer_key = shm_key;
+    interprocess_buf_map_t tmp_key_pair;
+    tmp_key_pair.loc = loc;
+    tmp_key_pair.buffer_key = shm_key;
+    interprocess_buf_idx[tid_from][tid_to].push_back(tmp_key_pair);
 
-    interprocess_buf_idx[tid_to][tid_from].loc = !loc;
-    interprocess_buf_idx[tid_to][tid_from].buffer_key = shm_key;
+    tmp_key_pair.loc = !loc;
+    tmp_key_pair.buffer_key = shm_key;
+    interprocess_buf_idx[tid_to][tid_from].push_back(tmp_key_pair);
 
     interprocess_key2tid[shm_key] = std::make_pair(tid_from, tid_to);
 
@@ -84,8 +87,10 @@ key_t buffer_enlarge(pid_t tid_from, pid_t tid_to, int loc)
 
 void buffer_del(pid_t tid_from, pid_t tid_to)
 {
-    key_t buffer_key = interprocess_buf_idx[tid_from][tid_to].buffer_key;
-    interprocess_key2tid.erase(buffer_key);
+    for(auto const& buffer_key: interprocess_buf_idx[tid_from][tid_to]) {
+        interprocess_key2tid.erase(buffer_key.buffer_key);
+
+    }
     interprocess_buf_idx[tid_from].erase(tid_to);
     interprocess_buf_idx[tid_to].erase(tid_from);
 }
@@ -147,27 +152,27 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
     if (!isRDMA)
     {
         per_proc_map_t *per_proc_map = &interprocess_buf_idx[process_gettid(qid)];
-        if (per_proc_map->find(process_gettid(peer_qid)) == per_proc_map->end()) {
+        //if (per_proc_map->find(process_gettid(peer_qid)) == per_proc_map->end()) {
             loc = 0;
             pid_t selftid = process_gettid(qid);
             pid_t peertid = process_gettid(peer_qid);
             shm_key = buffer_new(selftid, peertid, loc);
-        } else {
-            shm_key = (*per_proc_map)[process_gettid(peer_qid)].buffer_key;
-            loc = (*per_proc_map)[process_gettid(peer_qid)].loc;
-        }
+        //} else {
+        //    shm_key = (*per_proc_map)[process_gettid(peer_qid)].buffer_key;
+        //    loc = (*per_proc_map)[process_gettid(peer_qid)].loc;
+        //}
     } else
     {
         rdma_l1_hash_t *per_proc_rdma_map = &rdma_id2key[peer_qid];
-        if (per_proc_rdma_map->find(qid) == per_proc_rdma_map->end())
-        {
+        //if (per_proc_rdma_map->find(qid) == per_proc_rdma_map->end())
+        //{
             loc = 0;
             shm_key = buffer_new_rdma(peer_qid, qid, 0);
-        } else
-        {
-            shm_key = (*per_proc_rdma_map)[qid].buffer_key;
-            loc = 0;
-        }
+        //} else
+        //{
+        //    shm_key = (*per_proc_rdma_map)[qid].buffer_key;
+        //    loc = 0;
+        //}
     }
 
     res_body->resp_connect.shm_key = shm_key;

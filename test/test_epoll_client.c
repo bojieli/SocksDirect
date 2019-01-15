@@ -9,7 +9,7 @@
 #include <sys/epoll.h>
 #include <errno.h>
 #include <arpa/inet.h>
-
+#include <netdb.h>
 #define MAXEVENTS 64
 
 static int make_socket_non_blocking (int sfd)

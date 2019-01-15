@@ -143,29 +143,31 @@ void fork_handler(metaqueue_ctl_element *req_body, int qid)
         return;
     }
     //iterate all the previous buffer
-    for (auto iter = old_tid_hash->begin(); iter != old_tid_hash->end(); iter++)
+    for (auto iter_peer = old_tid_hash->begin(); iter_peer != old_tid_hash->end(); iter_peer++)
     {
-        int peer_tid = iter->first;
-        interprocess_buf_map_t old_buffer_info = iter->second;
-        //Delete the old one
-        //buffer_del(old_tid, peer_tid);
-        //Create the new buffer
-        key_t shm_key4nproc = buffer_new(new_tid, peer_tid, old_buffer_info.loc);
-        key_t shm_key4oldproc = buffer_new(old_tid, peer_tid, old_buffer_info.loc);
-        metaqueue_ctl_element resp4nproc, resp4oldproc, resp4peerproc;
-        resp4nproc.command = RES_FORK;
-        resp4nproc.resp_fork.oldshmemkey = old_buffer_info.buffer_key;
-        resp4nproc.resp_fork.newshmemkey = shm_key4nproc;
-        process_gethandler_byqid(qid)->q[0].push(resp4nproc);
-        resp4oldproc.command = RES_FORK;
-        resp4oldproc.resp_fork.oldshmemkey = old_buffer_info.buffer_key;
-        resp4oldproc.resp_fork.newshmemkey = shm_key4oldproc;
-        process_gethandler_byqid(tidmap[old_tid])->q[0].push(resp4oldproc);
-        resp4peerproc.command = RES_PUSH_FORK;
-        resp4peerproc.push_fork.oldshmemkey = old_buffer_info.buffer_key;
-        resp4peerproc.push_fork.newshmemkey[0] = shm_key4oldproc;
-        resp4peerproc.push_fork.newshmemkey[1] = shm_key4nproc;
-        process_gethandler_byqid(tidmap[peer_tid])->q_emergency[0].push(resp4peerproc);
+        int peer_tid = iter_peer->first;
+        for (auto iter_key = iter_peer->second.begin();iter_key != iter_peer->second.end();++iter_key) {
+            interprocess_buf_map_t old_buffer_info = *iter_key;
+            //Delete the old one
+            //buffer_del(old_tid, peer_tid);
+            //Create the new buffer
+            key_t shm_key4nproc = buffer_new(new_tid, peer_tid, old_buffer_info.loc);
+            key_t shm_key4oldproc = buffer_new(old_tid, peer_tid, old_buffer_info.loc);
+            metaqueue_ctl_element resp4nproc, resp4oldproc, resp4peerproc;
+            resp4nproc.command = RES_FORK;
+            resp4nproc.resp_fork.oldshmemkey = old_buffer_info.buffer_key;
+            resp4nproc.resp_fork.newshmemkey = shm_key4nproc;
+            process_gethandler_byqid(qid)->q[0].push(resp4nproc);
+            resp4oldproc.command = RES_FORK;
+            resp4oldproc.resp_fork.oldshmemkey = old_buffer_info.buffer_key;
+            resp4oldproc.resp_fork.newshmemkey = shm_key4oldproc;
+            process_gethandler_byqid(tidmap[old_tid])->q[0].push(resp4oldproc);
+            resp4peerproc.command = RES_PUSH_FORK;
+            resp4peerproc.push_fork.oldshmemkey = old_buffer_info.buffer_key;
+            resp4peerproc.push_fork.newshmemkey[0] = shm_key4oldproc;
+            resp4peerproc.push_fork.newshmemkey[1] = shm_key4nproc;
+            process_gethandler_byqid(tidmap[peer_tid])->q_emergency[0].push(resp4peerproc);
+        }
     }
     //send FIN to all the queues
     metaqueue_ctl_element resp_fin;

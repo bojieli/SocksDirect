@@ -17,12 +17,14 @@ typedef struct
     int is_blocking;
     int is_addrreuse;
 } monitor_sock_node_t;
-typedef struct
+typedef
+struct
 {
     key_t buffer_key;
     int loc;
 } interprocess_buf_map_t;
-typedef std::unordered_map<int, interprocess_buf_map_t> per_proc_map_t;
+typedef std::vector<interprocess_buf_map_t> interp_buf_vec_t;
+typedef std::unordered_map<int, interp_buf_vec_t> per_proc_map_t;
 typedef std::unordered_map<int, per_proc_map_t> interprocess_buf_hashtable_t;
 extern const per_proc_map_t * buff_get_handler(pid_t tid);
 extern key_t buffer_new(pid_t tid_from, pid_t tid_to, int loc);

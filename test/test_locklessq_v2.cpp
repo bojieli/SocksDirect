@@ -11,7 +11,7 @@
 #include <sys/stat.h>
 #include <fcntl.h>
 #include "../common/helper.h"
-#define MMAP_FILENAME "/dev/shm/"
+#define MMAP_FILENAME "/dev/shm/aaa"
 #define TST_NUM 10000000
 locklessq_v2 test_q_sender, test_q_receiver;
 void* startaddr(nullptr),  *duplicate_addr(nullptr), *initaddr(nullptr);
@@ -82,7 +82,7 @@ void* receiver(void* args)
 int main(int argc, char * argv[])
 {
     msgsize = atoi(argv[1]);
-    int shmfd = open(MMAP_FILENAME,  O_RDWR | O_TMPFILE,S_IRWXU | S_IRWXG | S_IRWXO);
+    int shmfd = open(MMAP_FILENAME,  O_RDWR ,S_IRWXU | S_IRWXG | S_IRWXO);
     int total_size=locklessq_v2::getalignedmemsize() + ((locklessq_v2::getmemsize()-1)/(4*1024)+1)*(4*1024);
 
     if (shmfd == -1)
