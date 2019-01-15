@@ -1,3 +1,8 @@
+#if __STDC_VERSION__ >= 199901L
+#define _XOPEN_SOURCE 600
+#else
+#define _XOPEN_SOURCE 500
+#endif /* __STDC_VERSION__ */
 #include <sys/sysinfo.h>
 #include <time.h>
 #include <errno.h>
@@ -12,7 +17,7 @@ int get_cpu_utilization(double *user_util, double *kernel_util)
     static long last_user = 0, last_kernel = 0;
     long curr_user, curr_nice, curr_kernel;
     static struct timespec last_time;
-    struct timespec curr_time;
+    static struct timespec curr_time;
 
     FILE *fp = fopen("/proc/stat", "r");
     if (!fp)
