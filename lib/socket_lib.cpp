@@ -906,9 +906,92 @@ int setsockopt(int socket, int level, int option_name, const void *option_value,
     {
         thread_data_t *thread;
         thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+        if (thread == nullptr || !thread->fds_datawithrd.is_keyvalid(socket))
+        {
+            errno = EBADF;
+            return -1;
+        }
         thread->fds_datawithrd[socket].property.is_addrreuse = *reinterpret_cast<const int *>(option_value);
     }
     return 0;
+}
+
+int getsockname(int socket, struct sockaddr *addr, socklen_t *addrlen)
+{
+    if (socket < FD_DELIMITER) return ORIG(getsockname, (socket, addr, addrlen));
+    socket = MAX_FD_ID - socket;
+
+    thread_data_t *thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+    if (thread == nullptr || ! thread->fds_datawithrd.is_keyvalid(socket))
+    {
+        errno = EBADF;
+        return -1;
+    }
+    
+    // placeholder for getsockname
+    ((struct sockaddr_in *)addr)->sin_addr.s_addr = inet_addr("127.0.0.1");
+    ((struct sockaddr_in *)addr)->sin_port = htons(80);
+    return 0;
+}
+
+int getpeername(int socket, struct sockaddr *addr, socklen_t *addrlen)
+{
+    if (socket < FD_DELIMITER) return ORIG(getpeername, (socket, addr, addrlen));
+    socket = MAX_FD_ID - socket;
+
+    thread_data_t *thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+    if (thread == nullptr || ! thread->fds_datawithrd.is_keyvalid(socket))
+    {
+        errno = EBADF;
+        return -1;
+    }
+    
+    // placeholder for getpeername
+    ((struct sockaddr_in *)addr)->sin_addr.s_addr = inet_addr("8.8.8.8");
+    ((struct sockaddr_in *)addr)->sin_port = htons(12345);
+    return 0;
+}
+
+int getsockopt(int socket, int level, int option_name, void *option_value, socklen_t *option_len)
+{
+    if (socket < FD_DELIMITER) return ORIG(getsockopt, (socket, level, option_name, option_value, option_len));
+    socket = MAX_FD_ID - socket;
+    if ((level == SOL_SOCKET) && (option_name == SO_REUSEPORT))
+    {
+        thread_data_t *thread;
+        thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+        if (thread == nullptr || ! thread->fds_datawithrd.is_keyvalid(socket))
+        {
+            errno = EBADF;
+            return -1;
+        }
+        *(reinterpret_cast<int*>(option_value)) = thread->fds_datawithrd[socket].property.is_addrreuse;
+    }
+    return 0;
+}
+
+int fcntl(int fd, int cmd, ...) __THROW
+{
+    va_list p_args;
+    va_start(p_args, cmd);
+    char *argp = va_arg(p_args, char*);
+    if (fd < FD_DELIMITER)
+        return ORIG(fcntl, (fd, cmd, argp));
+
+    fd = MAX_FD_ID - fd;
+    switch (cmd) {
+        case F_SETFL:
+            return 0; // ignore
+        case F_GETFL:
+            return O_RDWR;
+        case F_SETFD:
+            return 0; // ignore
+        case F_GETFD:
+            return 0;
+        default:
+            errno = ENOTSUP;
+            return -1;
+    }
 }
 
 int ioctl(int fildes, unsigned long request, ...) __THROW
@@ -917,7 +1000,7 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
     va_start(p_args, request);
     char *argp = va_arg(p_args, char*);
     if (fildes < FD_DELIMITER)
-        ORIG(ioctl, (fildes, request, argp));
+        return ORIG(ioctl, (fildes, request, argp));
     fildes = MAX_FD_ID - fildes;
     thread_data_t *thread_data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (!thread_data->fds_datawithrd.is_keyvalid(fildes))
@@ -1359,3 +1442,40 @@ ssize_t write(int fildes, const void *buf, size_t nbyte)
     iov.iov_base=(void *)buf;
     return writev(fildes,&iov,1);
 }
+
+ssize_t send(int sockfd, const void *buf, size_t len, int flags)
+{
+    if (sockfd < FD_DELIMITER) return ORIG(send, (sockfd, buf, len, flags));
+    // flags are ignored now
+    return write(sockfd, buf, len);
+}
+
+ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
+    const struct sockaddr *dest_addr, socklen_t addrlen)
+{
+    if (sockfd < FD_DELIMITER) return ORIG(sendto, (sockfd, buf, len, flags, dest_addr, addrlen));
+    // flags, dest_addr, addrlen are ignored now
+    return send(sockfd, buf, len, flags);
+}
+
+ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags)
+{
+    if (sockfd < FD_DELIMITER) return ORIG(sendmsg, (sockfd, msg, flags));
+    // flags are ignored now
+    return writev(sockfd, msg->msg_iov, msg->msg_iovlen);
+}
+
+ssize_t recv(int sockfd, void *buf, size_t len, int flags)
+{
+    if (sockfd < FD_DELIMITER) return ORIG(recv, (sockfd, buf, len, flags));
+    // flags are ignored now
+    return read(sockfd, buf, len);
+}
+
+ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags)
+{
+    if (sockfd < FD_DELIMITER) return ORIG(recvmsg, (sockfd, msg, flags));
+    // flags are ignored now
+    return readv(sockfd, msg->msg_iov, msg->msg_iovlen);
+}
+

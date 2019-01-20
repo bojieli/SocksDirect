@@ -269,26 +269,39 @@ void ipclib_recvmsg(metaqueue_element *data)
 
 struct wrapper_arg
 {
-    void *(*func)(void *);
+    thread_data_t * thread_data;
+    thread_sock_data_t * thread_sock_data;
 
+    void *(*func)(void *);
     void *arg;
 };
 
 static void *wrapper(void *arg)
 {
-    thread_data_t backup_thread_data = *GET_THREAD_DATA();
-    thread_sock_data_t backup_thread_sock_data = *GET_THREAD_SOCK_DATA();
-    struct wrapper_arg *warg = (wrapper_arg *)arg;
+    // initialize thread data structure
+    thread_data_t * thread_data = new thread_data_t;
+    thread_sock_data_t * thread_sock_data = new thread_sock_data_t;
+    pthread_setspecific(pthread_key, (void *) thread_data);
+    pthread_setspecific(pthread_key, (void *) thread_sock_data);
+    // connect to monitor and rdma
     connect_monitor();
     usocket_init();
-    thread_data_t * thread_data = GET_THREAD_DATA();
-    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
-    *thread_data = backup_thread_data;
-    *thread_sock_data = backup_thread_sock_data;
-    void *(*func)(void *) = warg->func;
-    arg = warg->arg;
+    rdma_init();
+
+    struct wrapper_arg * warg = (struct wrapper_arg *) arg;
+    /*
+    // replace with original thread data
+    // currently not implemented
+
+    *thread_data = *(warg->thread_data);
+    *thread_sock_data = *(warg->thread_sock_data);
+    */
+
+    // call start func
+    void *(*start_func)(void *) = warg->func;
+    void *real_arg = warg->arg;
     free(warg);
-    pthread_exit(func(arg));
+    pthread_exit(start_func(real_arg));
     /* NORETURN */
 }
 
@@ -298,6 +311,8 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
     struct wrapper_arg *warg = (wrapper_arg *)malloc(sizeof(*warg));
     if (!warg)
         FATAL("malloc() failed");
+    warg->thread_data = GET_THREAD_DATA();
+    warg->thread_sock_data = GET_THREAD_SOCK_DATA();
     warg->func = start_routine;
     warg->arg = arg;
     int result = ORIG(pthread_create, (thread, attr, wrapper, warg));
