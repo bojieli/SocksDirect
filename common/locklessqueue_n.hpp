@@ -139,6 +139,11 @@ public:
         return true;
     }
 
+    inline bool is_full()
+    {
+        const unsigned int MIN_PACKET_SIZE = 16;
+        return (!credit_disabled && credits < MIN_PACKET_SIZE);
+    }
 
     inline void push(const T &data)
     {

@@ -69,6 +69,7 @@ public:
     //virtual bool push_emergency_nb(const metaqueue_ctl_element &data);
     //virtual bool pop_emergency_nb(const metaqueue_ctl_element &data);
     virtual int push_data(const ele_t &in_meta, int len, void* ptr) = 0;  //This will update the len option
+    virtual bool is_full() = 0;
     /*
      * Pop data is a little tricky: It will modify the element pointed by iter. If all the data inside iter poped, iter deleted
      */
@@ -175,6 +176,11 @@ private:
         q[0].push(topush_ele);
         return len;
     };
+
+    bool is_full()
+    {
+        return q[0].is_full();
+    }
 
     int pop_data(iterator *iter, int len, void* ptr) final
     {

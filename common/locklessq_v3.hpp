@@ -211,6 +211,11 @@ public:
 
     }
 
+    inline bool is_full()
+    {
+        return (pointer == SIZE);
+    }
+
     inline iterator begin()
     {
         iterator iter;
