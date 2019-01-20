@@ -85,7 +85,7 @@ int enum_dev(rdma_pack *p)
 
     // If we are here, port resolution has failed
     assert(p->ib_ctx == nullptr);
-    FATAL("Failed to enumerate device");
+    DEBUG("Failed to enumerate device");
     return -1;
 }
 
