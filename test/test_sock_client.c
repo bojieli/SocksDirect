@@ -17,8 +17,8 @@ int main()
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(8080);
-    inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr);
-    //inet_pton(AF_INET, "10.2.5.38", &servaddr.sin_addr);
+    //inet_pton(AF_INET, "127.0.0.1", &servaddr.sin_addr);
+    inet_pton(AF_INET, "10.2.5.38", &servaddr.sin_addr);
 
     if (connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("Failed to connect");
