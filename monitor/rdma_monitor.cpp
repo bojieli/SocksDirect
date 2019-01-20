@@ -16,7 +16,7 @@
 #include "sock_monitor.h"
 #include "process.h"
 
-static int rdma_sock_fd;
+static int rdma_sock_fd = -1;
 static rdma_pack rdma_monitor_context;
 darray_t<remote_process_t, 32> rdma_processes;
 int rdma_processes_seq;
@@ -47,7 +47,10 @@ void rdma_init()
     //3. enumerate device and get dev id
 
     //enumerate device
-    enum_dev(&rdma_monitor_context);
+    if (enum_dev(&rdma_monitor_context)) {
+        DEBUG("No RDMA devices present, initialization skipped");
+        return;
+    }
     //allocate pd
     rdma_monitor_context.ibv_pd = ibv_alloc_pd(rdma_monitor_context.ib_ctx);
     if (rdma_monitor_context.ibv_pd == nullptr)
@@ -96,6 +99,10 @@ void test_rdma_recv(int proc_idx) {
 
 bool try_new_rdma()
 {
+    if (rdma_sock_fd == -1) { // rdma is not initialized
+        return false;
+    }
+
     int peerfd;
     if ((peerfd = accept(rdma_sock_fd, NULL, NULL)) == -1)
     {

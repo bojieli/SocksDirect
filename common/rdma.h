@@ -16,7 +16,7 @@
 
 
 constexpr int SEND_PER_SIGNAL=64;
-void enum_dev(rdma_pack *p);
+int enum_dev(rdma_pack *p);
 
 //give send_cq and context, create a CQ and set to INIT state
 extern ibv_qp * rdma_create_qp(ibv_cq* send_cq, ibv_cq* recv_cq, const rdma_pack * rdma_context);

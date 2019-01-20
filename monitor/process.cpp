@@ -32,15 +32,22 @@ std::tuple<key_t, uint64_t> process_add(pid_t pid, pid_t tid)
     curr_proc.pid = pid;
     curr_proc.isRDMA=false;
     curr_proc.token = (uint64_t)rand();
+
+    if (access(SHM_NAME, F_OK) == -1) {
+        DEBUG("Shared memory token %s does not exist, trying to create", SHM_NAME);
+        if (creat(SHM_NAME, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH) == -1) {
+            FATAL("Failed to create shared memory token file %s, errno: %d (%s)", SHM_NAME, errno, strerror(errno));
+        }
+    }
     if ((curr_proc.uniq_shmem_id = ftok(SHM_NAME, id + 2)) < 0)
-        FATAL("Failed to get the key of shared memory, errno: %d", errno);
+        FATAL("Failed to get the key of shared memory, errno: %d (%s)", errno, strerror(errno));
     int shm_id = shmget(curr_proc.uniq_shmem_id, (size_t)process[id].metaqueue.get_sharememsize(), IPC_CREAT | 0777);
     if (shm_id == -1)
-        FATAL("Failed to open the shared memory, errno: %s", strerror(errno));
+        FATAL("Failed to open the shared memory, errno: %d (%s)", errno, strerror(errno));
     //point metaqueue pointer of current process to assigned memory address
     uint8_t* baseaddr = (uint8_t *) shmat(shm_id, NULL, 0);
     if (baseaddr == (uint8_t *)-1)
-        FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
+        FATAL("Failed to attach the shared memory, errno: %d (%s)", errno, strerror(errno));
     curr_proc.metaqueue.init_memlayout(baseaddr, 0);
     curr_proc.metaqueue.mem_init();
     key_t ret_val = curr_proc.uniq_shmem_id;
