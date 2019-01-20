@@ -39,7 +39,10 @@ void rdma_init()
     //3. enumerate device and get dev id
 
     //enumerate device
-    enum_dev(&rdma_lib_context);
+    if (enum_dev(&rdma_lib_context) == -1) {
+        return;
+        DEBUG("WARN: RDMA NIC not present, skipping initialization");
+    }
     //allocate pd
     rdma_lib_context.ibv_pd = ibv_alloc_pd(rdma_lib_context.ib_ctx);
     if (rdma_lib_context.ibv_pd == nullptr)
