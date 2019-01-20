@@ -21,14 +21,16 @@ static std::string link_layer_str(uint8_t link_layer) {
 
 
 //always use the first port
-void enum_dev(rdma_pack *p)
+int enum_dev(rdma_pack *p)
 {
-
     // Get the device list
     int num_devices = 0;
     int ports_to_discover=0;
     struct ibv_device** dev_list = ibv_get_device_list(&num_devices);
-    assert(dev_list != nullptr);
+    if (dev_list == nullptr) {
+        DEBUG("WARN: no RDMA NIC detected");
+        return -1;
+    }
 
     DEBUG("%d RDMA NIC detected", num_devices);
     // Traverse the device list
@@ -72,8 +74,7 @@ void enum_dev(rdma_pack *p)
             int ret = ibv_query_gid(p->ib_ctx, p->dev_port_id, 0, &(p->RoCE_gid));
             assert(ret == 0);
 
-            return;
-
+            return 0;
         }
 
         // Thank you Mario, but our port is in another device
@@ -85,6 +86,7 @@ void enum_dev(rdma_pack *p)
     // If we are here, port resolution has failed
     assert(p->ib_ctx == nullptr);
     FATAL("Failed to enumerate device");
+    return -1;
 }
 
 ibv_qp * rdma_create_qp(ibv_cq* send_cq, ibv_cq *recv_cq, const rdma_pack * rdma_context)
