@@ -17,6 +17,7 @@
 #include "fork.h"
 #include "rdma_lib.h"
 #include "../common/rdma_struct.h"
+#include <poll.h>
 
 pthread_key_t pthread_sock_key;
 #undef DEBUGON
@@ -1237,6 +1238,93 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     return ret;
 }
 #undef DEBUGON
+
+// return revents
+// called by poll_lib.cpp
+int check_sockfd_receive(int sockfd)
+{
+    thread_data_t *thread_data = GET_THREAD_DATA();
+    if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
+            || !thread_data->fds_datawithrd[sockfd].property.tcp.isopened)
+    {
+        errno = EBADF;
+        return POLLERR;
+    }
+
+    //hook for all the process
+    monitor2proc_hook();
+
+    //send recv relay message
+    /*if ((thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RD_RECV_FORKED) &&
+            !(thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RECV_REQ))
+    {
+        send_recv_takeover_req(sockfd);
+        thread_data->fds_datawithrd[sockfd].property.status &= FD_STATUS_RECV_REQ;
+    }*/
+
+    auto thread_sock_data = GET_THREAD_SOCK_DATA();
+    interprocess_n_t *buffer_has_blk(nullptr);
+    interprocess_n_t::iterator loc_has_blk(nullptr);
+    bool isFind(false);
+    auto iter = thread_data->fds_datawithrd.begin(sockfd);
+    while (true) //iterate different peer fd
+    {
+        interprocess_n_t::iterator ret_loc(nullptr);
+        bool isFin(false);
+        interprocess_n_t * buffer = (thread_sock_data->buffer[iter->buffer_idx].data);
+        ITERATE_FD_IN_BUFFER_STATE ret_state = recvfrom_iter_fd_in_buf(sockfd, iter, ret_loc, thread_data, thread_sock_data);
+        switch (ret_state)
+        {
+            case ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED:
+                return 0;
+            case ITERATE_FD_IN_BUFFER_STATE::CLOSED:
+                break;
+            case ITERATE_FD_IN_BUFFER_STATE::FIND:
+                buffer_has_blk = buffer;
+                loc_has_blk = ret_loc;
+                isFind=true;
+                break;
+            case ITERATE_FD_IN_BUFFER_STATE::NOTFIND:
+                if (iter.end())
+                    isFin=true;
+                break;
+        }
+        if (isFin) break; //Finish iterate all peer fds
+        if (isFind) break; //Get the requested block
+    }
+
+    if (isFind)
+        return POLLIN;
+    else
+        return 0;
+}
+
+// return revents
+// called by poll_lib.cpp
+int check_sockfd_send(int sockfd)
+{
+    int fd = sockfd;
+    thread_data_t *thread_data = GET_THREAD_DATA();
+    if (thread_data->fds_wr.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
+            || !thread_data->fds_datawithrd[fd].property.tcp.isopened)
+    {
+        errno = EBADF;
+        return POLLERR;
+    }
+
+    monitor2proc_hook();
+
+    auto thread_sock_data = GET_THREAD_SOCK_DATA();
+    auto iter = thread_data->fds_wr.begin(fd);
+    interprocess_n_t *buffer = thread_sock_data->
+            buffer[iter->buffer_idx].data;
+    bool is_full = buffer->is_full();
+
+    if (!is_full)
+        return POLLOUT;
+    else
+        return 0;
+}
 
 ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
 {
