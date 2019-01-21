@@ -13,7 +13,7 @@
 #include <tuple>
 
 #undef DEBUGON
-#define DEBUGON 0
+#define DEBUGON 1
 
 static void try_accept_new_proc()
 {
