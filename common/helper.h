@@ -39,6 +39,7 @@ enum
     REQ_PING,
     REQ_CLOSE,
     REQ_LISTEN,
+    REQ_ACCEPT,
     REQ_CONNECT,
     RES_ERROR,
     RES_SUCCESS,

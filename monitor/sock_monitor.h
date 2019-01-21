@@ -8,6 +8,7 @@ typedef struct
 {
     int peer_fd;
     int peer_qid;
+    bool is_accepting;
 } monitor_sock_adjlist_t;
 
 //This two structure map (tid,tid)->shmem
@@ -44,6 +45,7 @@ extern "C"
 {
 #endif
 extern void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid);
+extern void accept_handler(metaqueue_ctl_element *req_body, int qid);
 extern void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid);
 extern void close_handler(metaqueue_ctl_element *req_body, int qid);
 extern void sock_monitor_init();

@@ -87,6 +87,9 @@ static void event_processer(metaqueue_t *q, int qid)
             listen_handler(&req_body, &res_body, qid);
             q->q[0].push(res_body);
             break;
+        case REQ_ACCEPT:
+            accept_handler(&req_body, qid);
+            break;
         case REQ_CONNECT:
             connect_handler(&req_body, &res_body, qid);
             q->q[0].push(res_body);

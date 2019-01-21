@@ -106,6 +106,29 @@ void sock_monitor_init()
 
 }
 
+#undef DEBUGON
+#define DEBUGON 1
+void accept_handler(metaqueue_ctl_element *req_body, int qid)
+{
+    unsigned short port = req_body->req_accept.port;
+    if (!ports[port].is_listening)
+    {
+        DEBUG("WARN: received accept request of port %d, but it is not listening", port);
+        return;
+    }
+    auto iter = ports.begin(port);
+    while (!iter.end()) {
+        if (iter->peer_qid == qid) {
+            DEBUG("accept request received on port %d qid %d", port, qid);
+            iter->is_accepting = true;
+            return;
+        }
+    }
+    DEBUG("WARN: accept request on port %d: qid %d not found", port, qid);
+}
+
+#undef DEBUGON
+#define DEBUGON 1
 void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid)
 {
     unsigned short port = req_body->req_listen.port;
@@ -114,6 +137,7 @@ void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_
         res_body->command = RES_ERROR;
         res_body->resp_command.res_code = RES_ERROR;
         res_body->resp_command.err_code = EADDRINUSE;
+        DEBUG("received conflicting listen request on non-addrreuse port %d from qid %d", port, qid);
         return;
     }
     if (!ports[port].is_listening)
@@ -124,9 +148,11 @@ void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_
     monitor_sock_adjlist_t new_listen_fd;
     new_listen_fd.peer_qid=qid;
     new_listen_fd.peer_fd=-1;
+    new_listen_fd.is_accepting = false;
     ports.add_element(port, new_listen_fd);
     res_body->resp_command.res_code = RES_SUCCESS;
     res_body->command = RES_SUCCESS;
+    DEBUG("qid %d listen on port %d", qid, port);
 }
 
 #undef DEBUGON
@@ -145,9 +171,35 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
     }
     int peer_qid;
     auto iter = ports.begin(port);
-    monitor_sock_adjlist_t adjdata = *iter;
+    monitor_sock_adjlist_t adjdata;
+    adjdata.is_accepting = false; // initialize
+    // find the first listener that has called accept()
+    while (!iter.end()) {
+        adjdata = *iter;
+        if (adjdata.is_accepting)
+            break;
+        else
+            iter.next();
+    }
+
+    if (!adjdata.is_accepting)
+    {
+        res_body->resp_command.res_code = RES_ERROR;
+        res_body->command = RES_ERROR;
+        DEBUG("no process on port %d is accepting", port);
+        return;
+    }
+
+    // set the next iteration to start from the current listener
+    // round-robin connect request dispatching
+    ports.set_ptr_to(port, iter);
+    // try to move to the next listener, if still not empty, set it to be the beginning listener of next connect request
+    iter = iter.next();
+    if (!iter.end())
+        ports.set_ptr_to(port, iter);
+
+    // extract QID data
     peer_qid = adjdata.peer_qid;
-    iter.next();
 
     key_t shm_key;
     int loc;
