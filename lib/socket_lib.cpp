@@ -1140,7 +1140,7 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
     return iter.next();
 };
 #undef DEBUGON
-#define DEBUGON 0
+#define DEBUGON 1
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         (int target_fd, 
          adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator& iter,
@@ -1173,8 +1173,10 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     iter = thread_data->fds_datawithrd.del_element(iter);
                     if (iter.end())
                     {
-                        DEBUG("Destroyed self fd %d.", target_fd);
-                        thread_data->fds_datawithrd.del_key(target_fd);
+                        // Fix bug: close(fd) after the FD is in ALLCLOSED state return error.
+                        // Even the FD is in ALLCLOSED state, the key should not be deleted.
+                        // The application must call close() to release the FD resource.
+                        DEBUG("FD %d is all closed", target_fd);
                         return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
                     }
                     return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
@@ -1256,7 +1258,7 @@ void send_recv_takeover_req(int fd)
 
 */
 #undef DEBUGON
-#define DEBUGON 0
+#define DEBUGON 1
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen)
 {
@@ -1287,6 +1289,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     interprocess_n_t *buffer_has_blk(nullptr);
     interprocess_n_t::iterator loc_has_blk(nullptr);
     bool isFind(false);
+    int ret(-1);
     do //if blocking infinate loop
     {
         auto iter = thread_data->fds_datawithrd.begin(sockfd);
@@ -1305,7 +1308,26 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                 case ITERATE_FD_IN_BUFFER_STATE::FIND:
                     buffer_has_blk = buffer;
                     loc_has_blk = ret_loc;
-                    isFind=true;
+
+                    // pop the block
+                    //printf("found blk loc %d\n", loc_has_blk);
+                    interprocess_t::queue_t::element ele;
+                    loc_has_blk.peek(ele);
+                    ret = buffer_has_blk->pop_data(&loc_has_blk, len, (void *) buf);
+                    if (ret > 0)
+                        isFind = true;
+                    /*
+                    short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
+                    if (blk == -1)
+                    {
+                        SW_BARRIER;
+                        buffer_has_blk->q[1].del(loc_has_blk);
+                        SW_BARRIER;
+                    } else
+                    {
+                        ele.data_fd_rw.pointer = blk;
+                        buffer_has_blk->q[1].set(loc_has_blk, ele);
+                    }*/
                     break;
                 case ITERATE_FD_IN_BUFFER_STATE::NOTFIND:
                     if (iter.end())
@@ -1318,28 +1340,10 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         if (isFind) break;
         monitor2proc_hook();
     } while (thread_data->fds_datawithrd[sockfd].property.is_blocking);
-    int ret(len);
     if (!isFind)
     {
         errno = EAGAIN | EWOULDBLOCK;
         return -1;
-    } else {
-        //printf("found blk loc %d\n", loc_has_blk);
-        interprocess_t::queue_t::element ele;
-        loc_has_blk.peek(ele);
-        ret = buffer_has_blk->pop_data(&loc_has_blk, ret, (void *) buf);
-        /*
-        short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
-        if (blk == -1)
-        {
-            SW_BARRIER;
-            buffer_has_blk->q[1].del(loc_has_blk);
-            SW_BARRIER;
-        } else
-        {
-            ele.data_fd_rw.pointer = blk;
-            buffer_has_blk->q[1].set(loc_has_blk, ele);
-        }*/
     }
     return ret;
 }
