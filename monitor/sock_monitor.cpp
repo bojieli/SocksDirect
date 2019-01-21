@@ -289,11 +289,11 @@ void sock_resource_gc()
             curr_listen_proc = *iter;
             if (!process_isexist(curr_listen_proc.peer_qid))
             {
-                DEBUG("port %d qid %d not exists", i, curr_listen_proc.peer_qid);
+                DEBUG("sock GC: port %d qid %d not exists", i, curr_listen_proc.peer_qid);
                 iter = ports.del_element(iter);
                 if (ports.begin(i).end())
                 {
-                    DEBUG("All process on port %d die", i);
+                    DEBUG("sock GC: All process on port %d die", i);
                     ports[i].is_listening = 0;
                 }
             } else

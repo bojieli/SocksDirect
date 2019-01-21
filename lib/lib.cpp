@@ -276,24 +276,34 @@ struct wrapper_arg
     void *arg;
 };
 
-static void *wrapper(void *arg)
+static void import_thread_data(thread_data_t * child_thread_data, const thread_data_t * parent_thread_data)
+{
+    child_thread_data->fds_datawithrd = parent_thread_data->fds_datawithrd;
+    child_thread_data->fds_wr = parent_thread_data->fds_wr;
+    child_thread_data->rd_tree = parent_thread_data->rd_tree;
+}
+
+static void import_thread_sock_data(thread_sock_data_t * child_thread_sock_data, const thread_sock_data_t * parent_thread_sock_data)
+{
+    // shared memory should be shared among threads
+    pthread_setspecific(pthread_sock_key, (void *) parent_thread_sock_data);
+}
+
+static void *thread_wrapper(void *arg)
 {
     // initialize thread data structure
     thread_data_t * thread_data = new thread_data_t;
     pthread_setspecific(pthread_key, (void *) thread_data);
-    // connect to monitor and rdma
+    // connect to monitor, initialize socket and rdma
     connect_monitor();
     usocket_init();
     rdma_init();
 
+    // import socket configuration
     struct wrapper_arg * warg = (struct wrapper_arg *) arg;
-    /*
-    // replace with original thread data
-    // currently not implemented
-
-    *thread_data = *(warg->thread_data);
-    *thread_sock_data = *(warg->thread_sock_data);
-    */
+    import_thread_data(thread_data, warg->thread_data);
+    thread_sock_data_t * thread_sock_data = (thread_sock_data_t *) pthread_getspecific(pthread_sock_key);
+    import_thread_sock_data(thread_sock_data, warg->thread_sock_data);
 
     // call start func
     void *(*start_func)(void *) = warg->func;
@@ -313,7 +323,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
     warg->thread_sock_data = GET_THREAD_SOCK_DATA();
     warg->func = start_routine;
     warg->arg = arg;
-    int result = ORIG(pthread_create, (thread, attr, wrapper, warg));
+    int result = ORIG(pthread_create, (thread, attr, thread_wrapper, warg));
     /* XXX */
     return result;
 }
