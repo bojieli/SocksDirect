@@ -280,9 +280,7 @@ static void *wrapper(void *arg)
 {
     // initialize thread data structure
     thread_data_t * thread_data = new thread_data_t;
-    thread_sock_data_t * thread_sock_data = new thread_sock_data_t;
     pthread_setspecific(pthread_key, (void *) thread_data);
-    pthread_setspecific(pthread_key, (void *) thread_sock_data);
     // connect to monitor and rdma
     connect_monitor();
     usocket_init();
