@@ -120,6 +120,7 @@ class metaqueue_t
 public:
     locklessqueue_t<metaqueue_ctl_element, 256> q[2];
     locklessqueue_t<metaqueue_ctl_element, 256> q_emergency[2];
+
     static int get_sharememsize()
     {
         return (locklessqueue_t<metaqueue_ctl_element, 256>::getmemsize() * 2 +
