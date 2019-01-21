@@ -633,8 +633,11 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 
     q2monitor->q[0].push(req_data);
     while (!q2monitor->q[1].pop_nb(res_data));
-    if (res_data.command != RES_SUCCESS)
+    if (res_data.command != RES_SUCCESS) {
+        DEBUG("Connection failed to %s:%d", addr_str, port);
+        errno = ECONNREFUSED;
         return -1;
+    }
     //printf("%d\n", res_data.data.sock_connect_res.shm_key);
     key_t key = res_data.resp_connect.shm_key;
     int loc = res_data.resp_connect.loc;
@@ -781,7 +784,6 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     return 0;
 }
 
-
 int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     if (sockfd < FD_DELIMITER) return ORIG(accept4, (sockfd, addr, addrlen, flags));
@@ -792,6 +794,16 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     sock_data = reinterpret_cast<thread_sock_data_t *>(pthread_getspecific(pthread_sock_key));
 
     metaqueue_ctl_element element;
+    // if no pending request from the monitor, send a command to notify monitor
+    if (!data->metaqueue.q[1].pop_nb(element))
+    {
+        metaqueue_ctl_element accept_command;
+        accept_command.command = REQ_ACCEPT;
+        accept_command.req_accept.port = data->fds_datawithrd[sockfd].property.tcp.port;
+        data->metaqueue.q[0].push(accept_command);
+    }
+
+    // wait for connect requests from the monitor
     while (!data->metaqueue.q[1].pop_nb(element));
     if (element.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
@@ -901,6 +913,13 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     buffer->push_data(inter_element,0, nullptr);
     return MAX_FD_ID - idx_nfd;
 }
+
+int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
+{
+    if (sockfd < FD_DELIMITER) return ORIG(accept, (sockfd, addr, addrlen));
+    return accept4(sockfd, addr, addrlen, 0); 
+}
+
 
 int setsockopt(int socket, int level, int option_name, const void *option_value, socklen_t option_len)
 {

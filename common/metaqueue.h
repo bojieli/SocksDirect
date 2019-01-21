@@ -40,6 +40,14 @@ typedef struct __attribute__((packed))
     bool isRDMA;
 } resp_sock_connect_t;
 
+// application -> monitor
+// accept() is called but the request queue is empty
+// the monitor should dispatch a sock_connect to it
+typedef struct __attribute__((packed))
+{
+    unsigned short port;
+} command_accept_t;
+
 typedef struct __attribute__((packed))
 {
     unsigned short port;
@@ -90,6 +98,7 @@ typedef struct __attribute__((packed))
         resp_sock_connect_t resp_connect;
         command_resp_t resp_command;
         command_sock_listen_t req_listen;
+        command_accept_t req_accept;
         command_fork_t req_fork;
         command_relay_recv_t req_relay_recv;
         resp_fork_t resp_fork;
