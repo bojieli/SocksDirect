@@ -129,6 +129,8 @@ void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_
     res_body->command = RES_SUCCESS;
 }
 
+#undef DEBUGON
+#define DEBUGON 1
 void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid)
 {
     unsigned short port;
@@ -138,6 +140,7 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
     {
         res_body->resp_command.res_code = RES_ERROR;
         res_body->command = RES_ERROR;
+        DEBUG("invalid connect request: port %d is not listening", port);
         return;
     }
     int peer_qid;
@@ -161,6 +164,7 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
         //    shm_key = (*per_proc_map)[process_gettid(peer_qid)].buffer_key;
         //    loc = (*per_proc_map)[process_gettid(peer_qid)].loc;
         //}
+        DEBUG("new shm connection port %d selftid %d peertid %d", port, selftid, peertid);
     } else
     {
         rdma_l1_hash_t *per_proc_rdma_map = &rdma_id2key[peer_qid];
@@ -173,6 +177,7 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
         //    shm_key = (*per_proc_rdma_map)[qid].buffer_key;
         //    loc = 0;
         //}
+        DEBUG("new RDMA connection port %d qid %d peer_qid %d", port, qid, peer_qid);
     }
 
     res_body->resp_connect.shm_key = shm_key;
