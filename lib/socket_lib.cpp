@@ -457,6 +457,10 @@ void usocket_init()
 {
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+    if (data == nullptr) {
+        FATAL("pthread_key not initialized");
+        return;
+    }
     file_struc_rd_t _fd;
     data->fds_datawithrd.init(0,_fd);
     data->fds_wr.init(0, 0);
