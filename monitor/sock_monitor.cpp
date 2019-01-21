@@ -123,6 +123,7 @@ void accept_handler(metaqueue_ctl_element *req_body, int qid)
             iter->is_accepting = true;
             return;
         }
+        iter.next();
     }
     DEBUG("WARN: accept request on port %d: qid %d not found", port, qid);
 }

@@ -17,7 +17,107 @@ pthread_key_t pthread_key;
 
 #define DEBUGON 1
 
+struct wrapper_arg
+{
+    thread_data_t * thread_data;
+    thread_sock_data_t * thread_sock_data;
 
+    void *(*func)(void *);
+    void *arg;
+};
+
+static void child_send_listen_socket_to_monitor(thread_data_t * data)
+{
+    int sockfd = data->fds_datawithrd.hiter_begin();
+    while (sockfd != -1) {
+        if (data->fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN) {
+            listen(MAX_FD_ID - sockfd, 0);
+        }
+        sockfd = data->fds_datawithrd.hiter_next(sockfd);
+    }
+}
+
+static void import_thread_data(thread_data_t * child_thread_data, const thread_data_t * parent_thread_data)
+{
+    child_thread_data->fds_datawithrd = parent_thread_data->fds_datawithrd;
+    child_thread_data->fds_wr = parent_thread_data->fds_wr;
+    child_thread_data->rd_tree = parent_thread_data->rd_tree;
+
+    child_send_listen_socket_to_monitor(child_thread_data);
+}
+
+static void import_thread_sock_data(thread_sock_data_t * child_thread_sock_data, const thread_sock_data_t * parent_thread_sock_data)
+{
+    // shared memory should be shared among threads
+    pthread_setspecific(pthread_sock_key, (void *) parent_thread_sock_data);
+}
+
+static void connect_monitor()
+{
+    ctl_struc result;
+    setup_sock_connect(&result);
+    thread_data_t * data = GET_THREAD_DATA();
+    data->uniq_shared_id = shmget(result.key, data->metaqueue.get_sharememsize(), 0777);
+    data->token = result.token;
+    //printf("%d\n", uniq_shared_id);
+    if (data->uniq_shared_id == -1)
+        FATAL("Failed to open the shared memory, errno: %d", errno);
+    data->uniq_shared_base_addr = shmat(data->uniq_shared_id, NULL, 0);
+    if (data->uniq_shared_base_addr == (void *) -1)
+        FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
+    data->metaqueue.init_memlayout((uint8_t *)data->uniq_shared_base_addr, 1);
+}
+
+__attribute__((constructor))
+void after_exec()
+{
+    pthread_key_create(&pthread_key, NULL);
+    pthread_key_create(&pthread_sock_key, NULL);
+    thread_data_t *data = new thread_data_t;
+    pthread_setspecific(pthread_key, (void *) data);
+    connect_monitor();
+    usocket_init();
+    rdma_init();
+}
+
+static void *thread_wrapper(void *arg)
+{
+    // initialize thread data structure
+    thread_data_t * thread_data = new thread_data_t;
+    pthread_setspecific(pthread_key, (void *) thread_data);
+    // connect to monitor, initialize socket and rdma
+    connect_monitor();
+    usocket_init();
+    rdma_init();
+
+    // import socket configuration
+    struct wrapper_arg * warg = (struct wrapper_arg *) arg;
+    import_thread_data(thread_data, warg->thread_data);
+    thread_sock_data_t * thread_sock_data = (thread_sock_data_t *) pthread_getspecific(pthread_sock_key);
+    import_thread_sock_data(thread_sock_data, warg->thread_sock_data);
+
+    // call start func
+    void *(*start_func)(void *) = warg->func;
+    void *real_arg = warg->arg;
+    free(warg);
+    pthread_exit(start_func(real_arg));
+    /* NORETURN */
+}
+
+int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
+                   void *(*start_routine)(void *), void *arg) __THROW
+{
+    struct wrapper_arg *warg = (wrapper_arg *)malloc(sizeof(*warg));
+    if (!warg)
+        FATAL("malloc() failed");
+    warg->thread_data = GET_THREAD_DATA();
+    warg->thread_sock_data = GET_THREAD_SOCK_DATA();
+    warg->func = start_routine;
+    warg->arg = arg;
+    int result = ORIG(pthread_create, (thread, attr, thread_wrapper, warg));
+    /* XXX */
+    return result;
+}
 
 static void after_fork_father()
 {
@@ -120,35 +220,6 @@ static void after_fork_child(pid_t oldtid)
 
 #undef DEBUGON
 
-static void connect_monitor()
-{
-    ctl_struc result;
-    setup_sock_connect(&result);
-    thread_data_t * data = GET_THREAD_DATA();
-    data->uniq_shared_id = shmget(result.key, data->metaqueue.get_sharememsize(), 0777);
-    data->token = result.token;
-    //printf("%d\n", uniq_shared_id);
-    if (data->uniq_shared_id == -1)
-        FATAL("Failed to open the shared memory, errno: %d", errno);
-    data->uniq_shared_base_addr = shmat(data->uniq_shared_id, NULL, 0);
-    if (data->uniq_shared_base_addr == (void *) -1)
-        FATAL("Failed to attach the shared memory, err: %s", strerror(errno));
-    data->metaqueue.init_memlayout((uint8_t *)data->uniq_shared_base_addr, 1);
-
-}
-
-__attribute__((constructor))
-void after_exec()
-{
-    pthread_key_create(&pthread_key, NULL);
-    pthread_key_create(&pthread_sock_key, NULL);
-    thread_data_t *data = new thread_data_t;
-    pthread_setspecific(pthread_key, (void *) data);
-    connect_monitor();
-    usocket_init();
-    rdma_init();
-}
-
 /*
 static bool recv_takeover_check(int idx)
 {
@@ -211,6 +282,37 @@ static bool before_fork_blocking_chk()
         monitor2proc_hook();
 }*/
 
+// we currently use the same solution for thread creation as fork
+pid_t fork()
+{
+    thread_data_t * parent_thread_data = GET_THREAD_DATA();
+    thread_sock_data_t * parent_thread_sock_data = GET_THREAD_SOCK_DATA();
+
+    pid_t result = ORIG(fork, ());
+    if (result == -1)
+        return result;
+
+    if (result == 0) { // child
+        // initialize thread data structure
+        thread_data_t * thread_data = new thread_data_t;
+        pthread_setspecific(pthread_key, (void *) thread_data);
+        // connect to monitor, initialize socket and rdma
+        connect_monitor();
+        usocket_init();
+        rdma_init();
+
+        // import socket configuration
+        import_thread_data(thread_data, parent_thread_data);
+        thread_sock_data_t * thread_sock_data = (thread_sock_data_t *) pthread_getspecific(pthread_sock_key);
+        import_thread_sock_data(thread_sock_data, parent_thread_sock_data);
+    }
+    else { // parent
+        // currently parent does not do anything
+    }
+    return result;
+}
+
+/*
 pid_t fork()
 {
     //before_fork_blocking();
@@ -233,6 +335,7 @@ pid_t fork()
     }
     return result;
 }
+*/
 
 #undef DEBUGON
 #define DEBUGON 0
@@ -266,64 +369,3 @@ void ipclib_recvmsg(metaqueue_element *data)
 #undef DEBUGON
 #define DEBUGON 0
 
-
-struct wrapper_arg
-{
-    thread_data_t * thread_data;
-    thread_sock_data_t * thread_sock_data;
-
-    void *(*func)(void *);
-    void *arg;
-};
-
-static void import_thread_data(thread_data_t * child_thread_data, const thread_data_t * parent_thread_data)
-{
-    child_thread_data->fds_datawithrd = parent_thread_data->fds_datawithrd;
-    child_thread_data->fds_wr = parent_thread_data->fds_wr;
-    child_thread_data->rd_tree = parent_thread_data->rd_tree;
-}
-
-static void import_thread_sock_data(thread_sock_data_t * child_thread_sock_data, const thread_sock_data_t * parent_thread_sock_data)
-{
-    // shared memory should be shared among threads
-    pthread_setspecific(pthread_sock_key, (void *) parent_thread_sock_data);
-}
-
-static void *thread_wrapper(void *arg)
-{
-    // initialize thread data structure
-    thread_data_t * thread_data = new thread_data_t;
-    pthread_setspecific(pthread_key, (void *) thread_data);
-    // connect to monitor, initialize socket and rdma
-    connect_monitor();
-    usocket_init();
-    rdma_init();
-
-    // import socket configuration
-    struct wrapper_arg * warg = (struct wrapper_arg *) arg;
-    import_thread_data(thread_data, warg->thread_data);
-    thread_sock_data_t * thread_sock_data = (thread_sock_data_t *) pthread_getspecific(pthread_sock_key);
-    import_thread_sock_data(thread_sock_data, warg->thread_sock_data);
-
-    // call start func
-    void *(*start_func)(void *) = warg->func;
-    void *real_arg = warg->arg;
-    free(warg);
-    pthread_exit(start_func(real_arg));
-    /* NORETURN */
-}
-
-int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
-                   void *(*start_routine)(void *), void *arg) __THROW
-{
-    struct wrapper_arg *warg = (wrapper_arg *)malloc(sizeof(*warg));
-    if (!warg)
-        FATAL("malloc() failed");
-    warg->thread_data = GET_THREAD_DATA();
-    warg->thread_sock_data = GET_THREAD_SOCK_DATA();
-    warg->func = start_routine;
-    warg->arg = arg;
-    int result = ORIG(pthread_create, (thread, attr, thread_wrapper, warg));
-    /* XXX */
-    return result;
-}

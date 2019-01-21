@@ -23,8 +23,9 @@ enum
 };
 typedef struct
 {
-    int is_addrreuse;
-    int is_blocking;
+    bool is_addrreuse;
+    bool is_blocking;
+    bool is_accept_command_sent; // TCP LISTEN only
     union
     {
         struct

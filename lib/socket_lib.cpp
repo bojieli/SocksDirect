@@ -477,8 +477,9 @@ int socket(int domain, int type, int protocol) __THROW
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     file_struc_rd_t nfd;
-    nfd.property.is_addrreuse = 0;
-    nfd.property.is_blocking = 1;
+    nfd.property.is_addrreuse = false;
+    nfd.property.is_blocking = true;
+    nfd.property.is_accept_command_sent = false;
     nfd.property.tcp.isopened = false;
     unsigned int idx_nfd=data->fds_datawithrd.add_key(nfd);
     data->fds_wr.add_key(0);
@@ -794,13 +795,16 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     sock_data = reinterpret_cast<thread_sock_data_t *>(pthread_getspecific(pthread_sock_key));
 
     metaqueue_ctl_element element;
-    // if no pending request from the monitor, send a command to notify monitor
+    // if no pending new connections from the monitor, send a command to notify monitor
     if (!data->metaqueue.q[1].pop_nb(element))
     {
-        metaqueue_ctl_element accept_command;
-        accept_command.command = REQ_ACCEPT;
-        accept_command.req_accept.port = data->fds_datawithrd[sockfd].property.tcp.port;
-        data->metaqueue.q[0].push(accept_command);
+        if (!data->fds_datawithrd[sockfd].property.is_accept_command_sent) {
+            metaqueue_ctl_element accept_command;
+            accept_command.command = REQ_ACCEPT;
+            accept_command.req_accept.port = data->fds_datawithrd[sockfd].property.tcp.port;
+            data->metaqueue.q[0].push(accept_command);
+            data->fds_datawithrd[sockfd].property.is_accept_command_sent = true; 
+        }
     }
 
     // wait for connect requests from the monitor
@@ -1354,11 +1358,33 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
 int check_sockfd_receive(int sockfd)
 {
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
-            || !thread_data->fds_datawithrd[sockfd].property.tcp.isopened)
+    if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
     {
         errno = EBADF;
         return POLLERR;
+    }
+    
+    if (thread_data->fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN)
+    {
+        if (thread_data->metaqueue.q[1].isempty()) { // no incoming connections
+            // if no pending new connections from the monitor, send a command to notify monitor
+            if (!thread_data->fds_datawithrd[sockfd].property.is_accept_command_sent) {
+                metaqueue_ctl_element accept_command;
+                accept_command.command = REQ_ACCEPT;
+                accept_command.req_accept.port = thread_data->fds_datawithrd[sockfd].property.tcp.port;
+                thread_data->metaqueue.q[0].push(accept_command);
+                thread_data->fds_datawithrd[sockfd].property.is_accept_command_sent = true; 
+            }
+        }
+        else { // has some incoming connection, return event
+            return POLLIN;
+        }
+    }
+
+    if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
+            || !thread_data->fds_datawithrd[sockfd].property.tcp.isopened)
+    {
+        return 0;
     }
 
     //hook for all the process
@@ -1415,11 +1441,21 @@ int check_sockfd_send(int sockfd)
 {
     int fd = sockfd;
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds_wr.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
-            || !thread_data->fds_datawithrd[fd].property.tcp.isopened)
+    if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
     {
         errno = EBADF;
         return POLLERR;
+    }
+    
+    if (thread_data->fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN)
+    {
+        return 0;
+    }
+
+    if (thread_data->fds_wr.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
+            || !thread_data->fds_datawithrd[fd].property.tcp.isopened)
+    {
+        return 0;
     }
 
     monitor2proc_hook();
