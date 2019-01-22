@@ -43,6 +43,11 @@ static void import_thread_data(thread_data_t * child_thread_data, const thread_d
     child_thread_data->fds_wr = parent_thread_data->fds_wr;
     child_thread_data->rd_tree = parent_thread_data->rd_tree;
 
+    child_thread_data->fd_remap_table = parent_thread_data->fd_remap_table;
+    child_thread_data->fd_reverse_map_table = parent_thread_data->fd_reverse_map_table;
+    child_thread_data->max_virtual_fd = parent_thread_data->max_virtual_fd;
+    child_thread_data->deleted_virtual_fds = parent_thread_data->deleted_virtual_fds;
+
     child_send_listen_socket_to_monitor(child_thread_data);
 }
 
@@ -77,6 +82,7 @@ void after_exec()
     pthread_setspecific(pthread_key, (void *) data);
     connect_monitor();
     usocket_init();
+    fd_remapping_init();
     rdma_init();
 }
 
@@ -311,6 +317,12 @@ pid_t fork()
     }
     return result;
 }
+
+// TODO functions to wrap:
+//		vfork
+// 		clone
+// 		daemon
+// 		sigaction
 
 /*
 pid_t fork()

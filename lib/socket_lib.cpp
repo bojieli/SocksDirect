@@ -20,6 +20,112 @@
 #include <poll.h>
 
 pthread_key_t pthread_sock_key;
+
+
+fd_type_t get_fd_type(int fd)
+{
+    if (fd < 0) // error
+        return FD_TYPE_UNKNOWN;
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    if (fd >= thread_data->fd_remap_table.size())
+        return FD_TYPE_SYSTEM;
+    else
+        return thread_data->fd_remap_table[fd].type;
+}
+
+int get_real_fd(int virtual_fd)
+{
+    if (virtual_fd < 0) // error
+        return virtual_fd;
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    if (virtual_fd >= thread_data->fd_remap_table.size())
+        return virtual_fd; // default map to self
+    else
+        return thread_data->fd_remap_table[virtual_fd].real_fd;
+}
+
+int get_virtual_fd(fd_type_t type, int real_fd)
+{
+    if (real_fd < 0) // error
+        return real_fd;
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    if (real_fd >= thread_data->fd_reverse_map_table[type].size())
+        return real_fd; // default map to self
+    else
+        return thread_data->fd_reverse_map_table[type][real_fd];
+}
+
+void set_fd_type(int virtual_fd, fd_type_t type, int real_fd)
+{
+    assert(virtual_fd >= 0);
+    assert(real_fd >= 0);
+
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    // if overflow, resize
+    if (virtual_fd >= thread_data->fd_remap_table.size()) {
+        int old_size = thread_data->fd_remap_table.size();
+        int new_size = virtual_fd * 2;
+        if (new_size < INIT_FD_REMAP_TABLE_SIZE)
+            new_size = INIT_FD_REMAP_TABLE_SIZE;
+
+        // resize virtual_fd -> type, real_fd mapping table
+        thread_data->fd_remap_table.resize(new_size);
+        // initialize added entries
+        for (int i = old_size; i < new_size; i ++) {
+            thread_data->fd_remap_table[i].type = FD_TYPE_UNKNOWN;
+            // default map to self
+            thread_data->fd_remap_table[i].real_fd = -1;
+        }
+
+        // resize type, real_fd -> virtual_fd mapping table
+        for (int i = 0; i < NUM_FD_TYPES; i ++) {
+            thread_data->fd_reverse_map_table[i].resize(new_size);
+            // default map to self
+            for (int j = old_size; j < new_size; j ++)
+                thread_data->fd_reverse_map_table[i][j] = -1;
+        }
+    }
+    // add mapping
+    thread_data->fd_remap_table[virtual_fd].type = type;
+    thread_data->fd_remap_table[virtual_fd].real_fd = real_fd;
+    // add reverse mapping
+    if (type != FD_TYPE_UNKNOWN)
+        thread_data->fd_reverse_map_table[type][real_fd] = virtual_fd;
+    // update max value
+    if (virtual_fd > thread_data->max_virtual_fd)
+        thread_data->max_virtual_fd = virtual_fd;
+}
+
+static int alloc_unmapped_virtual_fd()
+{
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    if (thread_data->deleted_virtual_fds.empty()) {
+        return (++ thread_data->max_virtual_fd);
+    }
+    else {
+        int virtual_fd = thread_data->deleted_virtual_fds.back();
+        thread_data->deleted_virtual_fds.pop_back();
+        return virtual_fd;
+    }
+}
+
+int alloc_virtual_fd(fd_type_t type, int real_fd)
+{
+    if (real_fd < 0) // error passed in as virtual fd
+        return real_fd;
+    int virtual_fd = alloc_unmapped_virtual_fd();
+    set_fd_type(virtual_fd, type, real_fd);
+    return virtual_fd;
+}
+
+void delete_virtual_fd(int virtual_fd)
+{
+    assert(virtual_fd >= 0);
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    thread_data->deleted_virtual_fds.push_back(virtual_fd);
+}
+
+
 #undef DEBUGON
 #define DEBUGON 1
 void res_push_fork_handler(metaqueue_ctl_element ele)
@@ -451,7 +557,26 @@ std::pair<int, rdma_self_pack_t *>  thread_sock_data_t::newbuffer_rdma(key_t key
     return std::make_pair(ret, rdma_self_qp);
 }
 
+void fd_remapping_init()
+{
+    thread_data_t *data;
+    data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+    data->fd_reverse_map_table = std::vector<std::vector<int>>(NUM_FD_TYPES);
+    // We create a fake FD to find the next available FD for allocation
+    // This method is NOT reliable if some FD has been closed
+    // anyway, we just use it for now
+    data->max_virtual_fd = ORIG(socket, (AF_INET, SOCK_STREAM, 0));
+    if (data->max_virtual_fd == -1) {
+        FATAL("could not create virtual fd");
+        return;
+    }
+    ORIG(close, (data->max_virtual_fd));
+    data->max_virtual_fd -= 1; // the actual max FD (before fake FD)
 
+    for (int i = 0; i <= data->max_virtual_fd; i ++) {
+        set_fd_type(i, FD_TYPE_SYSTEM, i); // map to self for existing fds
+    }
+}
 
 void usocket_init()
 {
@@ -473,7 +598,11 @@ void usocket_init()
 
 int socket(int domain, int type, int protocol) __THROW
 {
-    if ((domain != AF_INET) || (type != SOCK_STREAM)) return ORIG(socket, (domain, type, protocol));
+    if ((domain != AF_INET) || (type != SOCK_STREAM)) {
+        int real_fd = ORIG(socket, (domain, type, protocol));
+        return alloc_virtual_fd(FD_TYPE_SYSTEM, real_fd);
+    }
+
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     file_struc_rd_t nfd;
@@ -483,15 +612,15 @@ int socket(int domain, int type, int protocol) __THROW
     nfd.property.tcp.isopened = false;
     unsigned int idx_nfd=data->fds_datawithrd.add_key(nfd);
     data->fds_wr.add_key(0);
-    //assert(idx_nfd == idx_nfd_wr);
-    int ret = MAX_FD_ID - idx_nfd;
-    return ret;
+    return alloc_virtual_fd(FD_TYPE_SOCKET, idx_nfd);
 }
 
 int bind(int socket, const struct sockaddr *address, socklen_t address_len) __THROW
 {
-    if (socket < FD_DELIMITER) return ORIG(bind, (socket, address, address_len));
-    socket = MAX_FD_ID - socket;
+    if (get_fd_type(socket) == FD_TYPE_SYSTEM)
+        return ORIG(bind, (get_real_fd(socket), address, address_len));
+    socket = get_real_fd(socket);
+
     unsigned short port;
     thread_data_t *data = nullptr;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
@@ -502,8 +631,10 @@ int bind(int socket, const struct sockaddr *address, socklen_t address_len) __TH
 
 int listen(int socket, int backlog) __THROW
 {
-    if (socket < FD_DELIMITER) return ORIG(listen, (socket, backlog));
-    socket = MAX_FD_ID - socket;
+    if (get_fd_type(socket) == FD_TYPE_SYSTEM)
+        return ORIG(listen, (get_real_fd(socket), backlog));
+    socket = get_real_fd(socket);
+
     metaqueue_ctl_element data2m, data_from_m;
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
@@ -527,10 +658,24 @@ int listen(int socket, int backlog) __THROW
     else return 0;
 }
 
+int shutdown(int socket, int how)
+{
+    if (get_fd_type(socket) == FD_TYPE_SYSTEM) {
+        return ORIG(shutdown, (get_real_fd(socket), how));
+    }
+    // shutdown is not implemented now, ignore it
+    return 0;
+}
+
 int close(int fildes)
 {
-    if (fildes < FD_DELIMITER) return ORIG(close, (fildes));
-    fildes = MAX_FD_ID - fildes;
+    if (get_fd_type(fildes) == FD_TYPE_SYSTEM) {
+        int ret = ORIG(close, (get_real_fd(fildes)));
+        if (ret == 0)
+            delete_virtual_fd(fildes);
+    }
+    fildes = get_real_fd(fildes);
+
     thread_data_t *data = NULL;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (!data->fds_datawithrd.is_keyvalid(fildes))
@@ -566,6 +711,7 @@ int close(int fildes)
     data->fds_datawithrd[fildes].property.tcp.isopened=false;
     data->fds_datawithrd.del_key(fildes);
     data->fds_wr.del_key(fildes);
+    delete_virtual_fd(fildes);
     return 0;
 }
 #undef DEBUGON
@@ -590,9 +736,11 @@ metaqueue_t * connect_with_rdma_stub(int socket, struct in_addr remote_addr)
 
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
+    if (get_fd_type(socket) == FD_TYPE_SYSTEM)
+        return ORIG(connect, (get_real_fd(socket), address, address_len));
+    socket = get_real_fd(socket);
+
     //init
-    if (socket < FD_DELIMITER) return ORIG(connect, (socket, address, address_len));
-    socket = MAX_FD_ID - socket;
     char addr_str[100];
     inet_ntop(AF_INET, ((void *) &((struct sockaddr_in *) address)->sin_addr), addr_str, address_len);
     if (address->sa_family != AF_INET)
@@ -787,8 +935,12 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 
 int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
-    if (sockfd < FD_DELIMITER) return ORIG(accept4, (sockfd, addr, addrlen, flags));
-    sockfd = MAX_FD_ID - sockfd;
+    if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) {
+        int real_fd = ORIG(accept4, (get_real_fd(sockfd), addr, addrlen, flags));
+        return alloc_virtual_fd(FD_TYPE_SYSTEM, real_fd);
+    }
+    sockfd = get_real_fd(sockfd);
+
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     thread_sock_data_t *sock_data;
@@ -915,20 +1067,26 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     //printf("currfd: %d\n", curr_fd);
     SW_BARRIER;
     buffer->push_data(inter_element,0, nullptr);
-    return MAX_FD_ID - idx_nfd;
+
+    return alloc_virtual_fd(FD_TYPE_SOCKET, idx_nfd);
 }
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
 {
-    if (sockfd < FD_DELIMITER) return ORIG(accept, (sockfd, addr, addrlen));
-    return accept4(sockfd, addr, addrlen, 0); 
+    if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) {
+        int real_fd = ORIG(accept, (get_real_fd(sockfd), addr, addrlen));
+        return alloc_virtual_fd(FD_TYPE_SYSTEM, real_fd);
+    }
+        
+    return accept4(sockfd, addr, addrlen, 0);
 }
 
 
 int setsockopt(int socket, int level, int option_name, const void *option_value, socklen_t option_len)
 {
-    if (socket < FD_DELIMITER) return ORIG(setsockopt, (socket, level, option_name, option_value, option_len));
-    socket = MAX_FD_ID - socket;
+    if (get_fd_type(socket) == FD_TYPE_SYSTEM) return ORIG(setsockopt, (get_real_fd(socket), level, option_name, option_value, option_len));
+    socket = get_real_fd(socket);
+
     if ((level == SOL_SOCKET) && (option_name == SO_REUSEPORT))
     {
         thread_data_t *thread;
@@ -945,8 +1103,8 @@ int setsockopt(int socket, int level, int option_name, const void *option_value,
 
 int getsockname(int socket, struct sockaddr *addr, socklen_t *addrlen)
 {
-    if (socket < FD_DELIMITER) return ORIG(getsockname, (socket, addr, addrlen));
-    socket = MAX_FD_ID - socket;
+    if (get_fd_type(socket) == FD_TYPE_SYSTEM) return ORIG(getsockname, (get_real_fd(socket), addr, addrlen));
+    socket = get_real_fd(socket);
 
     thread_data_t *thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (thread == nullptr || ! thread->fds_datawithrd.is_keyvalid(socket))
@@ -963,8 +1121,8 @@ int getsockname(int socket, struct sockaddr *addr, socklen_t *addrlen)
 
 int getpeername(int socket, struct sockaddr *addr, socklen_t *addrlen)
 {
-    if (socket < FD_DELIMITER) return ORIG(getpeername, (socket, addr, addrlen));
-    socket = MAX_FD_ID - socket;
+    if (get_fd_type(socket) == FD_TYPE_SYSTEM) return ORIG(getpeername, (get_real_fd(socket), addr, addrlen));
+    socket = get_real_fd(socket);
 
     thread_data_t *thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (thread == nullptr || ! thread->fds_datawithrd.is_keyvalid(socket))
@@ -981,8 +1139,9 @@ int getpeername(int socket, struct sockaddr *addr, socklen_t *addrlen)
 
 int getsockopt(int socket, int level, int option_name, void *option_value, socklen_t *option_len)
 {
-    if (socket < FD_DELIMITER) return ORIG(getsockopt, (socket, level, option_name, option_value, option_len));
-    socket = MAX_FD_ID - socket;
+    if (get_fd_type(socket) == FD_TYPE_SYSTEM) return ORIG(getsockopt, (get_real_fd(socket), level, option_name, option_value, option_len));
+    socket = get_real_fd(socket);
+
     if ((level == SOL_SOCKET) && (option_name == SO_REUSEPORT))
     {
         thread_data_t *thread;
@@ -1002,10 +1161,10 @@ int fcntl(int fd, int cmd, ...) __THROW
     va_list p_args;
     va_start(p_args, cmd);
     char *argp = va_arg(p_args, char*);
-    if (fd < FD_DELIMITER)
-        return ORIG(fcntl, (fd, cmd, argp));
+    if (get_fd_type(fd) == FD_TYPE_SYSTEM)
+        return ORIG(fcntl, (get_real_fd(fd), cmd, argp));
+    fd = get_real_fd(fd);
 
-    fd = MAX_FD_ID - fd;
     switch (cmd) {
         case F_SETFL:
             return 0; // ignore
@@ -1026,9 +1185,10 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
     va_list p_args;
     va_start(p_args, request);
     char *argp = va_arg(p_args, char*);
-    if (fildes < FD_DELIMITER)
-        return ORIG(ioctl, (fildes, request, argp));
-    fildes = MAX_FD_ID - fildes;
+    if (get_fd_type(fildes) == FD_TYPE_SYSTEM)
+        return ORIG(ioctl, (get_real_fd(fildes), request, argp));
+    fildes = get_real_fd(fildes);
+
     thread_data_t *thread_data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     if (!thread_data->fds_datawithrd.is_keyvalid(fildes))
     {
@@ -1043,8 +1203,8 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
 
 ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 {
-    if (fd < FD_DELIMITER) return ORIG(writev, (fd, iov, iovcnt));
-    fd = MAX_FD_ID - fd;
+    if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(writev, (get_real_fd(fd), iov, iovcnt));
+    fd = get_real_fd(fd);
 
     thread_data_t *thread_data = GET_THREAD_DATA();
     if (thread_data->fds_wr.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
@@ -1267,8 +1427,8 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen)
 {
     //test whether fd exists
-    if (sockfd < FD_DELIMITER) return ORIG(recvfrom, (sockfd, buf, len, flags, src_addr, addrlen));
-    sockfd = MAX_FD_ID - sockfd;
+    if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) return ORIG(recvfrom, (get_real_fd(sockfd), buf, len, flags, src_addr, addrlen));
+    sockfd = get_real_fd(sockfd);
 
     thread_data_t *thread_data = GET_THREAD_DATA();
     if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
@@ -1474,7 +1634,7 @@ int check_sockfd_send(int sockfd)
 
 ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
 {
-    if (fd < FD_DELIMITER) return ORIG(readv, (fd, iov, iovcnt));
+    if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(readv, (get_real_fd(fd), iov, iovcnt));
     ssize_t ret(0);
     bool iserror(false);
     for (int i=0;i<iovcnt;++i)
@@ -1493,13 +1653,13 @@ ssize_t readv(int fd, const struct iovec *iov, int iovcnt)
 
 ssize_t read(int fildes, void *buf, size_t nbyte)
 {
-    if (fildes < FD_DELIMITER) return ORIG(read, (fildes, buf, nbyte));
+    if (get_fd_type(fildes) == FD_TYPE_SYSTEM) return ORIG(read, (get_real_fd(fildes), buf, nbyte));
     return recvfrom(fildes,buf,nbyte,0,NULL,NULL);
 }
 
 ssize_t write(int fildes, const void *buf, size_t nbyte)
 {
-    if (fildes < FD_DELIMITER) return ORIG(write, (fildes, buf, nbyte));
+    if (get_fd_type(fildes) == FD_TYPE_SYSTEM) return ORIG(write, (get_real_fd(fildes), buf, nbyte));
     iovec iov;
     iov.iov_len=nbyte;
     iov.iov_base=(void *)buf;
@@ -1508,7 +1668,7 @@ ssize_t write(int fildes, const void *buf, size_t nbyte)
 
 ssize_t send(int sockfd, const void *buf, size_t len, int flags)
 {
-    if (sockfd < FD_DELIMITER) return ORIG(send, (sockfd, buf, len, flags));
+    if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) return ORIG(send, (get_real_fd(sockfd), buf, len, flags));
     // flags are ignored now
     return write(sockfd, buf, len);
 }
@@ -1516,29 +1676,117 @@ ssize_t send(int sockfd, const void *buf, size_t len, int flags)
 ssize_t sendto(int sockfd, const void *buf, size_t len, int flags,
     const struct sockaddr *dest_addr, socklen_t addrlen)
 {
-    if (sockfd < FD_DELIMITER) return ORIG(sendto, (sockfd, buf, len, flags, dest_addr, addrlen));
+    if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) return ORIG(sendto, (get_real_fd(sockfd), buf, len, flags, dest_addr, addrlen));
     // flags, dest_addr, addrlen are ignored now
     return send(sockfd, buf, len, flags);
 }
 
 ssize_t sendmsg(int sockfd, const struct msghdr *msg, int flags)
 {
-    if (sockfd < FD_DELIMITER) return ORIG(sendmsg, (sockfd, msg, flags));
+    if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) return ORIG(sendmsg, (get_real_fd(sockfd), msg, flags));
     // flags are ignored now
     return writev(sockfd, msg->msg_iov, msg->msg_iovlen);
 }
 
 ssize_t recv(int sockfd, void *buf, size_t len, int flags)
 {
-    if (sockfd < FD_DELIMITER) return ORIG(recv, (sockfd, buf, len, flags));
+    if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) return ORIG(recv, (get_real_fd(sockfd), buf, len, flags));
     // flags are ignored now
     return read(sockfd, buf, len);
 }
 
 ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags)
 {
-    if (sockfd < FD_DELIMITER) return ORIG(recvmsg, (sockfd, msg, flags));
+    if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) return ORIG(recvmsg, (get_real_fd(sockfd), msg, flags));
     // flags are ignored now
     return readv(sockfd, msg->msg_iov, msg->msg_iovlen);
 }
 
+int dup(int oldfd)
+{
+    if (get_fd_type(oldfd) == FD_TYPE_SYSTEM)
+        return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(dup, (get_real_fd(oldfd))));
+
+    // not implemented for now
+    errno = ENOTSUP;
+    return -1;
+}
+
+int dup2(int oldfd, int newfd)
+{
+    if (get_fd_type(oldfd) == FD_TYPE_SYSTEM) {
+        int real_fd = ORIG(socket, (AF_INET, SOCK_STREAM, 0));
+        if (real_fd < 0) {
+            errno = ENOMEM;
+            return -1;
+        }
+        real_fd = ORIG(dup2, (get_real_fd(oldfd), real_fd));
+        set_fd_type(newfd, FD_TYPE_SYSTEM, real_fd);
+    }
+
+    // not implemented for now
+    errno = ENOTSUP;
+    return -1;
+}
+
+ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
+{
+    if (get_fd_type(in_fd) == FD_TYPE_SYSTEM && get_fd_type(out_fd) == FD_TYPE_SYSTEM) {
+        return ORIG(sendfile, (get_real_fd(out_fd), get_real_fd(in_fd), offset, count));
+    }
+
+    // not implemented for now
+    errno = ENOTSUP;
+    return -1;
+}
+
+int socketpair(int domain, int type, int protocol, int sv[2])
+{
+	int ret = ORIG(socketpair, (domain, type, protocol, sv));
+	if (ret == 0) {
+        sv[0] = alloc_virtual_fd(FD_TYPE_SYSTEM, sv[0]);
+        sv[1] = alloc_virtual_fd(FD_TYPE_SYSTEM, sv[1]);
+    }
+    return ret;
+}
+
+int pipe(int pipefd[2])
+{
+    int ret = ORIG(pipe, (pipefd));
+    if (ret == 0) {
+        pipefd[0] = alloc_virtual_fd(FD_TYPE_SYSTEM, pipefd[0]);
+        pipefd[1] = alloc_virtual_fd(FD_TYPE_SYSTEM, pipefd[1]);
+    }
+    return ret;
+}
+
+int pipe2(int pipefd[2], int flags)
+{
+    int ret = ORIG(pipe2, (pipefd, flags));
+    if (ret == 0) {
+        pipefd[0] = alloc_virtual_fd(FD_TYPE_SYSTEM, pipefd[0]);
+        pipefd[1] = alloc_virtual_fd(FD_TYPE_SYSTEM, pipefd[1]);
+    }
+    return ret;
+}
+
+int open(const char *pathname, int flags, ...)
+{
+    va_list p_args;
+    va_start(p_args, flags);
+    int mode = va_arg(p_args, int);
+    return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(open, (pathname, flags, mode)));
+}
+
+int creat(const char *pathname, mode_t mode)
+{
+    return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(creat, (pathname, mode)));
+}
+
+int openat(int dirfd, const char *pathname, int flags, ...)
+{
+    va_list p_args;
+    va_start(p_args, flags);
+    int mode = va_arg(p_args, int);
+    return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(openat, (dirfd, pathname, flags, mode)));
+}

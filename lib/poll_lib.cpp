@@ -42,16 +42,16 @@ static int check_sockfd_event(int sockfd, int events)
 // return revents
 static int check_fd_event(int fd, int events)
 {
-    if (fd < FD_DELIMITER) { // system fd
+    if (get_fd_type(fd) == FD_TYPE_SYSTEM) { // system fd
         struct pollfd sys_fd;
-        sys_fd.fd = fd;
+        sys_fd.fd = get_real_fd(fd);
         sys_fd.events = events;
         sys_fd.revents = 0;
         ORIG(poll, (&sys_fd, 1, 0));
         return sys_fd.revents;
     }
     else { // user space fd
-        int sockfd = MAX_FD_ID - fd;
+        int sockfd = get_real_fd(fd);
         return check_sockfd_event(sockfd, events);
     }
 }
@@ -183,7 +183,8 @@ int epoll_create(int size)
         errno = EINVAL;
         return -1;
     }
-    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    // epoll fd does not need "real FD", so use 0 instead
+    int fd = alloc_virtual_fd(FD_TYPE_EPOLL, 0);
     epoll_fd_t empty_epoll_fd;
     epoll_fds[fd] = empty_epoll_fd;
     return fd;
