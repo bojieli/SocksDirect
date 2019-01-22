@@ -58,6 +58,7 @@ typedef struct
 
 
 void usocket_init();
+void fd_remapping_init();
 #ifdef __cplusplus
 }
 #endif
@@ -101,6 +102,28 @@ public:
 
 };
 void monitor2proc_hook();
+
+const int NUM_FD_TYPES = 3;
+const int INIT_FD_REMAP_TABLE_SIZE = 128;
+
+typedef enum {
+    FD_TYPE_SYSTEM = 0,  // kernel fd, the default fd type
+    FD_TYPE_SOCKET = 1,  // socket fd
+    FD_TYPE_EPOLL  = 2,  // epoll fd
+    FD_TYPE_UNKNOWN = 3  // default
+} fd_type_t;
+
+typedef struct {
+    fd_type_t type;
+    int real_fd;
+} fd_remap_entry_t;
+
+fd_type_t get_fd_type(int fd);
+int get_real_fd(int virtual_fd);
+int get_virtual_fd(fd_type_t type, int real_fd);
+void set_fd_type(int fd, fd_type_t type);
+int alloc_virtual_fd(fd_type_t type, int real_fd);
+void delete_virtual_fd(int virtual_fd);
 
 #endif
 #endif //IPC_DIRECT_SOCKET_LIB_H
