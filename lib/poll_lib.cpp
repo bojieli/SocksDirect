@@ -206,7 +206,7 @@ int epoll_create1(int flags)
 }
 
 #undef DEBUGON
-#define DEBUGON 0
+#define DEBUGON 1
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
     DEBUG("epoll_ctl epfd %d op %d fd %d", epfd, op, fd);
@@ -272,6 +272,7 @@ static int epoll_wait_nonblock(int epfd, struct epoll_event *events, int maxeven
 
 int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
 {
+    DEBUG("epoll_wait %d", epfd);
     struct timespec begin_time;
     if (timeout > 0) {
         clock_gettime(CLOCK_MONOTONIC, &begin_time);
