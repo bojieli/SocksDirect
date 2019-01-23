@@ -31,7 +31,7 @@ static void child_send_listen_socket_to_monitor(thread_data_t * data)
     int sockfd = data->fds_datawithrd.hiter_begin();
     while (sockfd != -1) {
         if (data->fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN) {
-            listen(MAX_FD_ID - sockfd, 0);
+            listen(get_virtual_fd(FD_TYPE_SOCKET, sockfd), 0);
         }
         sockfd = data->fds_datawithrd.hiter_next(sockfd);
     }
