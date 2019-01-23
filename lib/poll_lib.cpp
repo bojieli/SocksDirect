@@ -190,6 +190,12 @@ int epoll_create(int size)
     return fd;
 }
 
+void epoll_remove(int fd)
+{
+    epoll_fds.erase(fd);
+    delete_virtual_fd(fd);
+}
+
 int epoll_create1(int flags)
 {
     if (flags < 0) {

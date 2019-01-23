@@ -125,5 +125,7 @@ void set_fd_type(int fd, fd_type_t type);
 int alloc_virtual_fd(fd_type_t type, int real_fd);
 void delete_virtual_fd(int virtual_fd);
 
+void epoll_remove(int fd);
+
 #endif
 #endif //IPC_DIRECT_SOCKET_LIB_H

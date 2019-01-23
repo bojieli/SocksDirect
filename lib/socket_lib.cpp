@@ -24,8 +24,10 @@ pthread_key_t pthread_sock_key;
 
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 
+// fd remapping should be used after initialized
+static bool fd_remap_initialized = false;
 // from virtual fd to type and real fd
 static std::vector<fd_remap_entry_t> fd_remap_table;
 // from type and real fd to virtual fd
@@ -40,9 +42,11 @@ static std::mutex deleted_virtual_fds_mutex;
 
 fd_type_t get_fd_type(int fd)
 {
-    if (fd < 0) // error
+    if (!fd_remap_initialized)
+        return FD_TYPE_SYSTEM;
+    else if (fd < 0) // error
         return FD_TYPE_UNKNOWN;
-    if (fd >= fd_remap_table.size())
+    else if (fd >= fd_remap_table.size())
         return FD_TYPE_SYSTEM;
     else
         return fd_remap_table[fd].type;
@@ -50,9 +54,9 @@ fd_type_t get_fd_type(int fd)
 
 int get_real_fd(int virtual_fd)
 {
-    if (virtual_fd < 0) // error pass through
+    if (virtual_fd < 0 || !fd_remap_initialized) // error pass through
         return virtual_fd;
-    if (virtual_fd >= fd_remap_table.size())
+    else if (virtual_fd >= fd_remap_table.size())
         return -1;
     else
         return fd_remap_table[virtual_fd].real_fd;
@@ -130,7 +134,7 @@ static int alloc_unmapped_virtual_fd()
 #define DEBUGON 0
 int alloc_virtual_fd(fd_type_t type, int real_fd)
 {
-    if (real_fd < 0) // error pass through
+    if (real_fd < 0 || !fd_remap_initialized) // error pass through
         return real_fd;
     int virtual_fd = alloc_unmapped_virtual_fd();
     set_fd_type(virtual_fd, type, real_fd);
@@ -593,6 +597,7 @@ void fd_remapping_init()
     ORIG(close, (max_virtual_fd));
     max_virtual_fd -= 1; // the actual max FD (before fake FD)
 
+    fd_remap_initialized = true;
     for (int i = 0; i <= max_virtual_fd; i ++) {
         set_fd_type(i, FD_TYPE_SYSTEM, i); // map to self for existing fds
     }
@@ -696,13 +701,24 @@ int shutdown(int socket, int how)
     return 0;
 }
 
+#undef DEBUGON
+#define DEBUGON 0
 int close(int fildes)
 {
     if (get_fd_type(fildes) == FD_TYPE_SYSTEM) {
         int ret = ORIG(close, (get_real_fd(fildes)));
+        DEBUG("close system FD virtual %d real %d", fildes, get_real_fd(fildes));
         if (ret == 0)
             delete_virtual_fd(fildes);
+        return ret;
     }
+    if (get_fd_type(fildes) == FD_TYPE_EPOLL) {
+        DEBUG("close epoll FD virtual %d", fildes);
+        epoll_remove(fildes);
+        return 0;
+    }
+
+    DEBUG("close socket FD virtual %d real %d", fildes, get_real_fd(fildes));
     fildes = get_real_fd(fildes);
 
     thread_data_t *data = NULL;
@@ -1732,6 +1748,38 @@ ssize_t write(int fildes, const void *buf, size_t nbyte)
     return writev(fildes,&iov,1);
 }
 
+ssize_t pread(int fd, void *buf, size_t count, off_t offset)
+{
+    if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(pread, (get_real_fd(fd), buf, count, offset));
+    // socket cannot be read from an offset
+    errno = EINVAL;
+    return -1;
+}
+
+ssize_t pread64(int fd, void *buf, size_t count, off_t offset)
+{
+    if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(pread64, (get_real_fd(fd), buf, count, offset));
+    // socket cannot be read from an offset
+    errno = EINVAL;
+    return -1;
+}
+
+ssize_t pwrite(int fd, const void *buf, size_t count, off_t offset)
+{
+    if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(pwrite, (get_real_fd(fd), buf, count, offset));
+    // socket cannot be written to an offset
+    errno = EINVAL;
+    return -1;
+}
+
+ssize_t pwrite64(int fd, const void *buf, size_t count, off_t offset)
+{
+    if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(pwrite64, (get_real_fd(fd), buf, count, offset));
+    // socket cannot be written to an offset
+    errno = EINVAL;
+    return -1;
+}
+
 ssize_t send(int sockfd, const void *buf, size_t len, int flags)
 {
     if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) return ORIG(send, (get_real_fd(sockfd), buf, len, flags));
@@ -1780,6 +1828,7 @@ int dup(int oldfd)
         return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(dup, (get_real_fd(oldfd))));
 
     // not implemented for now
+    ERROR("dup fd %d not implemented for socket", oldfd);
     errno = ENOTSUP;
     return -1;
 }
@@ -1794,9 +1843,11 @@ int dup2(int oldfd, int newfd)
         }
         real_fd = ORIG(dup2, (get_real_fd(oldfd), real_fd));
         set_fd_type(newfd, FD_TYPE_SYSTEM, real_fd);
+        return newfd;
     }
 
     // not implemented for now
+    ERROR("dup2 fd %d -> %d not implemented for socket", oldfd, newfd);
     errno = ENOTSUP;
     return -1;
 }
@@ -1850,6 +1901,14 @@ int open(const char *pathname, int flags, ...)
     return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(open, (pathname, flags, mode)));
 }
 
+int open64(const char *pathname, int flags, ...)
+{
+    va_list p_args;
+    va_start(p_args, flags);
+    int mode = va_arg(p_args, int);
+    return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(open64, (pathname, flags, mode)));
+}
+
 int creat(const char *pathname, mode_t mode)
 {
     return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(creat, (pathname, mode)));
@@ -1861,6 +1920,14 @@ int openat(int dirfd, const char *pathname, int flags, ...)
     va_start(p_args, flags);
     int mode = va_arg(p_args, int);
     return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(openat, (dirfd, pathname, flags, mode)));
+}
+
+int openat64(int dirfd, const char *pathname, int flags, ...)
+{
+    va_list p_args;
+    va_start(p_args, flags);
+    int mode = va_arg(p_args, int);
+    return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(openat64, (dirfd, pathname, flags, mode)));
 }
 
 // we cannot call dlsym (ORIG) directly for mmap, otherwise will segfault
