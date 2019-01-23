@@ -24,19 +24,9 @@ typedef struct
     //d_file_struc_t fds;
     //d_fd_list_t adjlist;
    
-    // from virtual fd to type and real fd
-    std::vector<fd_remap_entry_t> fd_remap_table;
-    // from type and real fd to virtual fd
-    std::vector<std::vector<int>> fd_reverse_map_table;
-    // current max virtual fd (for allocation)
-    int max_virtual_fd;
-    // deleted virtual fds are to be recycled (the vector is actually a stack)
-    std::vector<int> deleted_virtual_fds;
-
     // initialize RDMA on first use
     bool is_rdma_initialized;
 } thread_data_t;
-
 
 extern pthread_key_t pthread_key;
 

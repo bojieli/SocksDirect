@@ -43,12 +43,13 @@ static void import_thread_data(thread_data_t * child_thread_data, const thread_d
     child_thread_data->fds_wr = parent_thread_data->fds_wr;
     child_thread_data->rd_tree = parent_thread_data->rd_tree;
 
-    child_thread_data->fd_remap_table = parent_thread_data->fd_remap_table;
-    child_thread_data->fd_reverse_map_table = parent_thread_data->fd_reverse_map_table;
-    child_thread_data->max_virtual_fd = parent_thread_data->max_virtual_fd;
-    child_thread_data->deleted_virtual_fds = parent_thread_data->deleted_virtual_fds;
-
     child_send_listen_socket_to_monitor(child_thread_data);
+
+    /*
+    // TODO: we have not done development of socket migration among threads
+    // this is a place holder to simply use the same per-thread data among all threads
+    pthread_setspecific(pthread_key, (void *) parent_thread_data);
+    */
 }
 
 static void import_thread_sock_data(thread_sock_data_t * child_thread_sock_data, const thread_sock_data_t * parent_thread_sock_data)
@@ -77,8 +78,6 @@ static void thread_init()
 {
     thread_data_t *data = new thread_data_t;
     pthread_setspecific(pthread_key, (void *) data);
-    // init fd remapping before initial connections are established
-    fd_remapping_init();
     // connect to monitor and initialize socket
     connect_monitor();
     usocket_init();
@@ -91,6 +90,8 @@ void after_exec()
     pthread_key_create(&pthread_key, NULL);
     pthread_key_create(&pthread_sock_key, NULL);
     thread_init();
+    // fd remapping is shared among threads, only one instance needed
+    fd_remapping_init();
 }
 
 static void *thread_wrapper(void *arg)
