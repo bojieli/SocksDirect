@@ -238,10 +238,6 @@ static int epoll_wait_nonblock(int epfd, struct epoll_event *events, int maxeven
             poll_events |= POLLOUT;
         if (epoll_events & EPOLLERR)
             poll_events |= POLLERR; // ignored for now
-        if (epoll_events & EPOLLET) {
-            errno = ENOTSUP; // EPOLLET not supported yet
-            return -1;
-        }
 
         int poll_revents = check_fd_event(fd, poll_events);
         if (poll_revents) {
