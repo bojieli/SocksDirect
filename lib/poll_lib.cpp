@@ -206,16 +206,18 @@ int epoll_create1(int flags)
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
     DEBUG("epoll_ctl epfd %d op %d fd %d", epfd, op, fd);
     if (epoll_fds.find(epfd) == epoll_fds.end()) {
         errno = EBADF;
+        ERROR("epoll_ctl passed in unknown epfd %d", epfd);
         return -1;
     }
     if (get_fd_type(fd) == FD_TYPE_UNKNOWN) {
         errno = EBADF;
+        ERROR("epoll_ctl passed in unknown fd %d", fd);
         return -1;
     }
     if (op == EPOLL_CTL_ADD || op == EPOLL_CTL_MOD) {

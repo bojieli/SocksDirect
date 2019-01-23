@@ -25,7 +25,7 @@ pthread_key_t pthread_sock_key;
 
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 
 // fd remapping should be used after initialized
 static bool fd_remap_initialized = false;
@@ -1169,8 +1169,10 @@ int getsockname(int socket, struct sockaddr *addr, socklen_t *addrlen)
     }
     
     // placeholder for getsockname
-    ((struct sockaddr_in *)addr)->sin_addr.s_addr = inet_addr("127.0.0.1");
+    addr->sa_family = AF_INET;
+    inet_pton(AF_INET, "127.0.0.1", &((struct sockaddr_in *)addr)->sin_addr);
     ((struct sockaddr_in *)addr)->sin_port = htons(80);
+    *addrlen = sizeof(struct sockaddr_in);
     return 0;
 }
 
@@ -1187,8 +1189,10 @@ int getpeername(int socket, struct sockaddr *addr, socklen_t *addrlen)
     }
     
     // placeholder for getpeername
-    ((struct sockaddr_in *)addr)->sin_addr.s_addr = inet_addr("8.8.8.8");
+    addr->sa_family = AF_INET;
+    inet_pton(AF_INET, "127.0.0.1", &((struct sockaddr_in *)addr)->sin_addr);
     ((struct sockaddr_in *)addr)->sin_port = htons(12345);
+    *addrlen = sizeof(struct sockaddr_in);
     return 0;
 }
 
@@ -1207,6 +1211,11 @@ int getsockopt(int socket, int level, int option_name, void *option_value, sockl
             return -1;
         }
         *(reinterpret_cast<int*>(option_value)) = thread->fds_datawithrd[socket].property.is_addrreuse;
+        *option_len = sizeof(int);
+    }
+    else {
+        // not implemented yet
+        *option_len = 0;
     }
     return 0;
 }
