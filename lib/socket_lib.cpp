@@ -973,7 +973,12 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
             data->fds_datawithrd[sockfd].property.is_accept_command_sent = true; 
         }
         // wait for connect requests from the monitor
-        while (!data->metaqueue.q[1].pop_nb(element));
+        if (data->fds_datawithrd[sockfd].property.is_blocking) {
+            while (!data->metaqueue.q[1].pop_nb(element));
+        } else {
+            errno = EAGAIN;
+            return -1;
+        }
     }
 
     // now the command from monitor must be valid. check if is a new connection request
@@ -1176,16 +1181,29 @@ int fcntl(int fd, int cmd, ...) __THROW
 {
     va_list p_args;
     va_start(p_args, cmd);
-    char *argp = va_arg(p_args, char*);
+    int flags = va_arg(p_args, int);
     if (get_fd_type(fd) == FD_TYPE_SYSTEM)
-        return ORIG(fcntl, (get_real_fd(fd), cmd, argp));
+        return ORIG(fcntl, (get_real_fd(fd), cmd, flags));
     fd = get_real_fd(fd);
+
+    thread_data_t *thread_data = GET_THREAD_DATA();
+    if (!thread_data->fds_datawithrd.is_keyvalid(fd)) {
+        errno = EBADF;
+        return -1;
+    }
 
     switch (cmd) {
         case F_SETFL:
-            return 0; // ignore
-        case F_GETFL:
-            return O_RDWR;
+            if (flags == O_NONBLOCK) {
+                thread_data->fds_datawithrd[fd].property.is_blocking = false;
+            }
+            return 0; // ignore other flags
+        case F_GETFL: {
+            int ret_flags = O_RDWR;
+            if (thread_data->fds_datawithrd[fd].property.is_blocking)
+                ret_flags = O_NONBLOCK;
+            return ret_flags;
+        }
         case F_SETFD:
             return 0; // ignore
         case F_GETFD:
