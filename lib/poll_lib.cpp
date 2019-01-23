@@ -272,7 +272,7 @@ static int epoll_wait_nonblock(int epfd, struct epoll_event *events, int maxeven
 
 int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
 {
-    DEBUG("epoll_wait %d", epfd);
+    DEBUG("epoll_wait epfd %d begin", epfd);
     struct timespec begin_time;
     if (timeout > 0) {
         clock_gettime(CLOCK_MONOTONIC, &begin_time);
@@ -296,6 +296,7 @@ int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
                 break;
         }
     }
+    DEBUG("epoll_wait epfd %d finish with %d events", epfd, polled_events);
     return polled_events;
 }
 
