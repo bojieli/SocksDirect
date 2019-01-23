@@ -18,94 +18,110 @@
 #include "rdma_lib.h"
 #include "../common/rdma_struct.h"
 #include <poll.h>
+#include <mutex>
 
 pthread_key_t pthread_sock_key;
 
+
+#undef DEBUGON
+#define DEBUGON 1
+
+// from virtual fd to type and real fd
+static std::vector<fd_remap_entry_t> fd_remap_table;
+// from type and real fd to virtual fd
+static std::vector<std::vector<int>> fd_reverse_map_table;
+// current max virtual fd (for allocation)
+static int max_virtual_fd;
+// deleted virtual fds are to be recycled (the vector is actually a stack)
+static std::vector<int> deleted_virtual_fds;
+// mutex and locks for concurrent update
+static std::mutex fd_remap_table_mutex;
+static std::mutex deleted_virtual_fds_mutex;
 
 fd_type_t get_fd_type(int fd)
 {
     if (fd < 0) // error
         return FD_TYPE_UNKNOWN;
-    thread_data_t * thread_data = GET_THREAD_DATA();
-    if (fd >= thread_data->fd_remap_table.size())
+    if (fd >= fd_remap_table.size())
         return FD_TYPE_SYSTEM;
     else
-        return thread_data->fd_remap_table[fd].type;
+        return fd_remap_table[fd].type;
 }
 
 int get_real_fd(int virtual_fd)
 {
     if (virtual_fd < 0) // error pass through
         return virtual_fd;
-    thread_data_t * thread_data = GET_THREAD_DATA();
-    if (virtual_fd >= thread_data->fd_remap_table.size())
+    if (virtual_fd >= fd_remap_table.size())
         return -1;
     else
-        return thread_data->fd_remap_table[virtual_fd].real_fd;
+        return fd_remap_table[virtual_fd].real_fd;
 }
 
 int get_virtual_fd(fd_type_t type, int real_fd)
 {
     if (real_fd < 0) // error pass through
         return real_fd;
-    thread_data_t * thread_data = GET_THREAD_DATA();
-    if (real_fd >= thread_data->fd_reverse_map_table[type].size())
+    if (real_fd >= fd_reverse_map_table[type].size())
         return -1;
     else
-        return thread_data->fd_reverse_map_table[type][real_fd];
+        return fd_reverse_map_table[type][real_fd];
 }
 
 void set_fd_type(int virtual_fd, fd_type_t type, int real_fd)
 {
+    DEBUG("set_fd_type virtual fd %d type %d real fd %d", virtual_fd, type, real_fd);
+
     assert(virtual_fd >= 0);
     assert(real_fd >= 0);
 
-    thread_data_t * thread_data = GET_THREAD_DATA();
     // if overflow, resize
-    if (virtual_fd >= thread_data->fd_remap_table.size()) {
-        int old_size = thread_data->fd_remap_table.size();
+    if (virtual_fd >= fd_remap_table.size()) {
+        std::lock_guard<std::mutex> lck (fd_remap_table_mutex);
+
+        int old_size = fd_remap_table.size();
         int new_size = virtual_fd * 2;
         if (new_size < INIT_FD_REMAP_TABLE_SIZE)
             new_size = INIT_FD_REMAP_TABLE_SIZE;
 
         // resize virtual_fd -> type, real_fd mapping table
-        thread_data->fd_remap_table.resize(new_size);
+        fd_remap_table.resize(new_size);
         // initialize added entries
         for (int i = old_size; i < new_size; i ++) {
-            thread_data->fd_remap_table[i].type = FD_TYPE_UNKNOWN;
+            fd_remap_table[i].type = FD_TYPE_UNKNOWN;
             // default map to self
-            thread_data->fd_remap_table[i].real_fd = -1;
+            fd_remap_table[i].real_fd = -1;
         }
 
         // resize type, real_fd -> virtual_fd mapping table
         for (int i = 0; i < NUM_FD_TYPES; i ++) {
-            int old_size = thread_data->fd_reverse_map_table[i].size();
-            thread_data->fd_reverse_map_table[i].resize(new_size);
+            int old_size = fd_reverse_map_table[i].size();
+            fd_reverse_map_table[i].resize(new_size);
             // default map to self
             for (int j = old_size; j < new_size; j ++)
-                thread_data->fd_reverse_map_table[i][j] = -1;
+                fd_reverse_map_table[i][j] = -1;
         }
     }
     // add mapping
-    thread_data->fd_remap_table[virtual_fd].type = type;
-    thread_data->fd_remap_table[virtual_fd].real_fd = real_fd;
+    fd_remap_table[virtual_fd].type = type;
+    fd_remap_table[virtual_fd].real_fd = real_fd;
     // add reverse mapping
     if (type != FD_TYPE_UNKNOWN)
-        thread_data->fd_reverse_map_table[type][real_fd] = virtual_fd;
+        fd_reverse_map_table[type][real_fd] = virtual_fd;
     // update max value
-    if (virtual_fd > thread_data->max_virtual_fd)
-        thread_data->max_virtual_fd = virtual_fd;
+    if (virtual_fd > max_virtual_fd)
+        max_virtual_fd = virtual_fd;
 }
 
 static int alloc_unmapped_virtual_fd()
 {
-    thread_data_t * thread_data = GET_THREAD_DATA();
-    if (thread_data->deleted_virtual_fds.empty()) {
-        return (++ thread_data->max_virtual_fd);
+    std::lock_guard<std::mutex> lck (deleted_virtual_fds_mutex);
+    if (deleted_virtual_fds.empty()) {
+        return (++ max_virtual_fd);
     }
     else {
-        int virtual_fd = thread_data->deleted_virtual_fds.back();
-        thread_data->deleted_virtual_fds.pop_back();
+        int virtual_fd = deleted_virtual_fds.back();
+        deleted_virtual_fds.pop_back();
         return virtual_fd;
     }
 }
@@ -125,9 +141,10 @@ int alloc_virtual_fd(fd_type_t type, int real_fd)
 void delete_virtual_fd(int virtual_fd)
 {
     assert(virtual_fd >= 0);
-    thread_data_t * thread_data = GET_THREAD_DATA();
     DEBUG("thread %d delete virtual fd %d", gettid(), virtual_fd);
-    thread_data->deleted_virtual_fds.push_back(virtual_fd);
+
+    std::lock_guard<std::mutex> lck (deleted_virtual_fds_mutex);
+    deleted_virtual_fds.push_back(virtual_fd);
 }
 
 
@@ -564,21 +581,19 @@ std::pair<int, rdma_self_pack_t *>  thread_sock_data_t::newbuffer_rdma(key_t key
 
 void fd_remapping_init()
 {
-    thread_data_t *data;
-    data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    data->fd_reverse_map_table.resize(NUM_FD_TYPES);
+    fd_reverse_map_table.resize(NUM_FD_TYPES);
     // We create a fake FD to find the next available FD for allocation
     // This method is NOT reliable if some FD has been closed
     // anyway, we just use it for now
-    data->max_virtual_fd = ORIG(socket, (AF_INET, SOCK_STREAM, 0));
-    if (data->max_virtual_fd == -1) {
+    max_virtual_fd = ORIG(socket, (AF_INET, SOCK_STREAM, 0));
+    if (max_virtual_fd == -1) {
         FATAL("could not create virtual fd");
         return;
     }
-    ORIG(close, (data->max_virtual_fd));
-    data->max_virtual_fd -= 1; // the actual max FD (before fake FD)
+    ORIG(close, (max_virtual_fd));
+    max_virtual_fd -= 1; // the actual max FD (before fake FD)
 
-    for (int i = 0; i <= data->max_virtual_fd; i ++) {
+    for (int i = 0; i <= max_virtual_fd; i ++) {
         set_fd_type(i, FD_TYPE_SYSTEM, i); // map to self for existing fds
     }
 }
@@ -947,6 +962,8 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     return 0;
 }
 
+#undef DEBUGON
+#define DEBUGON 1
 int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) {
@@ -1045,7 +1062,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
             npeerfd_rd.buffer_idx = idx;
 
             //Wait for the ACK for the peer
-            printf("Ack required\n");
+            DEBUG("Ack required");
             metaqueue_ctl_element ele;
             while (!data->metaqueue.q[1].pop_nb(ele));
             if (ele.command != RDMA_QP_ACK)
@@ -1059,7 +1076,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
                              remote_rkey, remote_addr, interprocess_t_baseaddr, loc);
 
             
-            printf("server conn fin\n");
+            DEBUG("server conn fin");
             //while (1);
         }
 
@@ -1184,6 +1201,8 @@ int fcntl(int fd, int cmd, ...) __THROW
     int flags = va_arg(p_args, int);
     if (get_fd_type(fd) == FD_TYPE_SYSTEM)
         return ORIG(fcntl, (get_real_fd(fd), cmd, flags));
+    if (get_fd_type(fd) == FD_TYPE_EPOLL)
+        return 0; // not implemented, ignore
     fd = get_real_fd(fd);
 
     thread_data_t *thread_data = GET_THREAD_DATA();
@@ -1275,8 +1294,8 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         ele.data_fd_rw.fd = peer_fd;
         buffer->push_data(ele,iov[i].iov_len, reinterpret_cast<uint8_t *>(iov[i].iov_base));
         total_size += iov[i].iov_len;
-
     }
+    DEBUG("sent %d bytes to sockfd %d", total_size, fd);
     return total_size;
 }
 
@@ -1543,6 +1562,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         errno = EAGAIN | EWOULDBLOCK;
         return -1;
     }
+    DEBUG("received %d bytes from sockfd %d", ret, sockfd);
     return ret;
 }
 #undef DEBUGON
