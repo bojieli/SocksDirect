@@ -6,6 +6,7 @@
 
 int fork_traverse_rd_tree(int curr_idx, int match_bid)
 {
+/*
     if (curr_idx==-1)
         return -1;
     thread_data_t *tdata = GET_THREAD_DATA();
@@ -23,6 +24,6 @@ int fork_traverse_rd_tree(int curr_idx, int match_bid)
         ret = fork_traverse_rd_tree(tdata->rd_tree[curr_idx].child[1], match_bid);
         if (ret != -1) return ret;
     }
+*/
     return -1;
-
 }

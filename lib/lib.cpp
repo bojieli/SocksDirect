@@ -26,24 +26,14 @@ struct wrapper_arg
     void *arg;
 };
 
-static void child_send_listen_socket_to_monitor(thread_data_t * data)
-{
-    int sockfd = data->fds_datawithrd.hiter_begin();
-    while (sockfd != -1) {
-        if (data->fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN) {
-            listen(get_virtual_fd(FD_TYPE_SOCKET, sockfd), 0);
-        }
-        sockfd = data->fds_datawithrd.hiter_next(sockfd);
-    }
-}
-
 static void import_thread_data(thread_data_t * child_thread_data, const thread_data_t * parent_thread_data)
 {
-    child_thread_data->fds_datawithrd = parent_thread_data->fds_datawithrd;
-    child_thread_data->fds_wr = parent_thread_data->fds_wr;
-    child_thread_data->rd_tree = parent_thread_data->rd_tree;
+    //child_thread_data->fds_datawithrd = parent_thread_data->fds_datawithrd;
+    //child_thread_data->fds_wr = parent_thread_data->fds_wr;
+    //child_thread_data->rd_tree = parent_thread_data->rd_tree;
 
-    child_send_listen_socket_to_monitor(child_thread_data);
+    //child_send_listen_socket_to_monitor(child_thread_data);
+    child_send_listen_socket_to_monitor();
 
     /*
     // TODO: we have not done development of socket migration among threads
@@ -128,6 +118,7 @@ int pthread_create(pthread_t *thread, const pthread_attr_t *attr,
     return result;
 }
 
+/*
 static void after_fork_father()
 {
     thread_data_t* thread_data = GET_THREAD_DATA();
@@ -226,6 +217,7 @@ static void after_fork_child(pid_t oldtid)
     thread_data->metaqueue.q[0].push(fork_req);
     after_fork_father();
 }
+*/
 
 #undef DEBUGON
 

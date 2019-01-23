@@ -23,10 +23,15 @@
 
 pthread_key_t pthread_sock_key;
 
-
 #undef DEBUGON
 #define DEBUGON 0
 
+// just an intermediate solution. the following data structures should be moved to shared memory in order to support fork (they should be shared among all threads and forked processes).
+static adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM> fds_datawithrd;
+static adjlist<int, MAX_FD_OWN_NUM, fd_wr_list_t, MAX_FD_PEER_NUM> fds_wr;
+static darray_t<fd_rd_list_t, MAX_FD_PEER_NUM> rd_tree;
+
+// fd remapping table is also global. should be in shared memory.
 // fd remapping should be used after initialized
 static bool fd_remap_initialized = false;
 // from virtual fd to type and real fd
@@ -152,6 +157,16 @@ void delete_virtual_fd(int virtual_fd)
     deleted_virtual_fds.push_back(virtual_fd);
 }
 
+void child_send_listen_socket_to_monitor()
+{
+    int sockfd = fds_datawithrd.hiter_begin();
+    while (sockfd != -1) {
+        if (fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN) {
+            listen(get_virtual_fd(FD_TYPE_SOCKET, sockfd), 0);
+        }
+        sockfd = fds_datawithrd.hiter_next(sockfd);
+    }
+}
 
 #undef DEBUGON
 #define DEBUGON 1
@@ -171,11 +186,11 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
     new_buffer_id[1] = thread_sock_data->newbuffer(n_shmem_key[1], loc);
 
     //process all the write request first (writer, no fork side)
-    for (int fd = thread_data->fds_wr.hiter_begin();
+    for (int fd = fds_wr.hiter_begin();
          fd!=-1;
-         fd = thread_data->fds_wr.hiter_next(fd))
+         fd = fds_wr.hiter_next(fd))
     {
-        for (auto iter = thread_data->fds_wr.begin(fd); !iter.end();iter = iter.next())
+        for (auto iter = fds_wr.begin(fd); !iter.end();iter = iter.next())
         {
             if (iter->buffer_idx == old_buffer_id)
             {
@@ -185,8 +200,8 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
                 new_wr_adj_ele[0].status = new_wr_adj_ele[1].status = 0;
                 new_wr_adj_ele[0].buffer_idx = new_buffer_id[0];
                 new_wr_adj_ele[1].buffer_idx = new_buffer_id[1];
-                iter = thread_data->fds_wr.add_element_at(iter, fd, new_wr_adj_ele[0]);
-                iter = thread_data->fds_wr.add_element_at(iter, fd, new_wr_adj_ele[1]);
+                iter = fds_wr.add_element_at(iter, fd, new_wr_adj_ele[0]);
+                iter = fds_wr.add_element_at(iter, fd, new_wr_adj_ele[1]);
             }
         }
 
@@ -196,11 +211,11 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
     //connect the new buffer to the tree
     
     //first iterate all the fd
-    for (int fd = thread_data->fds_datawithrd.hiter_begin(); 
+    for (int fd = fds_datawithrd.hiter_begin(); 
          fd!=-1;
-         fd = thread_data->fds_wr.hiter_next(fd))
+         fd = fds_wr.hiter_next(fd))
     {
-        for (auto iter = thread_data->fds_datawithrd.begin(fd); !iter.end(); iter = iter.next())
+        for (auto iter = fds_datawithrd.begin(fd); !iter.end(); iter = iter.next())
         {
             if (iter->buffer_idx == old_buffer_id)
             {
@@ -211,9 +226,9 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
                 tmp_fd_list_ele.child[0] = tmp_fd_list_ele.child[1] = -1;
                 tmp_fd_list_ele.buffer_idx = new_buffer_id[0];
                 tmp_fd_list_ele.status = 0;
-                iter->child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                iter->child[0] = rd_tree.add(tmp_fd_list_ele);
                 tmp_fd_list_ele.buffer_idx = new_buffer_id[1];
-                iter->child[1] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                iter->child[1] = rd_tree.add(tmp_fd_list_ele);
             } else
             {
                 int ret(-1);
@@ -227,15 +242,15 @@ void res_push_fork_handler(metaqueue_ctl_element ele)
                 if (ret != -1)
                 {
                     DEBUG("Matched for fd %d in candidate tree with idx %d", fd, ret);
-                    thread_data->rd_tree[ret].status |= FD_STATUS_RD_SND_FORKED;
+                    rd_tree[ret].status |= FD_STATUS_RD_SND_FORKED;
 
                     fd_rd_list_t tmp_fd_list_ele;
                     tmp_fd_list_ele.child[0] = tmp_fd_list_ele.child[1] = -1;
                     tmp_fd_list_ele.buffer_idx = new_buffer_id[0];
                     tmp_fd_list_ele.status = 0;
-                    thread_data->rd_tree[ret].child[0] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                    rd_tree[ret].child[0] = rd_tree.add(tmp_fd_list_ele);
                     tmp_fd_list_ele.buffer_idx = new_buffer_id[1];
-                    thread_data->rd_tree[ret].child[1] = thread_data->rd_tree.add(tmp_fd_list_ele);
+                    rd_tree[ret].child[1] = rd_tree.add(tmp_fd_list_ele);
                 }
             }
         }
@@ -261,9 +276,9 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
      * 4. poll itself emergency queue
      */
     //get the iterator of current clock pointer
-    auto snd_clk_curr_iter = thread_data->fds_wr.begin(myfd);
+    auto snd_clk_curr_iter = fds_wr.begin(myfd);
     //get the receiver who send the takeover req
-    auto req_iter = thread_data->fds_wr.begin(myfd);
+    auto req_iter = fds_wr.begin(myfd);
     while (!req_iter.end())
     {
         if (req_iter->buffer_idx == match_buffer_id) break;
@@ -363,9 +378,9 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
     (*(dynamic_cast<interprocess_local_t *>(thread_sock_data->buffer[req_iter->buffer_idx].data)
             ->sender_turn[0]))[myfd] = true;
     SW_BARRIER;
-    thread_data->fds_wr.set_ptr_to(myfd, req_iter);
+    fds_wr.set_ptr_to(myfd, req_iter);
     SW_BARRIER;
-    /*file_struc_wr_t * curr_adjlist_h = &thread_data->fds_wr[myfd];
+    /*file_struc_wr_t * curr_adjlist_h = &fds_wr[myfd];
     for (int bufferidx_in_list = curr_adjlist_h->iterator_init();
          bufferidx_in_list != -1;
          bufferidx_in_list = curr_adjlist_h->iterator_next(bufferidx_in_list))
@@ -381,7 +396,7 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
         n_adjlist_ele.status = 0;
         n_adjlist_ele.id_in_v = bufferidx_in_list;
 
-        thread_data->fds_wr.add_element(myfd, n_adjlist_ele);
+        fds_wr.add_element(myfd, n_adjlist_ele);
         DEBUG("New buffer id %d in candidate list idx %d promote to adjlist", match_key_id, bufferidx_in_list);
 
         //iterate remove the parent
@@ -392,12 +407,12 @@ void recv_takeover_req_handler(metaqueue_ctl_element ele)
             if (curr_adjlist_h->isvalid(par_idx))
             {
                 //search the adjlist first
-                for (auto iter = thread_data->fds_wr.begin(myfd); !iter.end();)
+                for (auto iter = fds_wr.begin(myfd); !iter.end();)
                 {
                     if (iter->id_in_v == par_idx)
                     {
                         //remove it from the list
-                        iter = thread_data->fds_wr.del_element(iter);
+                        iter = fds_wr.del_element(iter);
                         DEBUG("Parent in adjlist with loc %d removed", par_idx);
                     } else
                     {
@@ -427,30 +442,30 @@ bool takeover_ack_traverse_rd_tree(int curr_idx, int match_bid)
     if (curr_idx==-1)
         return true;
     thread_data_t *tdata = GET_THREAD_DATA();
-    fd_rd_list_t curr_node = tdata->rd_tree[curr_idx];
+    fd_rd_list_t curr_node = trd_tree[curr_idx];
     if (!(curr_node.status | FD_STATUS_RECV_REQ)) return true;
     if (curr_node.status | FD_STATUS_RECV_ACK) return true;
     if (match_bid == curr_node.buffer_idx)
     {
-        tdata->rd_tree[curr_idx].status |= FD_STATUS_RECV_ACK;
+        trd_tree[curr_idx].status |= FD_STATUS_RECV_ACK;
         return true;
     }
     bool ret(true);
     bool isleaf(true);
-    if (tdata->rd_tree[curr_idx].child[0] != -1)
+    if (trd_tree[curr_idx].child[0] != -1)
     {
-        ret = ret && takeover_ack_traverse_rd_tree(tdata->rd_tree[curr_idx].child[0], match_bid);
+        ret = ret && takeover_ack_traverse_rd_tree(trd_tree[curr_idx].child[0], match_bid);
         isleaf = false;
     }
-    if (tdata->rd_tree[curr_idx].child[1] != -1)
+    if (trd_tree[curr_idx].child[1] != -1)
     {
-        ret = ret && takeover_ack_traverse_rd_tree(tdata->rd_tree[curr_idx].child[1], match_bid);
+        ret = ret && takeover_ack_traverse_rd_tree(trd_tree[curr_idx].child[1], match_bid);
         isleaf = false;
     }
     if (!isleaf)
     {
         if (ret)
-            tdata->rd_tree[curr_idx].status |= FD_STATUS_RECV_ACK;
+            trd_tree[curr_idx].status |= FD_STATUS_RECV_ACK;
         return ret;
     } else
     {
@@ -470,7 +485,7 @@ bool takeover_ack_traverse_rd_tree(int curr_idx, int match_bid)
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     int match_buffer_idx = (*thread_sock_data->bufferhash)[shmem_key];
     //get the handler of the current adjlist
-    for (auto iter = thread_data->fds_datawithrd.begin(myfd); !iter.end();)
+    for (auto iter = fds_datawithrd.begin(myfd); !iter.end();)
     {
         bool match_ret(true);
         //first try the left tree
@@ -495,12 +510,12 @@ bool takeover_ack_traverse_rd_tree(int curr_idx, int match_bid)
                     DEBUG("Queue for fd %d is empty, children %d %d", myfd, iter->child[0], iter->child[1]);
                     //remove itself and add its children
                     if (iter->child[0] != -1)
-                        iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[0]]);
+                        iter = fds_datawithrd.add_element_at(iter, myfd, rd_tree[iter->child[0]]);
                     if (iter->child[1] != -1)
-                        iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[1]]);
+                        iter = fds_datawithrd.add_element_at(iter, myfd, rd_tree[iter->child[1]]);
 
                     //remove itself from adjlist
-                    iter = thread_data->fds_datawithrd.del_element(iter);
+                    iter = fds_datawithrd.del_element(iter);
                     continue;
                 }
             }
@@ -613,8 +628,8 @@ void usocket_init()
         return;
     }
     file_struc_rd_t _fd;
-    data->fds_datawithrd.init(0,_fd);
-    data->fds_wr.init(0, 0);
+    fds_datawithrd.init(0,_fd);
+    fds_wr.init(0, 0);
     data->is_rdma_initialized = false;
     auto *thread_sock_data = new thread_sock_data_t;
     thread_sock_data->bufferhash = new std::unordered_map<key_t, int>;
@@ -645,8 +660,8 @@ int socket(int domain, int type, int protocol) __THROW
     nfd.property.is_blocking = true;
     nfd.property.is_accept_command_sent = false;
     nfd.property.tcp.isopened = false;
-    unsigned int idx_nfd=data->fds_datawithrd.add_key(nfd);
-    data->fds_wr.add_key(0);
+    unsigned int idx_nfd=fds_datawithrd.add_key(nfd);
+    fds_wr.add_key(0);
     return alloc_virtual_fd(FD_TYPE_SOCKET, idx_nfd);
 }
 
@@ -660,7 +675,7 @@ int bind(int socket, const struct sockaddr *address, socklen_t address_len) __TH
     thread_data_t *data = nullptr;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     port = ntohs(((struct sockaddr_in *) address)->sin_port);
-    data->fds_datawithrd[socket].property.tcp.port = port;
+    fds_datawithrd[socket].property.tcp.port = port;
     return 0;
 }
 
@@ -674,14 +689,14 @@ int listen(int socket, int backlog) __THROW
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
     data2m.command = REQ_LISTEN;
-    if (!data->fds_datawithrd.is_keyvalid(socket))
+    if (!fds_datawithrd.is_keyvalid(socket))
     {
         errno = EBADF;
         return -1;
     }
-    data->fds_datawithrd[socket].type = USOCKET_TCP_LISTEN;
-    data2m.req_listen.is_reuseaddr = data->fds_datawithrd[socket].property.is_addrreuse;
-    data2m.req_listen.port = data->fds_datawithrd[socket].property.tcp.port;
+    fds_datawithrd[socket].type = USOCKET_TCP_LISTEN;
+    data2m.req_listen.is_reuseaddr = fds_datawithrd[socket].property.is_addrreuse;
+    data2m.req_listen.port = fds_datawithrd[socket].property.tcp.port;
     metaqueue_t * q = &(data->metaqueue);
     q->q[0].push(data2m);
     while (!q->q[1].pop_nb(data_from_m));
@@ -724,15 +739,15 @@ int close(int fildes)
 
     thread_data_t *data = NULL;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (!data->fds_datawithrd.is_keyvalid(fildes))
+    if (!fds_datawithrd.is_keyvalid(fildes))
     {
         errno = EBADF;
         return -1;
     }
-    if (data->fds_datawithrd[fildes].type == USOCKET_TCP_CONNECT)
+    if (fds_datawithrd[fildes].type == USOCKET_TCP_CONNECT)
     {
         thread_sock_data_t* sock_data=GET_THREAD_SOCK_DATA();
-        for (auto iter = data->fds_datawithrd.begin(fildes); !iter.end(); )
+        for (auto iter = fds_datawithrd.begin(fildes); !iter.end(); )
         {
             fd_rd_list_t peer_adj_item = *iter;
             interprocess_n_t *interprocess;
@@ -740,23 +755,23 @@ int close(int fildes)
             interprocess_t::queue_t::element ele;
             ele.command=interprocess_t::cmd::CLOSE_FD;
             ele.close_fd.req_fd=fildes;
-            ele.close_fd.peer_fd=data->fds_datawithrd[fildes].peer_fd;
+            ele.close_fd.peer_fd=fds_datawithrd[fildes].peer_fd;
             interprocess->push_data(ele, 0, nullptr);
-            iter = data->fds_datawithrd.del_element(iter);
+            iter = fds_datawithrd.del_element(iter);
         }
     }
 
-    if (data->fds_datawithrd[fildes].type == USOCKET_TCP_LISTEN)
+    if (fds_datawithrd[fildes].type == USOCKET_TCP_LISTEN)
     {
         metaqueue_ctl_element ele;
         ele.command = REQ_CLOSE;
-        ele.req_close.port=data->fds_datawithrd[fildes].property.tcp.port;
+        ele.req_close.port=fds_datawithrd[fildes].property.tcp.port;
         ele.req_close.listen_fd=fildes;
         data->metaqueue.q[0].push(ele);
     }
-    data->fds_datawithrd[fildes].property.tcp.isopened=false;
-    data->fds_datawithrd.del_key(fildes);
-    data->fds_wr.del_key(fildes);
+    fds_datawithrd[fildes].property.tcp.isopened=false;
+    fds_datawithrd.del_key(fildes);
+    fds_wr.del_key(fildes);
     delete_virtual_fd(fildes);
     return 0;
 }
@@ -793,14 +808,14 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (!data->fds_datawithrd.is_keyvalid(socket))
+    if (!fds_datawithrd.is_keyvalid(socket))
     {
         errno = EBADF;
         return -1;
     }
-    if (data->fds_datawithrd[socket].property.tcp.isopened) close(socket);
-    data->fds_datawithrd[socket].type = USOCKET_TCP_CONNECT;
-    data->fds_datawithrd[socket].property.tcp.isopened=true;
+    if (fds_datawithrd[socket].property.tcp.isopened) close(socket);
+    fds_datawithrd[socket].type = USOCKET_TCP_CONNECT;
+    fds_datawithrd[socket].property.tcp.isopened=true;
 
     metaqueue_t *q2monitor;
     bool isRDMA(false);
@@ -899,12 +914,12 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 
         }
     }
-    auto peerfd_iter = data->fds_datawithrd.add_element(socket, peer_fd_rd);
+    auto peerfd_iter = fds_datawithrd.add_element(socket, peer_fd_rd);
     fd_wr_list_t peer_fd_wr;
     peer_fd_wr.status = 0;
     peer_fd_wr.buffer_idx = peer_fd_rd.buffer_idx;
-    auto wr_iter = data->fds_wr.add_element(socket, peer_fd_wr);
-    data->fds_wr.set_ptr_to(socket, wr_iter);
+    auto wr_iter = fds_wr.add_element(socket, peer_fd_wr);
+    fds_wr.set_ptr_to(socket, wr_iter);
 
     DEBUG("connect fd %d replied by monitor, waiting for ACK from peer", socket);
 
@@ -933,7 +948,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             }
             if (ele.command == interprocess_t::cmd::NEW_FD)
             {
-                data->fds_datawithrd[socket].peer_fd = ele.data_fd_notify.fd;
+                fds_datawithrd[socket].peer_fd = ele.data_fd_notify.fd;
                 DEBUG("peer fd: %d",ele.data_fd_notify.fd);
                 SW_BARRIER;
                 iter.del();
@@ -967,7 +982,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             }
             if (element.command == interprocess_t::cmd::NEW_FD)
             {
-                data->fds_datawithrd[socket].peer_fd = element.data_fd_notify.fd;
+                fds_datawithrd[socket].peer_fd = element.data_fd_notify.fd;
                 DEBUG("peer fd: %d\n",element.data_fd_notify.fd);
                 SW_BARRIER;
                 buffer->q[1].del(i);
@@ -1002,15 +1017,15 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     if (!data->metaqueue.q[1].pop_nb(element))
     {
         // send a command to notify monitor, only for the first time
-        if (!data->fds_datawithrd[sockfd].property.is_accept_command_sent) {
+        if (!fds_datawithrd[sockfd].property.is_accept_command_sent) {
             metaqueue_ctl_element accept_command;
             accept_command.command = REQ_ACCEPT;
-            accept_command.req_accept.port = data->fds_datawithrd[sockfd].property.tcp.port;
+            accept_command.req_accept.port = fds_datawithrd[sockfd].property.tcp.port;
             data->metaqueue.q[0].push(accept_command);
-            data->fds_datawithrd[sockfd].property.is_accept_command_sent = true; 
+            fds_datawithrd[sockfd].property.is_accept_command_sent = true; 
         }
         // wait for connect requests from the monitor
-        if (data->fds_datawithrd[sockfd].property.is_blocking) {
+        if (fds_datawithrd[sockfd].property.is_blocking) {
             while (!data->metaqueue.q[1].pop_nb(element));
         } else {
             errno = EAGAIN;
@@ -1022,12 +1037,12 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     if (element.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
 
-    if (!data->fds_datawithrd.is_keyvalid(sockfd) || data->fds_datawithrd[sockfd].type != USOCKET_TCP_LISTEN)
+    if (!fds_datawithrd.is_keyvalid(sockfd) || fds_datawithrd[sockfd].type != USOCKET_TCP_LISTEN)
     {
         errno = EBADF;
         return -1;
     }
-    if (element.resp_connect.port != data->fds_datawithrd[sockfd].property.tcp.port)
+    if (element.resp_connect.port != fds_datawithrd[sockfd].property.tcp.port)
         FATAL("Incorrect accept order for different ports");
     key_t key = element.resp_connect.shm_key;
     int loc = element.resp_connect.loc;
@@ -1041,10 +1056,10 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     nfd_rd.property.is_blocking = (flags & SOCK_NONBLOCK)?0:1;
     nfd_rd.type = USOCKET_TCP_CONNECT;
     nfd_rd.property.tcp.isopened = true;
-    auto idx_nfd=data->fds_datawithrd.add_key(nfd_rd);
+    auto idx_nfd=fds_datawithrd.add_key(nfd_rd);
 
 
-    data->fds_datawithrd[idx_nfd].peer_fd = peer_fd;
+    fds_datawithrd[idx_nfd].peer_fd = peer_fd;
     int idx;
     if ((idx = sock_data->isexist(key)) != -1)
         npeerfd_rd.buffer_idx = idx;
@@ -1103,13 +1118,13 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     }
     npeerfd_rd.child[0] = npeerfd_rd.child[1] = -1;
     npeerfd_rd.status = 0;
-    data->fds_datawithrd.add_element(idx_nfd, npeerfd_rd);
+    fds_datawithrd.add_element(idx_nfd, npeerfd_rd);
 
     fd_wr_list_t npeerfd_wr;
     npeerfd_wr.buffer_idx = idx;
     npeerfd_wr.status = 0;
-    data->fds_wr.add_key(0);
-    auto iter_wr = data->fds_wr.add_element(idx_nfd, npeerfd_wr);
+    fds_wr.add_key(0);
+    auto iter_wr = fds_wr.add_element(idx_nfd, npeerfd_wr);
 
 
     interprocess_n_t *buffer = sock_data->buffer[idx].data;
@@ -1118,7 +1133,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
         //If it is not RDMA, change RDMA pointer
         (*dynamic_cast<interprocess_local_t *>(buffer)->sender_turn[0])[idx_nfd] = true;
     }
-    data->fds_wr.set_ptr_to(idx_nfd, iter_wr);
+    fds_wr.set_ptr_to(idx_nfd, iter_wr);
     interprocess_t::queue_t::element inter_element;
     inter_element.command = interprocess_t::cmd::NEW_FD;
     inter_element.data_fd_notify.fd = idx_nfd;
@@ -1154,12 +1169,12 @@ int setsockopt(int socket, int level, int option_name, const void *option_value,
     {
         thread_data_t *thread;
         thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-        if (thread == nullptr || !thread->fds_datawithrd.is_keyvalid(socket))
+        if (thread == nullptr || !fds_datawithrd.is_keyvalid(socket))
         {
             errno = EBADF;
             return -1;
         }
-        thread->fds_datawithrd[socket].property.is_addrreuse = *reinterpret_cast<const int *>(option_value);
+        fds_datawithrd[socket].property.is_addrreuse = *reinterpret_cast<const int *>(option_value);
     }
     return 0;
 }
@@ -1170,7 +1185,7 @@ int getsockname(int socket, struct sockaddr *addr, socklen_t *addrlen)
     socket = get_real_fd(socket);
 
     thread_data_t *thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (thread == nullptr || ! thread->fds_datawithrd.is_keyvalid(socket))
+    if (thread == nullptr || ! fds_datawithrd.is_keyvalid(socket))
     {
         errno = EBADF;
         return -1;
@@ -1191,7 +1206,7 @@ int getpeername(int socket, struct sockaddr *addr, socklen_t *addrlen)
     socket = get_real_fd(socket);
 
     thread_data_t *thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (thread == nullptr || ! thread->fds_datawithrd.is_keyvalid(socket))
+    if (thread == nullptr || ! fds_datawithrd.is_keyvalid(socket))
     {
         errno = EBADF;
         return -1;
@@ -1215,12 +1230,12 @@ int getsockopt(int socket, int level, int option_name, void *option_value, sockl
     {
         thread_data_t *thread;
         thread = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-        if (thread == nullptr || ! thread->fds_datawithrd.is_keyvalid(socket))
+        if (thread == nullptr || ! fds_datawithrd.is_keyvalid(socket))
         {
             errno = EBADF;
             return -1;
         }
-        *(reinterpret_cast<int*>(option_value)) = thread->fds_datawithrd[socket].property.is_addrreuse;
+        *(reinterpret_cast<int*>(option_value)) = fds_datawithrd[socket].property.is_addrreuse;
         if (option_len)
             *option_len = sizeof(int);
     }
@@ -1244,7 +1259,7 @@ int fcntl(int fd, int cmd, ...) __THROW
     fd = get_real_fd(fd);
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (!thread_data->fds_datawithrd.is_keyvalid(fd)) {
+    if (!fds_datawithrd.is_keyvalid(fd)) {
         errno = EBADF;
         return -1;
     }
@@ -1252,12 +1267,12 @@ int fcntl(int fd, int cmd, ...) __THROW
     switch (cmd) {
         case F_SETFL:
             if (flags == O_NONBLOCK) {
-                thread_data->fds_datawithrd[fd].property.is_blocking = false;
+                fds_datawithrd[fd].property.is_blocking = false;
             }
             return 0; // ignore other flags
         case F_GETFL: {
             int ret_flags = O_RDWR;
-            if (thread_data->fds_datawithrd[fd].property.is_blocking)
+            if (fds_datawithrd[fd].property.is_blocking)
                 ret_flags = O_NONBLOCK;
             return ret_flags;
         }
@@ -1281,14 +1296,14 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
     fildes = get_real_fd(fildes);
 
     thread_data_t *thread_data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    if (!thread_data->fds_datawithrd.is_keyvalid(fildes))
+    if (!fds_datawithrd.is_keyvalid(fildes))
     {
         errno = EBADF;
         return -1;
     }
 
     if (request == FIONBIO)
-        thread_data->fds_datawithrd[fildes].property.is_blocking = 0;
+        fds_datawithrd[fildes].property.is_blocking = 0;
     return 0;
 }
 
@@ -1300,8 +1315,8 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     fd = get_real_fd(fd);
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds_wr.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
-            || !thread_data->fds_datawithrd[fd].property.tcp.isopened)
+    if (fds_wr.begin(fd).end() || fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
+            || !fds_datawithrd[fd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
@@ -1310,10 +1325,10 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
     monitor2proc_hook();
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    auto iter = thread_data->fds_wr.begin(fd);
+    auto iter = fds_wr.begin(fd);
     interprocess_n_t *buffer = thread_sock_data->
             buffer[iter->buffer_idx].data;
-    int peer_fd = thread_data->fds_datawithrd[fd].peer_fd;
+    int peer_fd = fds_datawithrd[fd].peer_fd;
 
     size_t total_size(0);
     for (int i = 0; i < iovcnt; ++i)
@@ -1365,12 +1380,12 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
         {
             //remove itself and add its children
             if (iter->child[0] != -1)
-                iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[0]]);
+                iter = fds_datawithrd.add_element_at(iter, myfd, rd_tree[iter->child[0]]);
             if (iter->child[1] != -1)
-                iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[1]]);
+                iter = fds_datawithrd.add_element_at(iter, myfd, rd_tree[iter->child[1]]);
 
             //remove itself from adjlist
-            iter = thread_data->fds_datawithrd.del_element(iter);
+            iter = fds_datawithrd.del_element(iter);
             return iter;
         }
     }
@@ -1378,14 +1393,14 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
     {
         //check whether clock pointer is point to itself, if not
         if (!(*(dynamic_cast<interprocess_local_t *>(thread_sock_data->buffer[iter->buffer_idx].data)
-                ->sender_turn[1]))[thread_data->fds_datawithrd[myfd].peer_fd])
+                ->sender_turn[1]))[fds_datawithrd[myfd].peer_fd])
         {
             //send takeover msg to monitor
             metaqueue_ctl_element ele;
             ele.command = REQ_RELAY_RECV;
             ele.req_relay_recv.shmem = thread_sock_data->buffer[iter->buffer_idx].shmemkey;
             ele.req_relay_recv.req_fd = myfd;
-            ele.req_relay_recv.peer_fd = thread_data->fds_datawithrd[myfd].peer_fd;
+            ele.req_relay_recv.peer_fd = fds_datawithrd[myfd].peer_fd;
             thread_data->metaqueue.q[0].push(ele);
             DEBUG("Send takeover req for myfd %d on buffer idx %d since q empty and not pointed", myfd, iter->buffer_idx);
 
@@ -1422,12 +1437,12 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
             if (ele.command == interprocess_t::cmd::CLOSE_FD)
             {
                 if (ele.close_fd.peer_fd == target_fd &&
-                    ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
+                    ele.close_fd.req_fd == fds_datawithrd[target_fd].peer_fd)
                 {
                     iter_ele.del();
                     DEBUG("Received close req of FD %d from peer FD %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
                     
-                    iter = thread_data->fds_datawithrd.del_element(iter);
+                    iter = fds_datawithrd.del_element(iter);
                     if (iter.end())
                     {
                         // Fix bug: close(fd) after the FD is in ALLCLOSED state return error.
@@ -1438,7 +1453,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     }
                     return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
                 } else {
-                    if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
+                    if (!fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
                         iter_ele.del();
                 }
             }
@@ -1466,17 +1481,17 @@ static void recv_takeover_traverse(int myfd, int idx, bool valid)
     //whether itself is the leaf
     thread_data_t * thread_data = GET_THREAD_DATA();
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
-    if ((thread_data->rd_tree[idx].child[0] == -1) &&
-        (thread_data->rd_tree[idx].child[1] == -1))
+    if ((rd_tree[idx].child[0] == -1) &&
+        (rd_tree[idx].child[1] == -1))
     {
         //itself is the child
         if (valid)
         {
             metaqueue_ctl_element ele;
             ele.command = REQ_RELAY_RECV;
-            ele.req_relay_recv.shmem = thread_sock_data->buffer[thread_data->rd_tree[idx].buffer_idx].shmemkey;
+            ele.req_relay_recv.shmem = thread_sock_data->buffer[rd_tree[idx].buffer_idx].shmemkey;
             ele.req_relay_recv.req_fd = myfd;
-            ele.req_relay_recv.peer_fd = thread_data->fds_datawithrd[myfd].peer_fd;
+            ele.req_relay_recv.peer_fd = fds_datawithrd[myfd].peer_fd;
             thread_data->metaqueue.q[0].push(ele);
             DEBUG("Send takeover message for key %u, my fd %d, peer fd %d", ele.req_relay_recv.shmem,
             ele.req_relay_recv.req_fd, ele.req_relay_recv.peer_fd);
@@ -1487,13 +1502,13 @@ static void recv_takeover_traverse(int myfd, int idx, bool valid)
 
         //first test whether it is needed to send takeover message
         bool istakeover(valid);
-        istakeover = istakeover || ((thread_data->rd_tree[idx].status & FD_STATUS_RD_RECV_FORKED) &&
-                                    !(thread_data->rd_tree[idx].status & FD_STATUS_RECV_REQ));
+        istakeover = istakeover || ((rd_tree[idx].status & FD_STATUS_RD_RECV_FORKED) &&
+                                    !(rd_tree[idx].status & FD_STATUS_RECV_REQ));
         //if it has the left child
-        if (thread_data->rd_tree[idx].child[0] != -1)
-            recv_takeover_traverse(myfd, thread_data->rd_tree[idx].child[0], istakeover);
-        if (thread_data->rd_tree[idx].child[1] != -1)
-            recv_takeover_traverse(myfd, thread_data->rd_tree[idx].child[1], istakeover);
+        if (rd_tree[idx].child[0] != -1)
+            recv_takeover_traverse(myfd, rd_tree[idx].child[0], istakeover);
+        if (rd_tree[idx].child[1] != -1)
+            recv_takeover_traverse(myfd, rd_tree[idx].child[1], istakeover);
     }
 }
 
@@ -1502,7 +1517,7 @@ void send_recv_takeover_req(int fd)
     thread_data_t * thread_data = GET_THREAD_DATA();
     thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
     // iterate all the fd in the read adjlist
-    for (auto iter = thread_data->fds_datawithrd.begin(fd); !iter.end(); iter.next())
+    for (auto iter = fds_datawithrd.begin(fd); !iter.end(); iter.next())
     {
         if (iter->child[0] != -1)
             recv_takeover_traverse(fd, iter->child[0],
@@ -1524,8 +1539,8 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     sockfd = get_real_fd(sockfd);
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
-            || !thread_data->fds_datawithrd[sockfd].property.tcp.isopened)
+    if (fds_datawithrd.begin(sockfd).end() || fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
+            || !fds_datawithrd[sockfd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
@@ -1535,11 +1550,11 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     monitor2proc_hook();
 
     //send recv relay message
-    /*if ((thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RD_RECV_FORKED) &&
-            !(thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RECV_REQ))
+    /*if ((fds_datawithrd[sockfd].property.status & FD_STATUS_RD_RECV_FORKED) &&
+            !(fds_datawithrd[sockfd].property.status & FD_STATUS_RECV_REQ))
     {
         send_recv_takeover_req(sockfd);
-        thread_data->fds_datawithrd[sockfd].property.status &= FD_STATUS_RECV_REQ;
+        fds_datawithrd[sockfd].property.status &= FD_STATUS_RECV_REQ;
     }*/
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
@@ -1549,7 +1564,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     int ret(-1);
     do //if blocking infinate loop
     {
-        auto iter = thread_data->fds_datawithrd.begin(sockfd);
+        auto iter = fds_datawithrd.begin(sockfd);
         while (true) //iterate different peer fd
         {
             interprocess_n_t::iterator ret_loc(nullptr);
@@ -1596,7 +1611,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
         }
         if (isFind) break;
         monitor2proc_hook();
-    } while (thread_data->fds_datawithrd[sockfd].property.is_blocking);
+    } while (fds_datawithrd[sockfd].property.is_blocking);
     if (!isFind)
     {
         errno = EAGAIN | EWOULDBLOCK;
@@ -1618,23 +1633,23 @@ ssize_t __recvfrom_chk(int __fd, void *__buf, size_t __nbytes, size_t __buflen, 
 int check_sockfd_receive(int sockfd)
 {
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
+    if (!fds_datawithrd.is_keyvalid(sockfd))
     {
         errno = EBADF;
         ERROR("non-existing sockfd %d passed to epoll", sockfd);
         return POLLERR;
     }
     
-    if (thread_data->fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN)
+    if (fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN)
     {
         if (thread_data->metaqueue.q[1].isempty()) { // no incoming connections
             // if no pending new connections from the monitor, send a command to notify monitor
-            if (!thread_data->fds_datawithrd[sockfd].property.is_accept_command_sent) {
+            if (!fds_datawithrd[sockfd].property.is_accept_command_sent) {
                 metaqueue_ctl_element accept_command;
                 accept_command.command = REQ_ACCEPT;
-                accept_command.req_accept.port = thread_data->fds_datawithrd[sockfd].property.tcp.port;
+                accept_command.req_accept.port = fds_datawithrd[sockfd].property.tcp.port;
                 thread_data->metaqueue.q[0].push(accept_command);
-                thread_data->fds_datawithrd[sockfd].property.is_accept_command_sent = true; 
+                fds_datawithrd[sockfd].property.is_accept_command_sent = true; 
             }
         }
         else { // has some incoming connection, return event
@@ -1642,8 +1657,8 @@ int check_sockfd_receive(int sockfd)
         }
     }
 
-    if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
-            || !thread_data->fds_datawithrd[sockfd].property.tcp.isopened)
+    if (fds_datawithrd.begin(sockfd).end() || fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
+            || !fds_datawithrd[sockfd].property.tcp.isopened)
     {
         return 0;
     }
@@ -1652,18 +1667,18 @@ int check_sockfd_receive(int sockfd)
     monitor2proc_hook();
 
     //send recv relay message
-    /*if ((thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RD_RECV_FORKED) &&
-            !(thread_data->fds_datawithrd[sockfd].property.status & FD_STATUS_RECV_REQ))
+    /*if ((fds_datawithrd[sockfd].property.status & FD_STATUS_RD_RECV_FORKED) &&
+            !(fds_datawithrd[sockfd].property.status & FD_STATUS_RECV_REQ))
     {
         send_recv_takeover_req(sockfd);
-        thread_data->fds_datawithrd[sockfd].property.status &= FD_STATUS_RECV_REQ;
+        fds_datawithrd[sockfd].property.status &= FD_STATUS_RECV_REQ;
     }*/
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
     interprocess_n_t *buffer_has_blk(nullptr);
     interprocess_n_t::iterator loc_has_blk(nullptr);
     bool isFind(false);
-    auto iter = thread_data->fds_datawithrd.begin(sockfd);
+    auto iter = fds_datawithrd.begin(sockfd);
     while (true) //iterate different peer fd
     {
         interprocess_n_t::iterator ret_loc(nullptr);
@@ -1702,20 +1717,20 @@ int check_sockfd_send(int sockfd)
 {
     int fd = sockfd;
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
+    if (!fds_datawithrd.is_keyvalid(sockfd))
     {
         errno = EBADF;
         ERROR("non-existing sockfd %d passed to epoll", sockfd);
         return POLLERR;
     }
     
-    if (thread_data->fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN)
+    if (fds_datawithrd[sockfd].type == USOCKET_TCP_LISTEN)
     {
         return 0;
     }
 
-    if (thread_data->fds_wr.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
-            || !thread_data->fds_datawithrd[fd].property.tcp.isopened)
+    if (fds_wr.begin(fd).end() || fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
+            || !fds_datawithrd[fd].property.tcp.isopened)
     {
         return 0;
     }
@@ -1723,7 +1738,7 @@ int check_sockfd_send(int sockfd)
     monitor2proc_hook();
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    auto iter = thread_data->fds_wr.begin(fd);
+    auto iter = fds_wr.begin(fd);
     interprocess_n_t *buffer = thread_sock_data->
             buffer[iter->buffer_idx].data;
     bool is_full = buffer->is_full();

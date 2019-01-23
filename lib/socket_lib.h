@@ -125,6 +125,7 @@ void set_fd_type(int fd, fd_type_t type);
 int alloc_virtual_fd(fd_type_t type, int real_fd);
 void delete_virtual_fd(int virtual_fd);
 
+void child_send_listen_socket_to_monitor();
 void epoll_remove(int fd);
 
 #endif

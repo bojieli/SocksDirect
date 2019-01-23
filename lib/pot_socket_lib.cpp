@@ -21,6 +21,11 @@
 #include "../rdma/hrd.h"
 #include <unordered_map>
 
+// just an intermediate solution. the following data structures should be moved to shared memory in order to support fork (they should be shared among all threads and forked processes).
+static adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM> fds_datawithrd;
+static adjlist<int, MAX_FD_OWN_NUM, fd_wr_list_t, MAX_FD_PEER_NUM> fds_wr;
+static darray_t<fd_rd_list_t, MAX_FD_PEER_NUM> rd_tree;
+
 const int MIN_PAGES_FOR_ZEROCOPY = 2;
 const int MAX_TST_MSG_SIZE=1024*1024*4;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
@@ -293,8 +298,8 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
     fd = MAX_FD_ID - fd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds_wr.begin(fd).end() || thread_data->fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
-        || !thread_data->fds_datawithrd[fd].property.tcp.isopened)
+    if (fds_wr.begin(fd).end() || fds_datawithrd[fd].type != USOCKET_TCP_CONNECT
+        || !fds_datawithrd[fd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
@@ -303,10 +308,10 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
     monitor2proc_hook();
 
     auto thread_sock_data = GET_THREAD_SOCK_DATA();
-    auto iter = thread_data->fds_wr.begin(fd);
+    auto iter = fds_wr.begin(fd);
     interprocess_n_t *buffer = thread_sock_data->
             buffer[iter->buffer_idx].data;
-    int peer_fd = thread_data->fds_datawithrd[fd].peer_fd;
+    int peer_fd = fds_datawithrd[fd].peer_fd;
     interprocess_t::queue_t::element ele;
 
     uint8_t *send_buffer = pot_mock_data;
@@ -320,7 +325,7 @@ ssize_t pot_write_nbyte(int fd, int numofbytes)
         while (!dynamic_cast<interprocess_local_t *>(buffer)->q[0].push_nb(ele))
         {
             monitor2proc_hook();
-            iter = thread_data->fds_wr.begin(fd);
+            iter = fds_wr.begin(fd);
             buffer = thread_sock_data->
                     buffer[iter->buffer_idx].data;
             
@@ -418,16 +423,16 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 case interprocess_t::cmd::CLOSE_FD:
                 {
                     if (ele.close_fd.peer_fd == target_fd &&
-                        ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
+                        ele.close_fd.req_fd == fds_datawithrd[target_fd].peer_fd)
                     {
                         iter_ele.del();
                         DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
 
-                        iter = thread_data->fds_datawithrd.del_element(iter);
+                        iter = fds_datawithrd.del_element(iter);
                         if (iter.end())
                         {
                             DEBUG("Destroyed self fd %d.", target_fd);
-                            thread_data->fds_datawithrd.del_key(target_fd);
+                            fds_datawithrd.del_key(target_fd);
                             if (islockrequired)
                                 pthread_mutex_unlock(dynamic_cast<interprocess_local_t *>(buffer)->rd_mutex);
                             return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
@@ -436,7 +441,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                             pthread_mutex_unlock(dynamic_cast<interprocess_local_t *>(buffer)->rd_mutex);
                         return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
                     } else {
-                        if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
+                        if (!fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
                             iter_ele.del();
                     }
                     break;
@@ -582,8 +587,8 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
     sockfd = MAX_FD_ID - sockfd;
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
-        || !thread_data->fds_datawithrd[sockfd].property.tcp.isopened)
+    if (fds_datawithrd.begin(sockfd).end() || fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
+        || !fds_datawithrd[sockfd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
@@ -598,7 +603,7 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
     bool isFind(false);
     do //if blocking infinate loop
     {
-        auto iter = thread_data->fds_datawithrd.begin(sockfd);
+        auto iter = fds_datawithrd.begin(sockfd);
         while (true) //iterate different peer fd
         {
             interprocess_n_t::iterator ret_loc(nullptr);
@@ -626,7 +631,7 @@ ssize_t pot_read_nbyte(int sockfd, void *buf, size_t len)
         }
         if (isFind) break;
         monitor2proc_hook();
-    } while (thread_data->fds_datawithrd[sockfd].property.is_blocking);
+    } while (fds_datawithrd[sockfd].property.is_blocking);
     int ret(len);
     if (!isFind)
     {
