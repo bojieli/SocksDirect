@@ -703,7 +703,7 @@ int shutdown(int socket, int how)
 }
 
 #undef DEBUGON
-#define DEBUGON 0
+#define DEBUGON 1
 int close(int fildes)
 {
     if (get_fd_type(fildes) == FD_TYPE_SYSTEM) {
@@ -1127,8 +1127,12 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     SW_BARRIER;
     buffer->push_data(inter_element,0, nullptr);
 
-    DEBUG("accept complete with real FD %d", idx_nfd);
-    return alloc_virtual_fd(FD_TYPE_SOCKET, idx_nfd);
+    int virtual_fd = alloc_virtual_fd(FD_TYPE_SOCKET, idx_nfd);
+    if (addr) {
+        getpeername(virtual_fd, addr, addrlen);
+    }
+    DEBUG("accept complete with virtual FD %d real FD %d", virtual_fd, idx_nfd);
+    return virtual_fd;
 }
 
 int accept(int sockfd, struct sockaddr *addr, socklen_t *addrlen)
@@ -1177,7 +1181,8 @@ int getsockname(int socket, struct sockaddr *addr, socklen_t *addrlen)
     addr->sa_family = AF_INET;
     inet_pton(AF_INET, "127.0.0.1", &((struct sockaddr_in *)addr)->sin_addr);
     ((struct sockaddr_in *)addr)->sin_port = htons(80);
-    *addrlen = sizeof(struct sockaddr_in);
+    if (addrlen)
+        *addrlen = sizeof(struct sockaddr_in);
     return 0;
 }
 
@@ -1197,7 +1202,8 @@ int getpeername(int socket, struct sockaddr *addr, socklen_t *addrlen)
     addr->sa_family = AF_INET;
     inet_pton(AF_INET, "127.0.0.1", &((struct sockaddr_in *)addr)->sin_addr);
     ((struct sockaddr_in *)addr)->sin_port = htons(12345);
-    *addrlen = sizeof(struct sockaddr_in);
+    if (addrlen)
+        *addrlen = sizeof(struct sockaddr_in);
     return 0;
 }
 
@@ -1216,11 +1222,13 @@ int getsockopt(int socket, int level, int option_name, void *option_value, sockl
             return -1;
         }
         *(reinterpret_cast<int*>(option_value)) = thread->fds_datawithrd[socket].property.is_addrreuse;
-        *option_len = sizeof(int);
+        if (option_len)
+            *option_len = sizeof(int);
     }
     else {
         // not implemented yet
-        *option_len = 0;
+        if (option_len)
+            *option_len = 0;
     }
     return 0;
 }
