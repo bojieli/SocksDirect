@@ -205,9 +205,16 @@ int epoll_create1(int flags)
     return epoll_create(0);
 }
 
+#undef DEBUGON
+#define DEBUGON 1
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
+    DEBUG("epoll_ctl epfd %d op %d fd %d", epfd, op, fd);
     if (epoll_fds.find(epfd) == epoll_fds.end()) {
+        errno = EBADF;
+        return -1;
+    }
+    if (get_fd_type(fd) == FD_TYPE_UNKNOWN) {
         errno = EBADF;
         return -1;
     }
@@ -248,6 +255,7 @@ static int epoll_wait_nonblock(int epfd, struct epoll_event *events, int maxeven
                 epoll_revents |= EPOLLOUT;
             if (poll_revents & POLLERR)
                 epoll_revents |= EPOLLERR;
+            DEBUG("epoll_wait epfd %d fd %d event %u\n", epfd, fd, epoll_revents);
             // EPOLLHUP etc. not supported yet
 
             events[return_events].events = epoll_revents;

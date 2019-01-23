@@ -17,6 +17,7 @@
 #include "fork.h"
 #include "rdma_lib.h"
 #include "../common/rdma_struct.h"
+#include <sys/eventfd.h>
 #include <poll.h>
 #include <mutex>
 
@@ -24,7 +25,7 @@ pthread_key_t pthread_sock_key;
 
 
 #undef DEBUGON
-#define DEBUGON 0
+#define DEBUGON 1
 
 // fd remapping should be used after initialized
 static bool fd_remap_initialized = false;
@@ -47,7 +48,7 @@ fd_type_t get_fd_type(int fd)
     else if (fd < 0) // error
         return FD_TYPE_UNKNOWN;
     else if (fd >= fd_remap_table.size())
-        return FD_TYPE_SYSTEM;
+        return FD_TYPE_UNKNOWN;
     else
         return fd_remap_table[fd].type;
 }
@@ -1401,7 +1402,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                     ele.close_fd.req_fd == thread_data->fds_datawithrd[target_fd].peer_fd)
                 {
                     iter_ele.del();
-                    DEBUG("Received close req for %d from %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
+                    DEBUG("Received close req of FD %d from peer FD %d", ele.close_fd.peer_fd, ele.close_fd.req_fd);
                     
                     iter = thread_data->fds_datawithrd.del_element(iter);
                     if (iter.end())
@@ -1597,6 +1598,7 @@ int check_sockfd_receive(int sockfd)
     if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
     {
         errno = EBADF;
+        ERROR("non-existing sockfd %d passed to epoll", sockfd);
         return POLLERR;
     }
     
@@ -1680,6 +1682,7 @@ int check_sockfd_send(int sockfd)
     if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
     {
         errno = EBADF;
+        ERROR("non-existing sockfd %d passed to epoll", sockfd);
         return POLLERR;
     }
     
@@ -1928,6 +1931,11 @@ int openat64(int dirfd, const char *pathname, int flags, ...)
     va_start(p_args, flags);
     int mode = va_arg(p_args, int);
     return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(openat64, (dirfd, pathname, flags, mode)));
+}
+
+int eventfd(unsigned int initval, int flags)
+{
+    return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(eventfd, (initval, flags)));
 }
 
 // we cannot call dlsym (ORIG) directly for mmap, otherwise will segfault
