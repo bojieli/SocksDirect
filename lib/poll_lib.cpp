@@ -206,7 +206,7 @@ int epoll_create1(int flags)
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 int epoll_ctl(int epfd, int op, int fd, struct epoll_event *event)
 {
     DEBUG("epoll_ctl epfd %d op %d fd %d", epfd, op, fd);
@@ -233,6 +233,7 @@ static int epoll_wait_nonblock(int epfd, struct epoll_event *events, int maxeven
 {
     if (epoll_fds.find(epfd) == epoll_fds.end()) {
         errno = EBADF;
+        ERROR("epoll_wait passed in unknown epfd %d", epfd);
         return -1;
     }
 

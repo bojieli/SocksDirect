@@ -703,7 +703,7 @@ int shutdown(int socket, int how)
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 int close(int fildes)
 {
     if (get_fd_type(fildes) == FD_TYPE_SYSTEM) {
@@ -778,8 +778,7 @@ metaqueue_t * connect_with_rdma_stub(int socket, struct in_addr remote_addr)
 }
 
 #undef DEBUGON
-#define DEBUGON 1
-
+#define DEBUGON 0
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
     if (get_fd_type(socket) == FD_TYPE_SYSTEM)
@@ -984,7 +983,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
 {
     if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) {
@@ -1293,6 +1292,8 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
     return 0;
 }
 
+#undef DEBUGON
+#define DEBUGON 0
 ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 {
     if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(writev, (get_real_fd(fd), iov, iovcnt));
@@ -1514,7 +1515,7 @@ void send_recv_takeover_req(int fd)
 
 */
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                  struct sockaddr *src_addr, socklen_t *addrlen)
 {
