@@ -35,22 +35,22 @@ fd_type_t get_fd_type(int fd)
 
 int get_real_fd(int virtual_fd)
 {
-    if (virtual_fd < 0) // error
+    if (virtual_fd < 0) // error pass through
         return virtual_fd;
     thread_data_t * thread_data = GET_THREAD_DATA();
     if (virtual_fd >= thread_data->fd_remap_table.size())
-        return virtual_fd; // default map to self
+        return -1;
     else
         return thread_data->fd_remap_table[virtual_fd].real_fd;
 }
 
 int get_virtual_fd(fd_type_t type, int real_fd)
 {
-    if (real_fd < 0) // error
+    if (real_fd < 0) // error pass through
         return real_fd;
     thread_data_t * thread_data = GET_THREAD_DATA();
     if (real_fd >= thread_data->fd_reverse_map_table[type].size())
-        return real_fd; // default map to self
+        return -1;
     else
         return thread_data->fd_reverse_map_table[type][real_fd];
 }
@@ -79,6 +79,7 @@ void set_fd_type(int virtual_fd, fd_type_t type, int real_fd)
 
         // resize type, real_fd -> virtual_fd mapping table
         for (int i = 0; i < NUM_FD_TYPES; i ++) {
+            int old_size = thread_data->fd_reverse_map_table[i].size();
             thread_data->fd_reverse_map_table[i].resize(new_size);
             // default map to self
             for (int j = old_size; j < new_size; j ++)
@@ -109,12 +110,15 @@ static int alloc_unmapped_virtual_fd()
     }
 }
 
+#undef DEBUGON
+#define DEBUGON 0
 int alloc_virtual_fd(fd_type_t type, int real_fd)
 {
-    if (real_fd < 0) // error passed in as virtual fd
+    if (real_fd < 0) // error pass through
         return real_fd;
     int virtual_fd = alloc_unmapped_virtual_fd();
     set_fd_type(virtual_fd, type, real_fd);
+    DEBUG("thread %d alloc virtual fd %d type %d real %d", gettid(), virtual_fd, type, real_fd);
     return virtual_fd;
 }
 
@@ -122,6 +126,7 @@ void delete_virtual_fd(int virtual_fd)
 {
     assert(virtual_fd >= 0);
     thread_data_t * thread_data = GET_THREAD_DATA();
+    DEBUG("thread %d delete virtual fd %d", gettid(), virtual_fd);
     thread_data->deleted_virtual_fds.push_back(virtual_fd);
 }
 
@@ -561,7 +566,7 @@ void fd_remapping_init()
 {
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
-    data->fd_reverse_map_table = std::vector<std::vector<int>>(NUM_FD_TYPES);
+    data->fd_reverse_map_table.resize(NUM_FD_TYPES);
     // We create a fake FD to find the next available FD for allocation
     // This method is NOT reliable if some FD has been closed
     // anyway, we just use it for now
@@ -589,6 +594,7 @@ void usocket_init()
     file_struc_rd_t _fd;
     data->fds_datawithrd.init(0,_fd);
     data->fds_wr.init(0, 0);
+    data->is_rdma_initialized = false;
     auto *thread_sock_data = new thread_sock_data_t;
     thread_sock_data->bufferhash = new std::unordered_map<key_t, int>;
     for (int i = 0; i < BUFFERNUM; ++i) thread_sock_data->buffer[i].isvalid = false;
@@ -605,6 +611,14 @@ int socket(int domain, int type, int protocol) __THROW
 
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
+    // initialized RDMA on first socket call
+    // we do not initialize in RDMA library startup, because other libraries required by RDMA are not properly initialized at that time
+    if ( ! data->is_rdma_initialized) {
+        rdma_init();
+        data->is_rdma_initialized = true;
+    }
+
+    rdma_init();
     file_struc_rd_t nfd;
     nfd.property.is_addrreuse = false;
     nfd.property.is_blocking = true;
@@ -1789,4 +1803,13 @@ int openat(int dirfd, const char *pathname, int flags, ...)
     va_start(p_args, flags);
     int mode = va_arg(p_args, int);
     return alloc_virtual_fd(FD_TYPE_SYSTEM, ORIG(openat, (dirfd, pathname, flags, mode)));
+}
+
+// we cannot call dlsym (ORIG) directly for mmap, otherwise will segfault
+// the reason: dlsym allocates memory internally, which calls mmap() again
+// our workaround: use direct syscall instead
+#define ORIG_INTERNAL(func,args) ((typeof(&func)) _dl_sym(RTLD_NEXT, #func, NULL)) args
+void *mmap(void *addr, size_t length, int prot, int flags, int fd, off_t offset)
+{
+    return (void *) syscall(SYS_mmap, addr, length, prot, flags, get_real_fd(fd), offset);
 }

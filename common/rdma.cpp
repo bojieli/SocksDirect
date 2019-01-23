@@ -37,12 +37,14 @@ int enum_dev(rdma_pack *p)
 
     for (int dev_i = 0; dev_i < num_devices; dev_i++) {
         p->ib_ctx = ibv_open_device(dev_list[dev_i]);
-        assert(p->ib_ctx != nullptr);
+        if (p->ib_ctx == nullptr) {
+            FATAL("Fail to open device %d", dev_i);
+        }
 
         struct ibv_device_attr device_attr;
         memset(&device_attr, 0, sizeof(device_attr));
         if (ibv_query_device(p->ib_ctx, &device_attr) != 0) {
-            FATAL("Fail to query device %d");
+            FATAL("Fail to query device %d", dev_i);
         }
 
         for (uint8_t port_i = 1; port_i <= device_attr.phys_port_cnt; port_i++) {
