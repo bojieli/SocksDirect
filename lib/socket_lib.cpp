@@ -1547,6 +1547,12 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
 }
 #undef DEBUGON
 
+ssize_t __recvfrom_chk(int __fd, void *__buf, size_t __nbytes, size_t __buflen, int __flags, struct sockaddr *__from, socklen_t *__fromlen)
+{
+    if (get_fd_type(__fd) == FD_TYPE_SYSTEM) return ORIG(__recvfrom_chk, (get_real_fd(__fd), __buf, __nbytes, __buflen, __flags, __from, __fromlen));
+    return recvfrom(__fd, __buf, __nbytes, __flags, __from, __fromlen);
+}
+
 // return revents
 // called by poll_lib.cpp
 int check_sockfd_receive(int sockfd)
@@ -1691,6 +1697,12 @@ ssize_t read(int fildes, void *buf, size_t nbyte)
     return recvfrom(fildes,buf,nbyte,0,NULL,NULL);
 }
 
+ssize_t __read_chk(int __fd, void *__buf, size_t __nbytes, size_t __buflen)
+{
+    if (get_fd_type(__fd) == FD_TYPE_SYSTEM) return ORIG(__read_chk, (get_real_fd(__fd), __buf, __nbytes, __buflen));
+    return recvfrom(__fd, __buf, __nbytes, 0, NULL, NULL);
+}
+
 ssize_t write(int fildes, const void *buf, size_t nbyte)
 {
     if (get_fd_type(fildes) == FD_TYPE_SYSTEM) return ORIG(write, (get_real_fd(fildes), buf, nbyte));
@@ -1727,6 +1739,12 @@ ssize_t recv(int sockfd, void *buf, size_t len, int flags)
     if (get_fd_type(sockfd) == FD_TYPE_SYSTEM) return ORIG(recv, (get_real_fd(sockfd), buf, len, flags));
     // flags are ignored now
     return read(sockfd, buf, len);
+}
+
+ssize_t __recv_chk(int __fd, void *__buf, size_t __nbytes, size_t __buflen, int __flags)
+{
+    if (get_fd_type(__fd) == FD_TYPE_SYSTEM) return ORIG(__recv_chk, (get_real_fd(__fd), __buf, __nbytes, __buflen, __flags));
+    return recvfrom(__fd, __buf, __nbytes, 0, NULL, NULL);
 }
 
 ssize_t recvmsg(int sockfd, struct msghdr *msg, int flags)
