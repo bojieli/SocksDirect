@@ -778,7 +778,7 @@ metaqueue_t * connect_with_rdma_stub(int socket, struct in_addr remote_addr)
 }
 
 #undef DEBUGON
-#define DEBUGON 0
+#define DEBUGON 1
 
 int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 {
@@ -818,6 +818,8 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
 
     unsigned short port;
     port = ntohs(((struct sockaddr_in *) address)->sin_port);
+
+    DEBUG("sending connect request to monitor: fd %d", socket);
 
     //send to monitor and get respone
     metaqueue_ctl_element req_data, res_data;
@@ -893,7 +895,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             ele.command = RDMA_QP_ACK;
             ele.req_relay_recv.shmem = key;
             q2monitor->q[0].push(ele);
-            printf("Connect Finished\n");
+            DEBUG("Connect Finished\n");
             //while (1);
 
         }
@@ -905,6 +907,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     auto wr_iter = data->fds_wr.add_element(socket, peer_fd_wr);
     data->fds_wr.set_ptr_to(socket, wr_iter);
 
+    DEBUG("connect fd %d replied by monitor, waiting for ACK from peer", socket);
 
     //wait for ACK from peer
     interprocess_n_t *buffer;
@@ -932,7 +935,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
             if (ele.command == interprocess_t::cmd::NEW_FD)
             {
                 data->fds_datawithrd[socket].peer_fd = ele.data_fd_notify.fd;
-                DEBUG("peer fd: %d\n",ele.data_fd_notify.fd);
+                DEBUG("peer fd: %d",ele.data_fd_notify.fd);
                 SW_BARRIER;
                 iter.del();
                 isFind = true;
@@ -976,6 +979,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
         if (isFind) break;
         //printf("not found\n");
     }*/
+    DEBUG("connect fd %d complete", socket);
     return 0;
 }
 
@@ -1123,6 +1127,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     SW_BARRIER;
     buffer->push_data(inter_element,0, nullptr);
 
+    DEBUG("accept complete with real FD %d", idx_nfd);
     return alloc_virtual_fd(FD_TYPE_SOCKET, idx_nfd);
 }
 
