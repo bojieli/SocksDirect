@@ -32,6 +32,9 @@ typedef struct
     int max_virtual_fd;
     // deleted virtual fds are to be recycled (the vector is actually a stack)
     std::vector<int> deleted_virtual_fds;
+
+    // initialize RDMA on first use
+    bool is_rdma_initialized;
 } thread_data_t;
 
 

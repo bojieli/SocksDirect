@@ -103,8 +103,8 @@ public:
 };
 void monitor2proc_hook();
 
-const int NUM_FD_TYPES = 3;
 const int INIT_FD_REMAP_TABLE_SIZE = 128;
+const int NUM_FD_TYPES = 4;
 
 typedef enum {
     FD_TYPE_SYSTEM = 0,  // kernel fd, the default fd type

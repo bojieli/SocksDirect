@@ -73,30 +73,32 @@ static void connect_monitor()
     data->metaqueue.init_memlayout((uint8_t *)data->uniq_shared_base_addr, 1);
 }
 
+static void thread_init()
+{
+    thread_data_t *data = new thread_data_t;
+    pthread_setspecific(pthread_key, (void *) data);
+    // init fd remapping before initial connections are established
+    fd_remapping_init();
+    // connect to monitor and initialize socket
+    connect_monitor();
+    usocket_init();
+    // at this early stage, we should not init RDMA because the necessary libraries have not been initialized
+}
+
 __attribute__((constructor))
 void after_exec()
 {
     pthread_key_create(&pthread_key, NULL);
     pthread_key_create(&pthread_sock_key, NULL);
-    thread_data_t *data = new thread_data_t;
-    pthread_setspecific(pthread_key, (void *) data);
-    connect_monitor();
-    usocket_init();
-    fd_remapping_init();
-    rdma_init();
+    thread_init();
 }
 
 static void *thread_wrapper(void *arg)
 {
-    // initialize thread data structure
-    thread_data_t * thread_data = new thread_data_t;
-    pthread_setspecific(pthread_key, (void *) thread_data);
-    // connect to monitor, initialize socket and rdma
-    connect_monitor();
-    usocket_init();
-    rdma_init();
+    thread_init();
 
     // import socket configuration
+    thread_data_t* thread_data = GET_THREAD_DATA();
     struct wrapper_arg * warg = (struct wrapper_arg *) arg;
     import_thread_data(thread_data, warg->thread_data);
     thread_sock_data_t * thread_sock_data = (thread_sock_data_t *) pthread_getspecific(pthread_sock_key);
@@ -299,15 +301,10 @@ pid_t fork()
         return result;
 
     if (result == 0) { // child
-        // initialize thread data structure
-        thread_data_t * thread_data = new thread_data_t;
-        pthread_setspecific(pthread_key, (void *) thread_data);
-        // connect to monitor, initialize socket and rdma
-        connect_monitor();
-        usocket_init();
-        rdma_init();
+        thread_init();
 
         // import socket configuration
+        thread_data_t* thread_data = GET_THREAD_DATA();
         import_thread_data(thread_data, parent_thread_data);
         thread_sock_data_t * thread_sock_data = (thread_sock_data_t *) pthread_getspecific(pthread_sock_key);
         import_thread_sock_data(thread_sock_data, parent_thread_sock_data);
