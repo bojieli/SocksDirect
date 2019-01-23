@@ -961,9 +961,10 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     sock_data = reinterpret_cast<thread_sock_data_t *>(pthread_getspecific(pthread_sock_key));
 
     metaqueue_ctl_element element;
-    // if no pending new connections from the monitor, send a command to notify monitor
+    // if no pending new connections from the monitor
     if (!data->metaqueue.q[1].pop_nb(element))
     {
+        // send a command to notify monitor, only for the first time
         if (!data->fds_datawithrd[sockfd].property.is_accept_command_sent) {
             metaqueue_ctl_element accept_command;
             accept_command.command = REQ_ACCEPT;
@@ -971,10 +972,11 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
             data->metaqueue.q[0].push(accept_command);
             data->fds_datawithrd[sockfd].property.is_accept_command_sent = true; 
         }
+        // wait for connect requests from the monitor
+        while (!data->metaqueue.q[1].pop_nb(element));
     }
 
-    // wait for connect requests from the monitor
-    while (!data->metaqueue.q[1].pop_nb(element));
+    // now the command from monitor must be valid. check if is a new connection request
     if (element.command != RES_NEWCONNECTION)
         FATAL("unordered accept response");
 

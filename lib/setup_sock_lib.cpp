@@ -16,13 +16,13 @@ void setup_sock_connect(ctl_struc *res)
     int fd;
     fd = ORIG(socket, (AF_UNIX, SOCK_STREAM, 0));
     if (fd == -1)
-        FATAL("Failted to create client socket, %s", strerror(errno));
+        FATAL("Failted to create client setup socket, %s", strerror(errno));
     struct sockaddr_un local;
     local.sun_family = AF_UNIX;
     strcpy(local.sun_path, SOCK_FILENAME);
     int len = strlen(local.sun_path) + sizeof(local.sun_family);
     if (ORIG(connect, (fd, (struct sockaddr *) &local, len)) == -1)
-        FATAL("Failed to open the connection to server, %s", strerror(errno));
+        FATAL("Failed to open the connection to local monitor (check if the monitor is running): %s", strerror(errno));
     ctl_struc data;
     data.tid = gettid();
     data.pid = getpid();
