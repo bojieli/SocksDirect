@@ -1891,6 +1891,25 @@ int dup2(int oldfd, int newfd)
     return -1;
 }
 
+int dup3 (int oldfd, int newfd, int flags)
+{
+     if (get_fd_type(oldfd) == FD_TYPE_SYSTEM) {
+        int real_fd = ORIG(socket, (AF_INET, SOCK_STREAM, 0));
+        if (real_fd < 0) {
+            errno = ENOMEM;
+            return -1;
+        }
+        real_fd = ORIG(dup3, (get_real_fd(oldfd), real_fd, flags));
+        set_fd_type(newfd, FD_TYPE_SYSTEM, real_fd);
+        return newfd;
+    }
+
+    // not implemented for now
+    ERROR("dup3 fd %d -> %d not implemented for socket", oldfd, newfd);
+    errno = ENOTSUP;
+    return -1;
+}
+
 ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
 {
     if (get_fd_type(in_fd) == FD_TYPE_SYSTEM && get_fd_type(out_fd) == FD_TYPE_SYSTEM) {
