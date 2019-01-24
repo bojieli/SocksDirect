@@ -18,6 +18,7 @@
 #include "rdma_lib.h"
 #include "../common/rdma_struct.h"
 #include <sys/eventfd.h>
+#include <sys/sendfile.h>
 #include <poll.h>
 #include <mutex>
 
@@ -1624,7 +1625,6 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     DEBUG("received %d bytes from sockfd %d", ret, sockfd);
     return ret;
 }
-#undef DEBUGON
 
 ssize_t __recvfrom_chk(int __fd, void *__buf, size_t __nbytes, size_t __buflen, int __flags, struct sockaddr *__from, socklen_t *__fromlen)
 {
@@ -1918,13 +1918,86 @@ int dup3 (int oldfd, int newfd, int flags)
 
 ssize_t sendfile(int out_fd, int in_fd, off_t *offset, size_t count)
 {
+    DEBUG("sendfile out_fd %d in_fd %d offset %d count %d", out_fd, in_fd, (offset ? *offset : 0), count);
     if (get_fd_type(in_fd) == FD_TYPE_SYSTEM && get_fd_type(out_fd) == FD_TYPE_SYSTEM) {
         return ORIG(sendfile, (get_real_fd(out_fd), get_real_fd(in_fd), offset, count));
     }
 
-    // not implemented for now
-    errno = ENOTSUP;
-    return -1;
+    // emulate sendfile in user space
+    if (offset != NULL) {
+        off_t new_offset = lseek(in_fd, *offset, SEEK_SET);
+        if (new_offset == -1) // lseek failed
+            return -1;
+    }
+    // copy data from in_fd to out_fd iteratively
+    ssize_t total_read_bytes = 0;
+    const int bufsize = 4096 * 4;
+    char *buf = (char *) malloc(bufsize);
+    while (count - total_read_bytes > 0) {
+        if (buf == NULL) {
+            errno = ENOMEM;
+            return -1;
+        }
+        ssize_t max_read_bytes = (bufsize < count - total_read_bytes ? bufsize : count - total_read_bytes);
+        ssize_t read_bytes = read(in_fd, buf, max_read_bytes);
+        if (read_bytes == -1) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) { // try again
+                continue;
+            }
+            else {
+                errno = EPIPE;
+                return -1;
+            }
+        }
+        else if (read_bytes == 0) { // EOF
+            break;
+        }
+        else {
+            // update total_read_bytes
+            total_read_bytes += read_bytes;
+
+            // iteratively write the data to out_fd
+            ssize_t write_bytes = read_bytes;
+            char *write_buf = buf;
+            while (write_bytes > 0) {
+                ssize_t written_bytes = write(out_fd, write_buf, read_bytes);
+                if (written_bytes == -1) {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK) { // try again
+                        continue;
+                    }
+                    else {
+                        errno = EPIPE;
+                        return -1;
+                    }
+                }
+                else {
+                    write_bytes -= written_bytes;
+                    write_buf += written_bytes;
+                }
+            }
+        }
+    }
+
+    if (offset != NULL && total_read_bytes > 0) {
+        // we need to set the offset back...
+        if (lseek(in_fd, *offset, SEEK_SET) == -1) {
+            // we can do nothing here
+            ERROR("sendfile: failed to set back in_fd %d to offset %d, current offset %d", in_fd, *offset, *offset + total_read_bytes);
+        }
+        *offset += total_read_bytes;
+    }
+    DEBUG("sendfile finish: out_fd %d in_fd %d count %d actual read %d bytes", out_fd, in_fd, count, total_read_bytes);
+    return total_read_bytes;
+}
+
+ssize_t sendfile64(int out_fd, int in_fd, off_t *offset, size_t count)
+{
+    if (get_fd_type(in_fd) == FD_TYPE_SYSTEM && get_fd_type(out_fd) == FD_TYPE_SYSTEM) {
+        return ORIG(sendfile, (get_real_fd(out_fd), get_real_fd(in_fd), offset, count));
+    }
+    else {
+        return sendfile(out_fd, in_fd, offset, count);
+    }
 }
 
 int socketpair(int domain, int type, int protocol, int sv[2])
