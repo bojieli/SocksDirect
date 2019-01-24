@@ -84,6 +84,21 @@ static void thread_init()
     // at this early stage, we should not init RDMA because the necessary libraries have not been initialized
 }
 
+// Differences between after_exec and after_thread_create_or_fork:
+//
+// 1. After exec, several libraries are not loaded and initialized, so RDMA
+//    cannot be initialized, and we defer RDMA initialization to the first
+//    call to socket().
+//
+//    After fork, all libraries are initialized, so we can re-initialize RDMA
+//    for the new thread/process immediately.
+// 
+// 2. FD remapping table is a global resource, and should be only initialized
+//    once after exec.
+//
+// 3. After thread creation and fork, data from parent thread should be
+//    selectively imported.
+//
 __attribute__((constructor))
 void after_exec()
 {
@@ -94,16 +109,25 @@ void after_exec()
     fd_remapping_init();
 }
 
-static void *thread_wrapper(void *arg)
+static void after_thread_create_or_fork(thread_data_t *old_thread_data, thread_sock_data_t *old_thread_sock_data)
 {
     thread_init();
 
     // import socket configuration
     thread_data_t* thread_data = GET_THREAD_DATA();
-    struct wrapper_arg * warg = (struct wrapper_arg *) arg;
-    import_thread_data(thread_data, warg->thread_data);
+    import_thread_data(thread_data, old_thread_data);
     thread_sock_data_t * thread_sock_data = (thread_sock_data_t *) pthread_getspecific(pthread_sock_key);
-    import_thread_sock_data(thread_sock_data, warg->thread_sock_data);
+    import_thread_sock_data(thread_sock_data, old_thread_sock_data);
+
+    // connect RDMA
+    rdma_init();
+    thread_data->is_rdma_initialized = true;
+}
+
+static void *thread_wrapper(void *arg)
+{
+    struct wrapper_arg * warg = (struct wrapper_arg *) arg;
+    after_thread_create_or_fork(warg->thread_data, warg->thread_sock_data);
 
     // call start func
     void *(*start_func)(void *) = warg->func;
@@ -302,13 +326,7 @@ pid_t fork()
         return result;
 
     if (result == 0) { // child
-        thread_init();
-
-        // import socket configuration
-        thread_data_t* thread_data = GET_THREAD_DATA();
-        import_thread_data(thread_data, parent_thread_data);
-        thread_sock_data_t * thread_sock_data = (thread_sock_data_t *) pthread_getspecific(pthread_sock_key);
-        import_thread_sock_data(thread_sock_data, parent_thread_sock_data);
+        after_thread_create_or_fork(parent_thread_data, parent_thread_sock_data);
     }
     else { // parent
         // currently parent does not do anything
