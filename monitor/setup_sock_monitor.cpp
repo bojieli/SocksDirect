@@ -23,6 +23,9 @@ void setup_sock_monitor_init()
     struct sockaddr_un local;
     local.sun_family = AF_UNIX;
     strcpy(local.sun_path, SOCK_FILENAME);
+    int flag = 1;
+    if (-1 == setsockopt(socket_fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag)))
+        FATAL("setsockopt fail for monitor listen socket");
     int len = strlen(local.sun_path) + sizeof(local.sun_family);
     if (bind(socket_fd, (struct sockaddr *) &local, len) == -1)
         FATAL("Failed to bind for monitor, err: %s", strerror(errno));

@@ -318,6 +318,12 @@ static bool before_fork_blocking_chk()
 // we currently use the same solution for thread creation as fork
 pid_t fork()
 {
+    DEBUG("Fork!!!!");
+    int ret;
+    if ((ret = ibv_fork_init()) != 0)
+        FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);
+    else
+        printf("RDMA fork prepare success\n");
     thread_data_t * parent_thread_data = GET_THREAD_DATA();
     thread_sock_data_t * parent_thread_sock_data = GET_THREAD_SOCK_DATA();
 
@@ -331,6 +337,7 @@ pid_t fork()
     else { // parent
         // currently parent does not do anything
     }
+    rdma_init();
     return result;
 }
 

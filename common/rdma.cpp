@@ -19,7 +19,10 @@ static std::string link_layer_str(uint8_t link_layer) {
 }
 
 
+#undef DEBUGON
+#define DEBUGON 1
 
+#define RDMA_DEV_NAME "mlx4_1"
 //always use the first port
 int enum_dev(rdma_pack *p)
 {
@@ -46,6 +49,8 @@ int enum_dev(rdma_pack *p)
         if (ibv_query_device(p->ib_ctx, &device_attr) != 0) {
             FATAL("Fail to query device %d", dev_i);
         }
+        if (strcmp(RDMA_DEV_NAME, dev_list[dev_i]->name) != 0)
+            continue;
 
         for (uint8_t port_i = 1; port_i <= device_attr.phys_port_cnt; port_i++) {
             // Count this port only if it is enabled
@@ -64,8 +69,7 @@ int enum_dev(rdma_pack *p)
                         "Transport type required is RoCE but port link layer is %s"
                         ,link_layer_str(port_attr.link_layer).c_str());
             }*/
-
-            DEBUG("RDMA  NIC bind to device %d, port %d. Name %s.\n",
+            DEBUG("RDMA  NIC bind to device %d, port %d. Name %s.",
                   dev_i, port_i, dev_list[dev_i]->name);
 
             p->device_id = dev_i;
@@ -104,7 +108,13 @@ ibv_qp * rdma_create_qp(ibv_cq* send_cq, ibv_cq *recv_cq, const rdma_pack * rdma
     myqp_attr.cap.max_recv_sge = 1;
     myqp_attr.cap.max_inline_data = QPMaxInlineData;
     ibv_qp *qp;
+    DEBUG("Starting create QP");
+    if (rdma_context->ibv_pd == nullptr)
+        FATAL("PD nullptr");
+    if (recv_cq == nullptr)
+        FATAL("RECV CQ nullptr");
     qp=ibv_create_qp(rdma_context->ibv_pd, &myqp_attr);
+    DEBUG("QP created inside");
     if (qp == nullptr)
         FATAL("Failed to create QP, %s", strerror(errno));
     ibv_qp_attr myqp_stateupdate_attr;

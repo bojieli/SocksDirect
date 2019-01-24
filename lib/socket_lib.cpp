@@ -635,6 +635,11 @@ int socket(int domain, int type, int protocol) __THROW
     // initialized RDMA on first socket call
     // we do not initialize in RDMA library startup, because other libraries required by RDMA are not properly initialized at that time
     if ( ! data->is_rdma_initialized) {
+        int ret;
+        if ((ret = ibv_fork_init()) != 0)
+            FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);
+        else
+            DEBUG("RDMA fork prepare success");
         rdma_init();
         data->is_rdma_initialized = true;
     }
@@ -1033,7 +1038,7 @@ int accept4(int sockfd, struct sockaddr *addr, socklen_t *addrlen, int flags)
     int loc = element.resp_connect.loc;
     auto peer_fd = element.resp_connect.fd;
     bool isRDMA = element.resp_connect.isRDMA;
-    DEBUG("Accept new connection, key %d, loc %d", key, loc);
+    DEBUG("Accept new connection, key %d, loc %d RDMA: %d", key, loc, isRDMA);
     file_struc_rd_t nfd_rd;
     fd_rd_list_t npeerfd_rd;
 

@@ -232,7 +232,7 @@ void long_msg_handler(metaqueue_ctl_element * req_body, int qid)
     //Find the metaqueue of the peerqid
     res_metaqueue = &process[peerqid].metaqueue;
     res_metaqueue->push_longmsg(len,rdma_send_info_ptr, RDMA_QP_INFO);
-    DEBUG("Monitor relay QPinfo finished!");
+    DEBUG("Monitor relay QPinfo to queue %d finished!", peerqid);
     free(rdma_send_info_ptr);
 }
 
