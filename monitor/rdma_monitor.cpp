@@ -31,6 +31,10 @@ void create_rdma_socket()
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(RDMA_SOCK_PORT);
     servaddr.sin_addr.s_addr = htons(INADDR_ANY);
+    int flag = 1;
+    if (-1 == setsockopt(rdma_sock_fd, SOL_SOCKET, SO_REUSEADDR, &flag, sizeof(flag))) {
+        FATAL("setsockopt fail for RDMA listen socket");
+    }
     if (bind(rdma_sock_fd, (struct sockaddr *)&servaddr, sizeof(servaddr)) < 0)
         FATAL("Failed to bind RDMA setup sock, %s", strerror(errno));
     if (listen(rdma_sock_fd, 10) < 0)
