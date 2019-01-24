@@ -1537,11 +1537,17 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
     sockfd = get_real_fd(sockfd);
 
     thread_data_t *thread_data = GET_THREAD_DATA();
-    if (thread_data->fds_datawithrd.begin(sockfd).end() || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
+    if ( ! thread_data->fds_datawithrd.is_keyvalid(sockfd)
+            || thread_data->fds_datawithrd[sockfd].type != USOCKET_TCP_CONNECT
             || !thread_data->fds_datawithrd[sockfd].property.tcp.isopened)
     {
         errno = EBADF;
         return -1;
+    }
+    // all receive queues are closed, return 0 to indicate EOF
+    if (thread_data->fds_datawithrd.begin(sockfd).end())
+    {
+        return 0;
     }
 
     //hook for all the process
