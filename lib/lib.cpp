@@ -251,7 +251,6 @@ static void after_fork_child(pid_t oldtid)
     after_fork_father();
 }
 
-#undef DEBUGON
 
 /*
 static bool recv_takeover_check(int idx)
