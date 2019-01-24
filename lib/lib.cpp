@@ -318,11 +318,19 @@ static bool before_fork_blocking_chk()
 pid_t fork()
 {
     DEBUG("Fork!!!!");
+    /*
+    // We actually do not need to call ibv_fork_init() because it only performs
+    // memory protection to avoid the child process to accidentally use the
+    // RDMA connection.
+    // What we do is to create independent IB context, memory regions, QPs for
+    // child thread.
+    //
     int ret;
     if ((ret = ibv_fork_init()) != 0)
         FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);
     else
         printf("RDMA fork prepare success\n");
+    */
     thread_data_t * parent_thread_data = GET_THREAD_DATA();
     thread_sock_data_t * parent_thread_sock_data = GET_THREAD_SOCK_DATA();
 

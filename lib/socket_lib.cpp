@@ -635,11 +635,19 @@ int socket(int domain, int type, int protocol) __THROW
     // initialized RDMA on first socket call
     // we do not initialize in RDMA library startup, because other libraries required by RDMA are not properly initialized at that time
     if ( ! data->is_rdma_initialized) {
+        /*
+        // We actually do not need to call ibv_fork_init() because it only performs
+        // memory protection to avoid the child process to accidentally use the
+        // RDMA connection.
+        // What we do is to create independent IB context, memory regions, QPs for
+        // child thread.
+        //
         int ret;
         if ((ret = ibv_fork_init()) != 0)
             FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);
         else
             DEBUG("RDMA fork prepare success");
+        */
         rdma_init();
         data->is_rdma_initialized = true;
     }
