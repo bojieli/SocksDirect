@@ -120,3 +120,19 @@ unsigned long TimingEnd()
     unsigned long ns = (unsigned long)((end.tv_sec - begin->tv_sec) * 1000000000LL + (end.tv_nsec - begin->tv_nsec));
     return ns;
 }
+
+void print_backtrace(void)
+{
+	const int backtrace_max_depth = 32;
+    void *stack[backtrace_max_depth];
+    int count = backtrace(stack, backtrace_max_depth);
+    char **symbols = backtrace_symbols(stack, count);
+
+    fprintf(stderr, "-------- BEGIN BACKTRACE --------\n");
+    for (int i = 0; i < count; i++)
+        fprintf(stderr, "%s\n", symbols[i]);
+    fprintf(stderr, "-------- END BACKTRACE --------\n");
+
+    free(symbols); 
+}
+
