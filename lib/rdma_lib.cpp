@@ -88,6 +88,9 @@ rdma_self_pack_t * lib_new_qp()
     rdma_self_pack_t * ret = new rdma_self_pack_t;
     //Create a CQ for sender part
     ret->send_cq = ibv_create_cq(rdma_lib_context.ib_ctx, QPRQDepth+QPSQDepth, nullptr, nullptr, 0);
+    if (ret->send_cq == nullptr)
+        FATAL("CQ creation failed error %d:", errno);
+    DEBUG("CQ Created");
     ret->recv_cq = rdma_lib_private_info.shared_cq;
     ret->qp = rdma_create_qp(ret->send_cq, ret->recv_cq, &rdma_lib_context);
     ret->rkey = rdma_lib_context.buf_mr->rkey;
