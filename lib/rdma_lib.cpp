@@ -11,6 +11,7 @@
 #include "../common/interprocess_t.h"
 #include "../common/rdma.h"
 #include "../common/metaqueue.h"
+#include <sys/socket.h>
 
 #define DEBUGON 1
 #define RDMA_MAX_CONN 4
@@ -53,7 +54,7 @@ void rdma_init()
                     (size_t)RDMA_MAX_CONN * interprocess_t::get_sharedmem_size() +
                     (size_t)RDMA_MAX_METAQUEUE * metaqueue_t::get_sharememsize();
     rdma_lib_context.MR_ptr = memalign(4096, shared_buf_size);
-    printf("%lldbytes\n", shared_buf_size);
+    printf("%ldbytes\n", shared_buf_size);
     rdma_lib_private_info.local_metaqueue_base_addr = (uintptr_t)rdma_lib_context.MR_ptr;
     rdma_lib_private_info.local_interprocess_base_addr = (uintptr_t)(rdma_lib_context.MR_ptr +
             (size_t)RDMA_MAX_METAQUEUE * metaqueue_t::get_sharememsize());
@@ -160,7 +161,7 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         int currptr=0;
         while (left_byte > 0)
         {
-            ssize_t curr_sent_byte = send(sock_fd, &sendbuf[currptr], left_byte, MSG_WAITALL);
+            ssize_t curr_sent_byte = ORIG(send, (sock_fd, &sendbuf[currptr], left_byte, MSG_WAITALL));
             currptr += curr_sent_byte;
             left_byte -= curr_sent_byte;
         }
@@ -174,7 +175,7 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         currptr=0;
         while (left_byte > 0)
         {
-            ssize_t  curr_recv_byte = recv(sock_fd, &recvbuf[currptr], left_byte, MSG_WAITALL);
+            ssize_t  curr_recv_byte = ORIG(recv, (sock_fd, &recvbuf[currptr], left_byte, MSG_WAITALL));
             currptr += curr_recv_byte;
             left_byte -= curr_recv_byte;
         }
@@ -197,7 +198,7 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         ssize_t curr_byte;
         do
         {
-            curr_byte = send(sock_fd, &sendbuf[0], 1, MSG_WAITALL);
+            curr_byte = ORIG(send, (sock_fd, &sendbuf[0], 1, MSG_WAITALL));
             if (curr_byte == -1)
             {
                 FATAL("Failed to send RDMA QP ACK to peer :%s", strerror(errno));
@@ -205,7 +206,7 @@ rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr)
         } while (curr_byte != 1);
         do
         {
-            curr_byte = recv(sock_fd, &recvbuf[0], 1, MSG_WAITALL);
+            curr_byte = ORIG(recv, (sock_fd, &recvbuf[0], 1, MSG_WAITALL));
             if (curr_byte == -1)
             {
                 FATAL("Failed to get RDMA QP ACK from peer :%s", strerror(errno));
