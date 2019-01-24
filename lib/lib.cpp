@@ -344,7 +344,6 @@ pid_t fork()
     else { // parent
         // currently parent does not do anything
     }
-    rdma_init();
     return result;
 }
 
