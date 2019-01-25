@@ -1464,11 +1464,15 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 return ITERATE_FD_IN_BUFFER_STATE::FIND;
             }
         }
-        iter.next();
+        iter_ele.next();
     }
     
     if (!thread_sock_data->buffer[iter->buffer_idx].isRDMA)
         iter = recv_empty_hook(iter, target_fd);
+    else
+    {
+        iter = iter.next();
+    }
     return ITERATE_FD_IN_BUFFER_STATE::NOTFIND;
 }
 
