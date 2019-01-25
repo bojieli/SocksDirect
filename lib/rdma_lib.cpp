@@ -14,8 +14,8 @@
 #include <sys/socket.h>
 
 #define DEBUGON 1
-#define RDMA_MAX_CONN 4
-#define RDMA_MAX_METAQUEUE 4
+#define RDMA_MAX_CONN 10
+#define RDMA_MAX_METAQUEUE 10
 
 
 std::unordered_map<uint32_t, rdma_metaqueue > remote_monitor;
@@ -95,7 +95,7 @@ rdma_self_pack_t * lib_new_qp()
     ret->qp = rdma_create_qp(ret->send_cq, ret->recv_cq, &rdma_lib_context);
     ret->rkey = rdma_lib_context.buf_mr->rkey;
     ret->localptr = (uint64_t) ((uint8_t *)rdma_lib_private_info.local_interprocess_base_addr +
-            interprocess_t::get_sharedmem_size() * rdma_interprocess_seq);
+            ((interprocess_t::get_sharedmem_size() * rdma_interprocess_seq - 1) / 16 + 1) * 16);
     memset((void*)ret->localptr, 0, interprocess_t::get_sharedmem_size());
     ++rdma_interprocess_seq;
     ret->qpn = ret->qp->qp_num;
