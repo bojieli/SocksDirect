@@ -22,10 +22,13 @@ static std::string link_layer_str(uint8_t link_layer) {
 #undef DEBUGON
 #define DEBUGON 1
 
-#define RDMA_DEV_NAME "mlx4_1"
+#define RDMA_CONFIG_NAME "rdma_config.txt"
+static bool isRDMAnameGet=false;
+
 //always use the first port
 int enum_dev(rdma_pack *p)
 {
+    static char RDMA_DEV_NAME[100];
     // Get the device list
     int num_devices = 0;
     int ports_to_discover=0;
@@ -37,7 +40,14 @@ int enum_dev(rdma_pack *p)
 
     DEBUG("%d RDMA NIC detected", num_devices);
     // Traverse the device list
-
+    FILE *rdma_config;
+    if (!isRDMAnameGet) {
+        rdma_config = fopen(RDMA_CONFIG_NAME, "r");
+        if (rdma_config == nullptr)
+            FATAL("RDMA config failed to open");
+        fscanf(rdma_config, "%s", RDMA_DEV_NAME);
+        isRDMAnameGet = true;
+    }
     for (int dev_i = 0; dev_i < num_devices; dev_i++) {
         p->ib_ctx = ibv_open_device(dev_list[dev_i]);
         if (p->ib_ctx == nullptr) {
