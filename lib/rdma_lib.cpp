@@ -39,6 +39,14 @@ void rdma_init()
     //2. Allocate PD
     //3. enumerate device and get dev id
 
+    // we need to call ibv_fork_init before ANY OTHER RDMA functions.
+    // this will set the RDMA memory regions to NOT copy-on-write after fork.
+    int ret;
+    if ((ret = ibv_fork_init()) != 0)
+        FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);
+    else
+        DEBUG("RDMA fork prepare success");
+
     //enumerate device
     if (enum_dev(&rdma_lib_context) == -1) {
         return;
