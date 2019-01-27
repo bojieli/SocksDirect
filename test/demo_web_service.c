@@ -223,7 +223,7 @@ static void * reporter_thread(void *arg)
         double latency = get_memcached_time(memc, &rc);
         char *name = (getppid() == 0 ? "ipc" : "linux");
         FILE *fp = fopen("/usr/share/nginx/html/data/live.txt", "w");
-        fprintf(fp, "%s-%d %.2lf %.2lf\n", name, nthreads, (total_counter - last_counter) / 4.0e3, latency);
+        fprintf(fp, "%s-%ld %.2lf %.2lf\n", name, nthreads, (total_counter - last_counter) / 4.0e3, latency);
         fclose(fp);
         last_counter = total_counter;
     }
@@ -241,6 +241,12 @@ void signal_callback_handler(int signum) {
     printf("Caught signal SIGPIPE %d\n", signum);
 }
 
+
+static char body_str[8192] = {0};
+void init_buf()
+{
+    for (int i=0;i<8192;++i) body_str[i] = 'a';
+}
 int main(int argc, char** argv)
 {
     int sfd, s;
@@ -250,7 +256,7 @@ int main(int argc, char** argv)
     static int visit_counter = 0;
 
     signal(SIGPIPE, signal_callback_handler);
-
+    init_buf();
     sfd = create_and_bind ("9000");
     if (sfd == -1)
         abort ();
@@ -286,8 +292,8 @@ int main(int argc, char** argv)
     events = calloc (MAXEVENTS, sizeof event);
 
     create_worker_threads(argc, argv);
-    create_reporter_threads(argc, argv);
-	memcached_init();
+    //create_reporter_threads(argc, argv);
+	//memcached_init();
 
     printf("Waiting for events...\n");
     /* The event loop */
@@ -362,6 +368,9 @@ int main(int argc, char** argv)
             {
                 ssize_t count;
                 char buf[4096];
+                /* client assign which req size we want to test */
+                unsigned long msgsize = 0;
+
                 unsigned long memcached_count = 0;
 
                 struct timespec begin_time;
@@ -391,26 +400,15 @@ int main(int argc, char** argv)
                 }
                 else {
 					char long_query[] = "GET /slow_query HTTP/1.";
-                    char findstr[] = "GET / HTTP/1.";
+                    char findstr[] = "GET /";
+                    char * msgsizechar_p;
                     int found = 0;
-					if (strstr(buf, long_query) != NULL) {
-                        char *retrieved_value = NULL;
-                        char key[] = "testkey";
-                        size_t value_length = 0;
-                        uint32_t flags;
 
-                        for (int i=0; i<1e5; i++) {
-                            retrieved_value = memcached_get(memc, key, strlen(key), &value_length, &flags, &rc);
-                            if (value_length > 0 && retrieved_value)
-                                free(retrieved_value);
-                            memcached_count ++;
-                        }
-                        found = 1;
-					}
-                    else if (strstr(buf, findstr) == NULL) {
+                    if ((msgsizechar_p = strstr(buf, findstr)) == NULL) {
                         found = 0;
                     }
                     else { // singl query test
+                        /*
                         char *retrieved_value = NULL;
                         char key[] = "testkey";
                         size_t value_length = 0;
@@ -420,40 +418,54 @@ int main(int argc, char** argv)
                         if (value_length > 0 && retrieved_value)
                             free(retrieved_value);
                         memcached_count ++;
-
+                        */
+                        msgsizechar_p += strlen(findstr);
                         found = 1;
+
                     }
 
                     if (found) {
-                        struct timespec end_time;
-                        clock_gettime(CLOCK_REALTIME, &end_time);
-                        int msec = (int)(1e3 * (end_time.tv_sec - begin_time.tv_sec) + (end_time.tv_nsec - begin_time.tv_nsec) / 1e6);
+                        char* req_timestamp_p;
+                        msgsize = strtoul(msgsizechar_p, &req_timestamp_p, 0);
+                        /*
+                         * If client supply a timestamp, we return the same one in the body
+                         * */
+                        if (*req_timestamp_p != '\0')
+                        {
+                            memcpy(body_str, (req_timestamp_p)+1, sizeof(struct timespec));
+                        }
 
-                        char buf[4096] = "HTTP/1.1 200 OK\r\n"
+                        if(msgsize == 0)
+                        {
+                            perror("Invalid msg size");
+                            abort();
+                        }
+
+                        /*We need to construct content first in order to know content length */
+
+                        //sprintf(body_str, "<html><head><title>Test page</title></head><body><h1>Sample web page</h1><h2>visit count ");
+                        //sprintf(body_str + strlen(body_str), "%d</h2><h2>page loaded in %d ms</h2><h2>accessed %lu keys in memcached</h2></body></html>\r\n", ++visit_counter, msec, memcached_count);
+                        char buf[4096] = {0};
+                        sprintf(buf, "HTTP/1.1 200 OK\r\n"
                             "Server: nginx/1.12.2\r\n"
                             "Content-Type: text/html\r\n"
-                            "Connection: close\r\n"
-                            //"Content-Length: 200\r\n"
-                            "\r\n"
-                            "<html><head><title>Test page</title></head><body><h1>Sample web page</h1><h2>visit count ";
-                        char counter_str[256] = {0};
-                        sprintf(counter_str, "%d</h2><h2>page loaded in %d ms</h2><h2>accessed %d keys in memcached</h2>", ++visit_counter, msec, memcached_count);
-                        char buf2[40] =
-                            "</body></html>\r\n";
+                            "Connection: keep-alive\r\n"
+                            "Content-Length: %lu\r\n"
+                            "\r\n", msgsize);
                         write (events[i].data.fd, buf, strlen(buf));
-                        write (events[i].data.fd, counter_str, strlen(counter_str));
-                        write (events[i].data.fd, buf2, strlen(buf2));
+                        write (events[i].data.fd, body_str, msgsize);
                         //printf ("received %d bytes from fd %d\n", count, events[i].data.fd);
                     }
                     else {
                         char buf[4096] = "HTTP/1.1 404 Not Found\r\n"
                             "Server: nginx/1.12.2\r\n"
-                            "Connection: close\r\n"
+                            "Connection: keep-alive\r\n"
+                            "Content-Length: 0\r\n"
                             "\r\n";
                         write (events[i].data.fd, buf, strlen(buf));
                     }
 
-                    shutdown (events[i].data.fd, SHUT_WR);
+                    //shutdown (events[i].data.fd, SHUT_WR);
                 }
             }
         }
