@@ -39,16 +39,23 @@ static int check_sockfd_event(int sockfd, int events)
     return revents;
 }
 
+static unsigned int sys_poll_throttle_counter = 0;
+#define SYS_POLL_THROTTLE_FACTOR 65536
+
 // return revents
 static int check_fd_event(int fd, int events)
 {
+    static typeof(&poll) orig_poll = (typeof(&poll)) dlsym(RTLD_NEXT, "poll");
+
     if (get_fd_type(fd) == FD_TYPE_SYSTEM) { // system fd
-        struct pollfd sys_fd;
-        sys_fd.fd = get_real_fd(fd);
-        sys_fd.events = events;
-        sys_fd.revents = 0;
-        ORIG(poll, (&sys_fd, 1, 0));
-        return sys_fd.revents;
+        if (sys_poll_throttle_counter % SYS_POLL_THROTTLE_FACTOR == 0) {
+            struct pollfd sys_fd;
+            sys_fd.fd = get_real_fd(fd);
+            sys_fd.events = events;
+            sys_fd.revents = 0;
+            orig_poll(&sys_fd, 1, 0);
+            return sys_fd.revents;
+        }
     }
     else { // user space fd
         int sockfd = get_real_fd(fd);
@@ -86,6 +93,7 @@ int poll(struct pollfd *fds, nfds_t nfds, int timeout)
                 break;
         }
     }
+    sys_poll_throttle_counter ++;
     return polled_events;
 }
 
@@ -128,6 +136,7 @@ static int select_nonblock(int nfds, fd_set *readfds, fd_set *writefds, fd_set *
             else
                 FD_CLR(fd, exceptfds);
     }
+    sys_poll_throttle_counter ++;
     return polled_fds;
 }
 
@@ -268,6 +277,7 @@ static int epoll_wait_nonblock(int epfd, struct epoll_event *events, int maxeven
                 break;
         }
     }
+    sys_poll_throttle_counter ++;
     return return_events;
 }
 
@@ -288,6 +298,9 @@ int epoll_wait(int epfd, struct epoll_event *events, int maxevents, int timeout)
         }
         else if (timeout == 0) { // if non-blocking poll, immediately return
             break;
+        }
+        else if (timeout < 0) { // blocking poll without timeout
+            continue;
         }
         else { // check timeout
             struct timespec end_time;
