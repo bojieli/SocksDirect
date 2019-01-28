@@ -17,6 +17,7 @@
 #include "fork.h"
 #include "rdma_lib.h"
 #include "../common/rdma_struct.h"
+#include "../lib/zerocopy.h"
 #include <sys/eventfd.h>
 #include <sys/sendfile.h>
 #include <poll.h>
@@ -24,6 +25,11 @@
 
 pthread_key_t pthread_sock_key;
 
+
+const int MIN_PAGES_FOR_ZEROCOPY = 2;
+const int MAX_TST_MSG_SIZE=1024*1024*4;
+static uint8_t pot_mock_data[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
+static uint8_t mapping_buf[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
 
 #undef DEBUGON
 #define DEBUGON 0
@@ -1300,6 +1306,101 @@ int ioctl(int fildes, unsigned long request, ...) __THROW
 
 #undef DEBUGON
 #define DEBUGON 0
+static ssize_t write_nbyte(int fd, int numofbytes, uint8_t *send_buffer, interprocess_n_t *buffer, int peer_fd)
+{
+    int total_numofbytes = numofbytes;
+    interprocess_t::queue_t::element ele;
+
+/*
+    if (numofbytes <= 16)
+    {
+        ele.command = interprocess_t::cmd ::NOP;
+        ele.pot_fd_rw.fd = peer_fd;
+        memcpy(ele.pot_fd_rw.raw, send_buffer, 9);
+        SW_BARRIER;
+        while (!dynamic_cast<interprocess_local_t *>(buffer)->q[0].push_nb(ele))
+        {
+            monitor2proc_hook();
+            iter = thread_data->fds_wr.begin(fd);
+            buffer = thread_sock_data->
+                    buffer[iter->buffer_idx].data;
+            
+            
+        }
+        return 0;
+    }
+    */
+
+    if ((numofbytes >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY) &&
+          //(((unsigned long)send_buffer & (PAGE_SIZE - 1)) == 0) &&
+            ((numofbytes & (PAGE_SIZE - 1)) == 0))
+    {
+        // mock test for now
+        
+        // send the first page of real data
+        ele.command = interprocess_t::cmd::DATA_TRANSFER;
+        ele.data_fd_rw.fd = peer_fd;
+        SW_BARRIER;
+        buffer->push_data(ele, PAGE_SIZE, send_buffer);
+        numofbytes -= PAGE_SIZE;
+        send_buffer += PAGE_SIZE;
+
+        // remaining pages are mock data
+        const uint8_t *send_buffer = pot_mock_data;
+        int num_pages = numofbytes / PAGE_SIZE;
+        unsigned long *phys_addrs = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+        int ret = virt2physv((unsigned long)send_buffer, phys_addrs, num_pages);
+        if (ret < 0) {
+            DEBUG("error calling virt2phys: return %d", ret);
+            // for mock test, we continue here
+            // for real test, we should goto fallback
+
+            // free(phys_addrs);
+            // goto fallback;
+        }
+
+        // check if pages are continuous
+        int i;
+        for (i=1; i<num_pages; i++) {
+            if (phys_addrs[i] != phys_addrs[i-1] + 1)
+                break;
+        }
+        if (i == num_pages) { // if continuous
+            ele.command = interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY;
+            ele.data_fd_rw_zc.fd = peer_fd;
+            ele.data_fd_rw_zc.num_pages = num_pages;
+            ele.data_fd_rw_zc.page_high = (unsigned short)(phys_addrs[0] >> 32);
+            ele.data_fd_rw_zc.page_low = (unsigned int)(phys_addrs[0]);
+            SW_BARRIER;
+            buffer->push_data(ele,0, nullptr);
+        }
+        else { // send in a vector
+            ele.command = interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR;
+            ele.data_fd_rw_zcv.fd = peer_fd;
+            ele.data_fd_rw_zcv.num_pages = num_pages;
+            SW_BARRIER;
+            buffer->push_data(ele, sizeof(unsigned long) * num_pages, phys_addrs);
+        }
+
+        send_buffer += num_pages * PAGE_SIZE;
+        numofbytes -= num_pages * PAGE_SIZE;
+        free(phys_addrs);
+    }
+
+fallback:
+    // handle remaining data that is not multiple of pages
+    if (numofbytes > 0)
+    {
+        ele.command = interprocess_t::cmd::DATA_TRANSFER;
+        ele.data_fd_rw.fd = peer_fd;
+        SW_BARRIER;
+        buffer->push_data(ele, numofbytes, send_buffer);
+    }
+    return total_numofbytes;
+}
+
+
+
 ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 {
     if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(writev, (get_real_fd(fd), iov, iovcnt));
@@ -1335,11 +1436,15 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         ele.data_fd_rw.pointer = startloc;
         SW_BARRIER;
         buffer->q[0].push(ele);*/
+
+        total_size += write_nbyte(fd, iov[i].iov_len, reinterpret_cast<uint8_t *>(iov[i].iov_base), buffer, peer_fd);
+        /*
         interprocess_t::queue_t::element ele;
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
         ele.data_fd_rw.fd = peer_fd;
         buffer->push_data(ele,iov[i].iov_len, reinterpret_cast<uint8_t *>(iov[i].iov_base));
         total_size += iov[i].iov_len;
+        */
     }
     DEBUG("sent %d bytes to sockfd %d", total_size, fd);
     return total_size;
@@ -1449,8 +1554,10 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 }
             }
 
-            if (ele.command == interprocess_t::cmd::DATA_TRANSFER &&
-                ele.data_fd_rw.fd == target_fd)
+            if ((ele.command == interprocess_t::cmd::DATA_TRANSFER
+                    || ele.command == interprocess_t::cmd::DATA_TRANSFER
+                    || ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR) 
+                && ele.data_fd_rw.fd == target_fd)
             {
                 loc_in_buffer_has_blk = iter_ele;
                 return ITERATE_FD_IN_BUFFER_STATE::FIND;
@@ -1524,6 +1631,61 @@ void send_recv_takeover_req(int fd)
 }
 
 */
+
+static inline void map_and_return_pages(void *buf, unsigned long *received_pages,
+     int num_pages)
+{
+        static bool initialized = false;
+        if (!initialized) {
+            init_mapping();
+            atexit(resume_mapping);
+            initialized = true;
+        }
+
+        unsigned long *return_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+        // for mock test purpose: disable buf alignment checking
+        //if ((unsigned long)(buf) & (PAGE_SIZE - 1) != 0) {
+        if (false) {
+            DEBUG("Warning: receive buffer %p not aligned, fall back to memcpy", buf);
+            map_physv((unsigned long)mapping_buf, received_pages, return_pages, num_pages);
+            log_mapping(mapping_buf, return_pages, num_pages);
+            memcpy(buf, mapping_buf, num_pages * PAGE_SIZE);
+        }
+        else {
+            map_physv((unsigned long)buf, received_pages, return_pages, num_pages);
+            log_mapping(buf, return_pages, num_pages);
+
+            /*
+            // return pages now
+            // check if pages are continuous
+            int i;
+            for (i=1; i<num_pages; i++) {
+                if (return_pages[i] != return_pages[i-1] + 1)
+                    break;
+            }
+            interprocess_t::queue_t::element ele;
+            if (i == num_pages) { // if continuous
+                ele.command = interprocess_t::cmd::ZEROCOPY_RETURN;
+                ele.zc_ret.num_pages = num_pages;
+                ele.zc_ret.page = return_pages[0];
+                SW_BARRIER;
+                ret_queue->q[1].push(ele);
+            }
+            else { // send in a vector
+                short startloc = ret_queue->b[1].pushdata((uint8_t *)return_pages, sizeof(unsigned long) * num_pages);
+                ele.command = interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR;
+                ele.zc_retv.num_pages = num_pages;
+                ele.zc_retv.pointer = startloc;
+                SW_BARRIER;
+                ret_queue->q[1].push(ele);
+            }
+            */
+        }
+
+        free(return_pages);
+}
+
+
 #undef DEBUGON
 #define DEBUGON 0
 ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
@@ -1586,9 +1748,36 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                     //printf("found blk loc %d\n", loc_has_blk);
                     interprocess_t::queue_t::element ele;
                     loc_has_blk.peek(ele);
-                    ret = buffer_has_blk->pop_data(&loc_has_blk, len, (void *) buf);
-                    if (ret > 0)
-                        isFind = true;
+                    if (ele.command == interprocess_t::cmd::DATA_TRANSFER)
+                    {
+                        ret = buffer_has_blk->pop_data(&loc_has_blk, len, (void *) buf);
+                        if (ret > 0)
+                            isFind = true;
+                    }
+                    else if (ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR)
+                    {
+                        int num_pages = ele.data_fd_rw_zcv.num_pages;
+                        unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+                        if (received_pages == NULL) {
+                            ERROR("zero copy receive: malloc failed %d pages", num_pages);
+                        }
+                        else {
+                            int buffer_ret = buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long) * num_pages, (void *)received_pages);
+                            if (buffer_ret != sizeof(unsigned long) * num_pages) {
+                                ERROR("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
+                                free(received_pages);
+                                ret = 0;
+                            }
+                            else {
+                                map_and_return_pages(buf, received_pages, num_pages);
+                                free(received_pages);
+                                ret = num_pages * PAGE_SIZE;
+                                if (ret > 0)
+                                    isFind = true;
+                            }
+                        }
+                    }
+
                     /*
                     short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
                     if (blk == -1)
