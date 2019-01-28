@@ -44,8 +44,9 @@ struct worker_args
 
 struct stat_t
 {
-    int counter;
+    long counter;
     double totol_time;
+    long last_counter;
 } stat[32];
 pthread_t threads[32];
 struct addrinfo *result, hints;
@@ -255,6 +256,7 @@ int main (int argc, char** argv)
 	    thread_args[i].server_info = result;
 	    stat[i].totol_time = 0;
 	    stat[i].counter = 0;
+        stat[i].last_counter = 0;
 	    pthread_create(&threads[i], NULL, worker, &thread_args[i]);
     }
 
@@ -263,7 +265,8 @@ int main (int argc, char** argv)
         sleep(1);
         for (int i=0;i<n_threads;++i)
         {
-            printf("%.3lf %d ; ", stat[i].totol_time / stat[i].counter, stat[i].counter);
+            printf("%.3lf %d %.3lf %d ; ", stat[i].totol_time / stat[i].counter, stat[i].counter, 1e6 / (stat[i].counter - stat[i].last_counter), stat[i].counter - stat[i].last_counter);
+            stat[i].last_counter = stat[i].counter;
         }
         printf("\n");
     }
