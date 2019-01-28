@@ -51,6 +51,8 @@ static int make_socket_non_blocking (int sfd)
         perror ("fcntl");
         return -1;
     }
+    char flag = 1;
+    setsockopt( sfd, IPPROTO_TCP, TCP_NODELAY, (char *)&flags, sizeof(flags) );
 
     return 0;
 }
@@ -425,20 +427,37 @@ int main(int argc, char** argv)
                     }
 
                     if (found) {
+                        int hastimestamp = 0;
+                        struct timespec req_time;
                         char* req_timestamp_p;
+
                         msgsize = strtoul(msgsizechar_p, &req_timestamp_p, 0);
                         /*
                          * If client supply a timestamp, we return the same one in the body
                          * */
                         if (*req_timestamp_p != '\0')
                         {
-                            memcpy(body_str, (req_timestamp_p)+1, sizeof(struct timespec));
+                            req_timestamp_p += 1;
+                            req_time.tv_sec = strtoul(req_timestamp_p, &req_timestamp_p, 0);
+                            if (req_time.tv_sec != 0 && (*req_timestamp_p != '\0'))
+                            {
+                                req_time.tv_nsec = strtoul(req_timestamp_p+1, NULL, 0);
+                                hastimestamp = 1;
+                            }
                         }
 
                         if(msgsize == 0)
                         {
                             perror("Invalid msg size");
                             abort();
+                        }
+
+                        if (hastimestamp)
+                        {
+                            sprintf(body_str, "%ld/%ld/", req_time.tv_sec, req_time.tv_nsec);
+                        } else
+                        {
+                            sprintf(body_str, "0/0/");
                         }
 
                         /*We need to construct content first in order to know content length */

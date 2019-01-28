@@ -8,6 +8,8 @@
 # include <unistd.h>
 # include <fcntl.h>
 # include <errno.h>
+#include <pthread.h>
+#include <netinet/tcp.h>
 
 /*
  * (c) 2011 dermesser
@@ -30,9 +32,167 @@ void errExit(const char* str, char p)
 	exit(1);
 }
 
+int testsize;
+int n_threads;
+int batch_size;
+
+struct worker_args
+{
+    struct addrinfo *server_info;
+    int id;
+} thread_args[32];
+
+struct stat_t
+{
+    int counter;
+    double totol_time;
+} stat[32];
+pthread_t threads[32];
+struct addrinfo *result, hints;
+
+void * worker_rd(void* args);
+void * worker(void * args)
+{
+    char request[512];
+    char response[8192];
+    int fd;
+    int id;
+    struct addrinfo *result;
+    result = ((struct worker_args *)args)->server_info;
+    id = ((struct worker_args *)args)->id;
+    //printf("ID: %d\n", id);
+    fd = socket(result->ai_family,SOCK_STREAM,0);
+    if ( fd < 0 )
+        errExit("socket()",1);
+    int flag = 1;
+    setsockopt( fd, IPPROTO_TCP, TCP_NODELAY, (char *)&flag, sizeof(flag) );
+    if ( connect(fd,result->ai_addr,result->ai_addrlen) == -1)
+        errExit("connect",1);
+
+    int flags, s;
+
+    flags = fcntl (fd, F_GETFL, 0);
+    if (flags == -1)
+    {
+        perror ("fcntl");
+        return NULL;
+    }
+
+    flags |= O_NONBLOCK;
+    s = fcntl (fd, F_SETFL, flags);
+    if (s == -1)
+    {
+        perror ("fcntl");
+        return NULL;
+    }
+
+
+    while (1)
+    {
+        for(int i=0;i<batch_size;++i)
+        {
+            struct timespec startt;
+            clock_gettime(CLOCK_MONOTONIC, &startt);
+            sprintf(request, "GET /%d/%ld/%ld HTTP/1.1\r\n"
+                             "Host: localhost\r\n"
+                             "Connection: keep-alive\r\n\r\n", testsize, startt.tv_sec, startt.tv_nsec);
+            int req_len = (int)strlen(request);
+            int curr_ptr = 0;
+            while (curr_ptr < req_len)
+            {
+                int ret = (int)send(fd, request+curr_ptr, req_len, 0);
+                if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) return NULL;
+                curr_ptr += ret;
+            }
+        }
+
+        /* Now we handling the response*/
+        char templaterepstr[] = "\r\n\r\n";
+        char* startptr = response;
+        for (int i=0; i< batch_size; ++i)
+        {
+            int curr_ptr = 0;
+            char* parse_ptr;
+            while (1)
+            {
+                int ret = (int)recv(fd, startptr+curr_ptr, 8192, 0);
+                if (ret < 0)
+                {
+                    if (errno == EAGAIN || errno == EWOULDBLOCK)
+                        continue;
+                    else
+                    {
+                        printf("Worker get return failed %d\n", errno);
+                        return NULL;
+                    }
+                }
+                if (ret == 0)
+                {
+                    printf("Connection closed on cnt %d\n", stat[id].counter);
+                    shutdown(fd, SHUT_RDWR);
+                    return NULL;
+                }
+                curr_ptr += ret;
+                response[curr_ptr] = '\0';
+                parse_ptr = strstr(startptr, templaterepstr);
+                /* header fully read */
+                if (parse_ptr != NULL)
+                    break;
+            }
+            /* Now we need to know where is the response body*/
+            int body_ptr = parse_ptr - response + 4;
+            /* We have not fully get the body, wait for the body */
+            if (curr_ptr - body_ptr < testsize)
+            {
+                int len_to_read = testsize - (curr_ptr  - body_ptr);
+                while (len_to_read > 0)
+                {
+                    int ret = (int)recv(fd, startptr+curr_ptr, len_to_read, 0);
+                    if (ret < 0)
+                    {
+                        if (errno == EAGAIN || errno == EWOULDBLOCK)
+                            continue;
+                        else
+                        {
+                            printf("Worker get return failed\n");
+                            return NULL;
+                        }
+                    }
+                    len_to_read -= ret;
+                    curr_ptr += ret;
+                }
+            }
+            /* Now we know we already read the full bddy */
+            struct timespec end_t, start_t;
+            clock_gettime(CLOCK_MONOTONIC, &end_t);
+            char * tv_sec_delimiter_ptr;
+            start_t.tv_sec = strtoul(&response[body_ptr], &tv_sec_delimiter_ptr, 0);
+            if (*tv_sec_delimiter_ptr == '\0')
+            {
+                errExit("Failed to read nanosecond", 0);
+            }
+            start_t.tv_nsec = strtol(tv_sec_delimiter_ptr+1, NULL, 0);
+            double duration; /* us */
+            duration = (end_t.tv_sec - start_t.tv_sec)*1e6 + (end_t.tv_nsec - start_t.tv_nsec)*1e-3;
+            if (duration < 0)
+            {
+                printf("Wrong duration %.3lf\n", duration);
+                return NULL;
+            }
+            ++stat[id].counter;
+            stat[id].totol_time += duration;
+
+            /* If we got more than one response I just copy it back to the front */
+            memcpy(response, parse_ptr + 4 + testsize, response + curr_ptr - (parse_ptr + 4 + testsize));
+            startptr = response;
+        }
+
+    }
+}
+
+
 int main (int argc, char** argv)
 {
-	struct addrinfo *result, hints;
 	int srvfd, rwerr = 42, outfile, ai_family = AF_UNSPEC;
 	char *request, buf[16], port[6],c;
 
@@ -43,7 +203,7 @@ int main (int argc, char** argv)
 	
 	strncpy(port,"80",2);
 
-	while ( (c = getopt(argc,argv,"p:ho:46")) >= 0 )
+	while ( (c = getopt(argc,argv,"p:ho:n:b:46")) >= 0 )
 	{
 		switch (c)
 		{
@@ -63,8 +223,23 @@ int main (int argc, char** argv)
 			case '6' :
 				ai_family = AF_INET6;
 				break;
+		    case 'n':
+		        n_threads = atoi(optarg);
+		        break;
+		    case 'b':
+		        batch_size = atoi(optarg);
+		        break;
+
 		}
 	}
+
+	testsize = atoi(argv[optind + 1]);
+	if (testsize <= 0)
+	    errExit("Invalid testsize", 0);
+    if (batch_size <= 0)
+        errExit("Invalid batch size", 0);
+    if (n_threads <= 0)
+        errExit("Invalid thread number", 0);
 
 	memset(&hints,0,sizeof(struct addrinfo));
 
@@ -74,18 +249,26 @@ int main (int argc, char** argv)
 	if ( 0 != getaddrinfo(argv[optind],port,&hints,&result))
 		errExit("getaddrinfo",1);
 
-	// Create socket after retrieving the inet protocol to use (getaddrinfo)
-	srvfd = socket(result->ai_family,SOCK_STREAM,0);
+	for (int i=0;i<n_threads;++i)
+    {
+	    thread_args[i].id = i;
+	    thread_args[i].server_info = result;
+	    stat[i].totol_time = 0;
+	    stat[i].counter = 0;
+	    pthread_create(&threads[i], NULL, worker, &thread_args[i]);
+    }
 
-	if ( srvfd < 0 )
-		errExit("socket()",1);
-
-	if ( connect(srvfd,result->ai_addr,result->ai_addrlen) == -1)
-		errExit("connect",1);
-	
-	
+    while (1)
+    {
+        sleep(1);
+        for (int i=0;i<n_threads;++i)
+        {
+            printf("%.3lf %d ; ", stat[i].totol_time / stat[i].counter, stat[i].counter);
+        }
+        printf("\n");
+    }
 	// Now we have an established connection.
-	
+	/*
 	// XXX: Change the length if request string is modified!!!
 	request = calloc(53+strlen(argv[optind+1])+strlen(argv[optind]),1);
 
@@ -103,7 +286,7 @@ int main (int argc, char** argv)
             errExit("write response to file",1);
 	}
 	
-	close(srvfd);
+	close(srvfd);*/
 
 	return 0;
 

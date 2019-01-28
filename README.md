@@ -40,3 +40,8 @@ They are ```./pot_server_*``` and ```./pot_client_*```. Documents TODO.
 
 The code for the tests are in ```$libsd/pot/```.
 
+## Application experiment
+    In demo folder, there is a sample nginx configure file, please change the path accordingly. 
+    If you want to see more errors. Change the error level in the config.
+    In your build folder, run ./pot_web_service as the backend service
+    run ./test_http_client -p <port> -b <batch size per request> -n <thread_number> <IP> <test response size>

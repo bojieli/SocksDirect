@@ -202,7 +202,7 @@ int epoll_create1(int flags)
         errno = EINVAL;
         return -1;
     }
-    return epoll_create(0);
+    return epoll_create(1);
 }
 
 #undef DEBUGON

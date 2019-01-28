@@ -37,6 +37,7 @@ add_executable(test_sock_pingpong_client test/test_sock_pingpong_client.cpp)
 target_link_libraries(test_sock_pingpong_server ipc)
 target_link_libraries(test_sock_pingpong_client ipc)
 add_executable(test_http_client test/test_http_client.c)
+target_link_libraries(test_http_client pthread)
 add_executable(test_memcached_client test/test_memcached_client.c common/helper.c)
 target_link_libraries(test_memcached_client pthread)
 add_executable(test_interprocess_t test/test_interprocess_t.cpp common/interprocess_t.cpp common/helper.c common/rdma.cpp)
@@ -128,6 +129,9 @@ add_executable(pot_eval_rdma_tput_diffconnnum_s pot/eval_rdma_tput_diffconnnum_s
 target_link_libraries(pot_eval_rdma_tput_diffconnnum_s ipc)
 add_executable(pot_eval_rdma_tput_diffconnnum_c pot/eval_rdma_tput_diffconnnum_c.c)
 target_link_libraries(pot_eval_rdma_tput_diffconnnum_c ipc)
+
+add_executable(pot_web_service test/demo_web_service.c)
+target_link_libraries(pot_web_service memcached pthread)
 
 add_executable(rdma_throughput rdma/throughput.cpp)
 target_link_libraries(rdma_throughput hrd gflags)
