@@ -127,6 +127,7 @@ void set_fd_type(int fd, fd_type_t type);
 int alloc_virtual_fd(fd_type_t type, int real_fd);
 void delete_virtual_fd(int virtual_fd);
 int check_sockfd_receive(int sockfd);
+int check_sockfd_receive_ex(int sockfd, bool findAll);
 int check_sockfd_send(int sockfd);
 
 void epoll_remove(int fd);

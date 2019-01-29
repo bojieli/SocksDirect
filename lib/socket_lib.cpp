@@ -1437,7 +1437,7 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         total_size += write_nbyte(fd, iov[i].iov_len, reinterpret_cast<uint8_t *>(iov[i].iov_base), buffer, peer_fd);
         iter->write_count ++;
         if (iter->write_count % CHECK_READ_PER_WRITE == 0) {
-            check_sockfd_receive(fd);
+            check_sockfd_receive_ex(fd, true);
             iter->write_count = 0;
         }
         /*
@@ -1803,7 +1803,7 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
 
                         free(return_pages);
                         ret = num_pages * PAGE_SIZE;
-                        ERROR("zero copy received length %d byte, %d pages, receive buffer length %d", ret, num_pages, len);
+                        DEBUG("zero copy received length %d byte, %d pages, receive buffer length %d", ret, num_pages, len);
                         if (ret > 0)
                             isFind = true;
                     }
@@ -1842,6 +1842,13 @@ ssize_t __recvfrom_chk(int __fd, void *__buf, size_t __nbytes, size_t __buflen, 
 // return revents
 // called by poll_lib.cpp
 int check_sockfd_receive(int sockfd)
+{
+    return check_sockfd_receive_ex(sockfd, false);
+}
+
+// return revents
+// param findAll: iterate through all FDs, so that zerocopy returns hidden behind data can be processed
+int check_sockfd_receive_ex(int sockfd, bool findAll)
 {
     thread_data_t *thread_data = GET_THREAD_DATA();
     if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
@@ -1913,7 +1920,7 @@ int check_sockfd_receive(int sockfd)
                 break;
         }
         if (isFin) break; //Finish iterate all peer fds
-        if (isFind) break; //Get the requested block
+        if (!findAll && isFind) break; //Get the requested block
     }
 
     if (isFind)
