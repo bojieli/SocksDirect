@@ -155,10 +155,9 @@ private:
 
     int push_data(const ele_t &in_meta, int len, void* ptr) final
     {
-        // TODO: what if we run out of buffer? should we still push the element without the buffer?
-        ele_t topush_ele=in_meta;
+        ele_t topush_ele = in_meta;
         short start_loc = 0; // default success
-        if (len> 0)
+        if (len > 0)
         {
             switch (topush_ele.command)
             {
@@ -194,7 +193,7 @@ private:
             }
         }
         // we do not have enough buffer to push data.
-        // we return 0 to indicate failure, without pushing the element.
+        // we return 0 to indicate failure, without pushing the element in queue.
         if (start_loc == -1) {
             return 0;
         }

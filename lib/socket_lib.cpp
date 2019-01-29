@@ -1371,14 +1371,12 @@ static ssize_t write_nbyte(int fd, int numofbytes, uint8_t *send_buffer, interpr
             ele.data_fd_rw_zc.num_pages = num_pages;
             ele.data_fd_rw_zc.page_high = (unsigned short)(phys_addrs[0] >> 32);
             ele.data_fd_rw_zc.page_low = (unsigned int)(phys_addrs[0]);
-            SW_BARRIER;
-            buffer->push_data(ele,0, nullptr);
+            buffer->push_data(ele, 0, nullptr);
         }
         else { // send in a vector
             ele.command = interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR;
             ele.data_fd_rw_zcv.fd = peer_fd;
             ele.data_fd_rw_zcv.num_pages = num_pages;
-            SW_BARRIER;
             buffer->push_data(ele, sizeof(unsigned long) * num_pages, phys_addrs);
         }
 
@@ -1559,7 +1557,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
             }
 
             else if ((ele.command == interprocess_t::cmd::DATA_TRANSFER
-                    || ele.command == interprocess_t::cmd::DATA_TRANSFER
+                    || ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY
                     || ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR)
                 && ele.data_fd_rw.fd == target_fd)
             {
@@ -1585,12 +1583,10 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 }
                 int buffer_ret = buffer->pop_data(&iter_ele, sizeof(unsigned long) * num_pages, (void *)received_pages);
                 if ((unsigned int) buffer_ret != sizeof(unsigned long) * num_pages) {
-                    ERROR("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
+                    FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
                 }
-                else {
-                    for (int i = 0; i < ele.zc_retv.num_pages; i ++)
-                        buffer->add_remote_page_to_pool(received_pages[i]);
-                }
+                for (int i = 0; i < ele.zc_retv.num_pages; i ++)
+                    buffer->add_remote_page_to_pool(received_pages[i]);
                 free(received_pages);
                 iter_ele.del();
             }
@@ -1765,46 +1761,42 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                         int num_pages = ele.data_fd_rw_zcv.num_pages;
                         unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
                         if (received_pages == NULL) {
-                            ERROR("zero copy receive: malloc failed %d pages", num_pages);
+                            FATAL("zero copy receive: malloc failed %d pages", num_pages);
                         }
-                        else {
-                            int buffer_ret = buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long) * num_pages, (void *)received_pages);
-                            if ((unsigned int) buffer_ret != sizeof(unsigned long) * num_pages) {
-                                ERROR("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
-                                free(received_pages);
-                                ret = 0;
-                            }
-                            else {
-                                unsigned long *return_pages = map_and_return_pages(buf, received_pages, num_pages);
-                                free(received_pages);
-                                
-                                // return pages to the remote side
-                                // check if pages are continuous
-                                int i;
-                                for (i=1; i<num_pages; i++) {
-                                    if (return_pages[i] != return_pages[i-1] + 1)
-                                        break;
-                                }
-                                interprocess_t::queue_t::element ele;
-                                if (i == num_pages) { // if continuous
-                                    ele.command = interprocess_t::cmd::ZEROCOPY_RETURN;
-                                    ele.zc_ret.num_pages = num_pages;
-                                    ele.zc_ret.page = return_pages[0];
-                                    buffer_has_blk->push_data(ele, 0, NULL);
-                                }
-                                else { // send in a vector
-                                    ele.command = interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR;
-                                    ele.zc_retv.num_pages = num_pages;
-                                    buffer_has_blk->push_data(ele, sizeof(unsigned long) * num_pages, (void *) return_pages);
-                                }
-
-                                free(return_pages);
-
-                                ret = num_pages * PAGE_SIZE;
-                                if (ret > 0)
-                                    isFind = true;
-                            }
+                        int buffer_ret = buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long) * num_pages, (void *)received_pages);
+                        if ((unsigned int) buffer_ret != sizeof(unsigned long) * num_pages) {
+                            FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
+                            free(received_pages);
+                            ret = 0;
                         }
+                        unsigned long *return_pages = map_and_return_pages(buf, received_pages, num_pages);
+                        free(received_pages);
+                        
+                        // return pages to the remote side
+                        // check if pages are continuous
+                        int i;
+                        for (i=1; i<num_pages; i++) {
+                            if (return_pages[i] != return_pages[i-1] + 1)
+                                break;
+                        }
+                        interprocess_t::queue_t::element ele;
+                        if (i == num_pages) { // if continuous
+                            ele.command = interprocess_t::cmd::ZEROCOPY_RETURN;
+                            ele.zc_ret.num_pages = num_pages;
+                            ele.zc_ret.page = return_pages[0];
+                            buffer_has_blk->push_data(ele, 0, NULL);
+                        }
+                        else { // send in a vector
+                            ele.command = interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR;
+                            ele.zc_retv.num_pages = num_pages;
+                            buffer_has_blk->push_data(ele, sizeof(unsigned long) * num_pages, (void *) return_pages);
+                        }
+
+                        free(return_pages);
+
+                        ret = num_pages * PAGE_SIZE;
+                        if (ret > 0)
+                            isFind = true;
                     }
                 case ITERATE_FD_IN_BUFFER_STATE::NOTFIND:
                     if (iter.end())
