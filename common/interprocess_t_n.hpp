@@ -17,6 +17,8 @@
 #include "rdma.h"
 
 
+#undef DEBUGON
+#define DEBUGON 0
 
 class interprocess_n_t
 {
@@ -219,15 +221,18 @@ private:
                 break;
             case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR:
                 pointer = ele.zc_retv.pointer;
+                DEBUG("pop zero copy return vector len %d", len);
                 break;
             case interprocess_t::cmd::DATA_TRANSFER:
                 pointer = ele.data_fd_rw.pointer;
+                DEBUG("pop data transfer %d", len);
                 break;
             case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY:
                 FATAL("unexpected pop_data from ZEROCOPY command");
                 break;
             case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
                 pointer = ele.data_fd_rw_zcv.pointer;
+                DEBUG("pop zero copy vector len %d", len);
                 break;
             default:
                 FATAL("Unknown command in pop_data");
@@ -236,12 +241,14 @@ private:
         short blk = b[1].popdata(pointer, len, (uint8_t *) ptr);
         if (blk == -1)
         {
+            DEBUG("Popped whole block of data, size %d", len);
             SW_BARRIER;
             iter->del();
             SW_BARRIER;
         } else
         {
             iter->rst_offset(ele.command, blk);
+            DEBUG("Popped part of block data %d", len);
         }
         return len;
     }

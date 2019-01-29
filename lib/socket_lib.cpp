@@ -1758,7 +1758,13 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                     }
                     else if (ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR)
                     {
+                        if (len == 0 || len % PAGE_SIZE != 0) {
+                            FATAL("zero copy receive with length not multiple of PAGE_SIZE: not supported yet");
+                        }
                         int num_pages = ele.data_fd_rw_zcv.num_pages;
+                        if (num_pages * PAGE_SIZE > len) {
+                            num_pages = len / PAGE_SIZE;
+                        }
                         unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
                         if (received_pages == NULL) {
                             FATAL("zero copy receive: malloc failed %d pages", num_pages);
@@ -1766,11 +1772,14 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                         int buffer_ret = buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long) * num_pages, (void *)received_pages);
                         if ((unsigned int) buffer_ret != sizeof(unsigned long) * num_pages) {
                             FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
-                            free(received_pages);
-                            ret = 0;
+                            num_pages = buffer_ret / sizeof(unsigned long);
                         }
                         unsigned long *return_pages = map_and_return_pages(buf, received_pages, num_pages);
                         free(received_pages);
+                        if (return_pages == NULL) {
+                            ret = 0;
+                            continue;
+                        }
                         
                         // return pages to the remote side
                         // check if pages are continuous
@@ -1793,10 +1802,16 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                         }
 
                         free(return_pages);
-
                         ret = num_pages * PAGE_SIZE;
+                        ERROR("zero copy received length %d byte, %d pages, receive buffer length %d", ret, num_pages, len);
                         if (ret > 0)
                             isFind = true;
+                    }
+                    else if (ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY) {
+                        FATAL("Not implemented yet");
+                    }
+                    else {
+                        FATAL("Unknown command %d", ele.command);
                     }
                 case ITERATE_FD_IN_BUFFER_STATE::NOTFIND:
                     if (iter.end())
