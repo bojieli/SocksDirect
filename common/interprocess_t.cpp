@@ -13,7 +13,7 @@ interprocess_t::buffer_t::buffer_t() : mem(nullptr), avail_slots(nullptr), isRDM
 {
 }
 
-void interprocess_t::buffer_t::init(element *_mem, locklessqueue_t<int, 2048> *_avail_slots)
+void interprocess_t::buffer_t::init(element *_mem, locklessqueue_t<int, 2 * INTERPROCESS_SLOTS_IN_BUFFER> *_avail_slots)
 {
     mem = _mem;
     avail_slots = _avail_slots;

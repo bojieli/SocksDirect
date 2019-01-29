@@ -155,22 +155,36 @@ private:
 
     int push_data(const ele_t &in_meta, int len, void* ptr) final
     {
+        // TODO: what if we run out of buffer? should we still push the element without the buffer?
         ele_t topush_ele=in_meta;
+        short start_loc = 0; // default success
         if (len> 0)
         {
             switch (topush_ele.command)
             {
                 case interprocess_t::cmd::ZEROCOPY_RETURN: {
+                    DEBUG("push zero copy return");
                     break;
                 }
                 case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR: {
-                    short start_loc = b[0].pushdata((uint8_t *) ptr, len);
+                    start_loc = b[0].pushdata((uint8_t *) ptr, len);
                     topush_ele.zc_retv.pointer = start_loc;
+                    DEBUG("push zero copy return vector len %d", len);
                     break;
                 }
                 case interprocess_t::cmd::DATA_TRANSFER: {
-                    short start_loc = b[0].pushdata((uint8_t *) ptr, len);
+                    start_loc = b[0].pushdata((uint8_t *) ptr, len);
                     topush_ele.data_fd_rw.pointer = start_loc;
+                    break;
+                }
+                case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY: {
+                    DEBUG("push zero copy");
+                    break;
+                }
+                case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR: {
+                    start_loc = b[0].pushdata((uint8_t *) ptr, len);
+                    topush_ele.data_fd_rw_zcv.pointer = start_loc;
+                    DEBUG("push zero copy vector len %d", len);
                     break;
                 }
                 default:
@@ -179,6 +193,12 @@ private:
 
             }
         }
+        // we do not have enough buffer to push data.
+        // we return 0 to indicate failure, without pushing the element.
+        if (start_loc == -1) {
+            return 0;
+        }
+
         q[0].push(topush_ele);
         return len;
     };
@@ -192,8 +212,29 @@ private:
     {
         ele_t ele;
         iter->peek(ele);
-        //TODO: need to fix the meta
-        short blk = b[1].popdata(ele.data_fd_rw.pointer, len, (uint8_t *) ptr);
+
+        unsigned int pointer = 0;
+        switch (ele.command) {
+            case interprocess_t::cmd::ZEROCOPY_RETURN:
+                FATAL("unexpected pop_data from ZEROCOPY_RETURN command");
+                break;
+            case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR:
+                pointer = ele.zc_retv.pointer;
+                break;
+            case interprocess_t::cmd::DATA_TRANSFER:
+                pointer = ele.data_fd_rw.pointer;
+                break;
+            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY:
+                FATAL("unexpected pop_data from ZEROCOPY command");
+                break;
+            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
+                pointer = ele.data_fd_rw_zcv.pointer;
+                break;
+            default:
+                FATAL("Unknown command in pop_data");
+        }
+
+        short blk = b[1].popdata(pointer, len, (uint8_t *) ptr);
         if (blk == -1)
         {
             SW_BARRIER;

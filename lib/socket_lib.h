@@ -16,6 +16,7 @@ extern "C"
 #define  MAX_FD_OWN_NUM 1000
 #define MAX_FD_PEER_NUM 1000
 #define FD_DELIMITER 0x3FFFFFFF
+#define CHECK_READ_PER_WRITE 64
 enum
 {
     USOCKET_TCP_LISTEN,
@@ -54,6 +55,7 @@ typedef struct
 {
     int buffer_idx;
     unsigned short status;
+    unsigned int write_count;
 } fd_wr_list_t;
 
 
@@ -124,6 +126,8 @@ int get_virtual_fd(fd_type_t type, int real_fd);
 void set_fd_type(int fd, fd_type_t type);
 int alloc_virtual_fd(fd_type_t type, int real_fd);
 void delete_virtual_fd(int virtual_fd);
+int check_sockfd_receive(int sockfd);
+int check_sockfd_send(int sockfd);
 
 void epoll_remove(int fd);
 

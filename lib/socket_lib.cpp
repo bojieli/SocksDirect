@@ -1400,7 +1400,6 @@ fallback:
 }
 
 
-
 ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
 {
     if (get_fd_type(fd) == FD_TYPE_SYSTEM) return ORIG(writev, (get_real_fd(fd), iov, iovcnt));
@@ -1438,6 +1437,11 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         buffer->q[0].push(ele);*/
 
         total_size += write_nbyte(fd, iov[i].iov_len, reinterpret_cast<uint8_t *>(iov[i].iov_base), buffer, peer_fd);
+        iter->write_count ++;
+        if (iter->write_count % CHECK_READ_PER_WRITE == 0) {
+            check_sockfd_receive(fd);
+            iter->write_count = 0;
+        }
         /*
         interprocess_t::queue_t::element ele;
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
@@ -1508,7 +1512,7 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
     return iter.next();
 };
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         (int target_fd, 
          adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator& iter,
@@ -1554,15 +1558,41 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 }
             }
 
-            if ((ele.command == interprocess_t::cmd::DATA_TRANSFER
+            else if ((ele.command == interprocess_t::cmd::DATA_TRANSFER
                     || ele.command == interprocess_t::cmd::DATA_TRANSFER
-                    || ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR
-                    || ele.command == interprocess_t::cmd::ZEROCOPY_RETURN
-                    || ele.command == interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR)
+                    || ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR)
                 && ele.data_fd_rw.fd == target_fd)
             {
                 loc_in_buffer_has_blk = iter_ele;
                 return ITERATE_FD_IN_BUFFER_STATE::FIND;
+            }
+
+            else if (ele.command == interprocess_t::cmd::ZEROCOPY_RETURN)
+            {
+                DEBUG("Received zerocopy return num_pages %d", ele.zc_ret.num_pages);
+                for (int i = 0; i < ele.zc_ret.num_pages; i ++)
+                    buffer->add_remote_page_to_pool(ele.zc_ret.page);
+                iter_ele.del();
+            }
+
+            else if (ele.command == interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR)
+            {
+                DEBUG("Received zerocopy return vector num_pages %d", ele.zc_retv.num_pages);
+                int num_pages = ele.zc_retv.num_pages;
+                unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+                if (received_pages == NULL) {
+                    FATAL("zero copy receive return vector: malloc failed %d pages", num_pages);
+                }
+                int buffer_ret = buffer->pop_data(&iter_ele, sizeof(unsigned long) * num_pages, (void *)received_pages);
+                if ((unsigned int) buffer_ret != sizeof(unsigned long) * num_pages) {
+                    ERROR("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
+                }
+                else {
+                    for (int i = 0; i < ele.zc_retv.num_pages; i ++)
+                        buffer->add_remote_page_to_pool(received_pages[i]);
+                }
+                free(received_pages);
+                iter_ele.del();
             }
         }
         iter_ele.next();
@@ -1776,43 +1806,6 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                             }
                         }
                     }
-                    else if (ele.command == interprocess_t::cmd::ZEROCOPY_RETURN)
-                    {
-                        for (int i = 0; i < ele.zc_ret.num_pages; i ++)
-                            buffer_has_blk->add_remote_page_to_pool(ele.zc_ret.page);
-                    }
-                    else if (ele.command == interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR)
-                    {
-                        int num_pages = ele.zc_retv.num_pages;
-                        unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
-                        if (received_pages == NULL) {
-                            FATAL("zero copy receive return vector: malloc failed %d pages", num_pages);
-                        }
-                        int buffer_ret = buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long) * num_pages, (void *)received_pages);
-                        if ((unsigned int) buffer_ret != sizeof(unsigned long) * num_pages) {
-                            ERROR("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
-                        }
-                        else {
-                            for (int i = 0; i < ele.zc_retv.num_pages; i ++)
-                                buffer_has_blk->add_remote_page_to_pool(received_pages[i]);
-                        }
-                        free(received_pages);
-                        ret = 0;
-                    }
-
-                    /*
-                    short blk = buffer_has_blk->b[1].popdata(ele.data_fd_rw.pointer, ret, (uint8_t *) buf);
-                    if (blk == -1)
-                    {
-                        SW_BARRIER;
-                        buffer_has_blk->q[1].del(loc_has_blk);
-                        SW_BARRIER;
-                    } else
-                    {
-                        ele.data_fd_rw.pointer = blk;
-                        buffer_has_blk->q[1].set(loc_has_blk, ele);
-                    }*/
-                    break;
                 case ITERATE_FD_IN_BUFFER_STATE::NOTFIND:
                     if (iter.end())
                         isFin=true;

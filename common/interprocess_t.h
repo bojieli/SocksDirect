@@ -43,7 +43,7 @@ public:
 
         buffer_t();
 
-        void init(element *_mem, locklessqueue_t<int, 2048> *_avail_slots);
+        void init(element *_mem, locklessqueue_t<int, 2 * INTERPROCESS_SLOTS_IN_BUFFER> *_avail_slots);
 
         void init_mem();
 
@@ -54,7 +54,7 @@ public:
         void initRDMA(ibv_qp *_qp, ibv_cq* _cq, uint32_t _lkey, uint32_t _rkey,
                       uint64_t _remote_addr_mem);
 
-        locklessqueue_t<int, 2048> *avail_slots;
+        locklessqueue_t<int, 2 * INTERPROCESS_SLOTS_IN_BUFFER> *avail_slots;
 
 
     };
@@ -126,7 +126,7 @@ public:
 
     locklessqueue_t<queue_t::element, INTERPROCESS_SLOTS_IN_QUEUE> q[2], q_emergency[2];
     buffer_t b[2];
-    locklessqueue_t<int, 2048> b_avail[2];
+    locklessqueue_t<int, 2 * INTERPROCESS_SLOTS_IN_BUFFER> b_avail[2];
     pthread_mutex_t * rd_mutex;
     bool (*sender_turn[2])[MAX_FD_NUM];
     static int get_sharedmem_size()
