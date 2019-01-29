@@ -915,6 +915,7 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     fd_wr_list_t peer_fd_wr;
     peer_fd_wr.status = 0;
     peer_fd_wr.buffer_idx = peer_fd_rd.buffer_idx;
+    peer_fd_wr.write_count = 0;
     auto wr_iter = data->fds_wr.add_element(socket, peer_fd_wr);
     data->fds_wr.set_ptr_to(socket, wr_iter);
 
@@ -1435,6 +1436,12 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         buffer->q[0].push(ele);*/
 
         total_size += write_nbyte(fd, iov[i].iov_len, reinterpret_cast<uint8_t *>(iov[i].iov_base), buffer, peer_fd);
+
+        iter->write_count ++;
+        if (iter->write_count % CHECK_READ_PER_WRITE == 0) {
+            DEBUG("write count of FD %d is %u, a read check is forced to process emergency queue", fd, iter->write_count);
+            check_sockfd_receive(fd);
+        }
         /*
         interprocess_t::queue_t::element ele;
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
