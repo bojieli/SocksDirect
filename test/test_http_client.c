@@ -55,7 +55,7 @@ void * worker_rd(void* args);
 void * worker(void * args)
 {
     char request[512];
-    char response[8192];
+    char *response = (char*) malloc(testsize);
     int fd;
     int id;
     struct addrinfo *result;
@@ -116,7 +116,7 @@ void * worker(void * args)
             char* parse_ptr;
             while (1)
             {
-                int ret = (int)recv(fd, startptr+curr_ptr, 8192, 0);
+                int ret = (int)recv(fd, startptr+curr_ptr, testsize, 0);
                 if (ret < 0)
                 {
                     if (errno == EAGAIN || errno == EWOULDBLOCK)
