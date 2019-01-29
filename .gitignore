@@ -14,4 +14,5 @@ cmake-build-release/
 cmake-build-relwithdebinfo/
 *.out
 *.tar.gz
+*.swp
 build/
