@@ -1435,11 +1435,6 @@ ssize_t writev(int fd, const struct iovec *iov, int iovcnt)
         buffer->q[0].push(ele);*/
 
         total_size += write_nbyte(fd, iov[i].iov_len, reinterpret_cast<uint8_t *>(iov[i].iov_base), buffer, peer_fd);
-        iter->write_count ++;
-        if (iter->write_count % CHECK_READ_PER_WRITE == 0) {
-            DEBUG("iter->write_count large enough %d, poll receive side for zerocopy returns", iter->write_count);
-            check_sockfd_receive_ex(fd, true);
-        }
         /*
         interprocess_t::queue_t::element ele;
         ele.command = interprocess_t::cmd::DATA_TRANSFER;
@@ -1510,13 +1505,12 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
     return iter.next();
 };
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
         (int target_fd, 
          adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator& iter,
          interprocess_n_t::iterator &loc_in_buffer_has_blk,
-         thread_data_t *thread_data, thread_sock_data_t *thread_sock_data,
-         bool findAll = false)
+         thread_data_t *thread_data, thread_sock_data_t *thread_sock_data)
 {
     
     interprocess_n_t *buffer = (thread_sock_data->buffer[iter->buffer_idx].data);
@@ -1548,11 +1542,9 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                         // Even the FD is in ALLCLOSED state, the key should not be deleted.
                         // The application must call close() to release the FD resource.
                         DEBUG("FD %d is all closed", target_fd);
-                        if (!findAll)
-                            return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
+                        return ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED;
                     }
-                    if (!findAll)
-                        return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
+                    return ITERATE_FD_IN_BUFFER_STATE::CLOSED; //no need to traverse this queue anyway
                 } else {
                     if (!thread_data->fds_datawithrd.is_keyvalid(ele.close_fd.peer_fd))
                         iter_ele.del();
@@ -1565,8 +1557,7 @@ static inline ITERATE_FD_IN_BUFFER_STATE recvfrom_iter_fd_in_buf
                 && ele.data_fd_rw.fd == target_fd)
             {
                 loc_in_buffer_has_blk = iter_ele;
-                if (!findAll)
-                    return ITERATE_FD_IN_BUFFER_STATE::FIND;
+                return ITERATE_FD_IN_BUFFER_STATE::FIND;
             }
 
             else if (ele.command == interprocess_t::cmd::ZEROCOPY_RETURN)
@@ -1807,9 +1798,9 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
 
                         free(return_pages);
                         ret = num_pages * PAGE_SIZE;
-                        DEBUG("zero copy received length %d byte, %d pages, receive buffer length %d", ret, num_pages, len);
                         if (ret > 0)
                             isFind = true;
+                        DEBUG("zero copy received length %d byte, %d pages, receive buffer length %d", ret, num_pages, len);
                     }
                     else if (ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY) {
                         FATAL("Not implemented yet");
@@ -1846,13 +1837,6 @@ ssize_t __recvfrom_chk(int __fd, void *__buf, size_t __nbytes, size_t __buflen, 
 // return revents
 // called by poll_lib.cpp
 int check_sockfd_receive(int sockfd)
-{
-    return check_sockfd_receive_ex(sockfd, false);
-}
-
-// return revents
-// param findAll: iterate through all FDs, so that zerocopy returns hidden behind data can be processed
-int check_sockfd_receive_ex(int sockfd, bool findAll)
 {
     thread_data_t *thread_data = GET_THREAD_DATA();
     if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
@@ -1906,7 +1890,7 @@ int check_sockfd_receive_ex(int sockfd, bool findAll)
         interprocess_n_t::iterator ret_loc(nullptr);
         bool isFin(false);
         interprocess_n_t * buffer = (thread_sock_data->buffer[iter->buffer_idx].data);
-        ITERATE_FD_IN_BUFFER_STATE ret_state = recvfrom_iter_fd_in_buf(sockfd, iter, ret_loc, thread_data, thread_sock_data, findAll);
+        ITERATE_FD_IN_BUFFER_STATE ret_state = recvfrom_iter_fd_in_buf(sockfd, iter, ret_loc, thread_data, thread_sock_data);
         switch (ret_state)
         {
             case ITERATE_FD_IN_BUFFER_STATE::ALLCLOSED:

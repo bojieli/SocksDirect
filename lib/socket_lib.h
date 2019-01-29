@@ -55,7 +55,6 @@ typedef struct
 {
     int buffer_idx;
     unsigned short status;
-    unsigned int write_count;
 } fd_wr_list_t;
 
 
