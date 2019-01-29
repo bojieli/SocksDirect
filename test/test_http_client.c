@@ -17,7 +17,7 @@
  *
  */
 
-const char* help_string = "Usage: simple-http [-h] [-4|-6] [-p PORT] [-o OUTPUT_FILE] <SERVER> <URI>\n";
+const char* help_string = "Usage: simple-http [-h] [-4|-6] [-p PORT] [-o OUTPUT_FILE] [-b BATCH_SIZE] [-n THREAD_NUM] <SERVER-IP> <TESTSIZE-BYTES>\n";
 
 void errExit(const char* str, char p)
 {
