@@ -76,6 +76,9 @@ public:
     virtual int pop_data(iterator *iter, int len, void* ptr) = 0;
     virtual size_t get_shmem_size() = 0;
     virtual iterator begin() = 0;
+    void add_remote_page_to_pool(unsigned long page) {
+        // do nothing by default
+    }
 };
 
 class interprocess_local_t: public interprocess_n_t, public interprocess_t
@@ -155,18 +158,21 @@ private:
         ele_t topush_ele=in_meta;
         if (len> 0)
         {
-            short start_loc = b[0].pushdata((uint8_t *) ptr, len);
             switch (topush_ele.command)
             {
-                case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR:
+                case interprocess_t::cmd::ZEROCOPY_RETURN: {
+                    break;
+                }
+                case interprocess_t::cmd::ZEROCOPY_RETURN_VECTOR: {
+                    short start_loc = b[0].pushdata((uint8_t *) ptr, len);
                     topush_ele.zc_retv.pointer = start_loc;
                     break;
-                case interprocess_t::cmd::DATA_TRANSFER:
+                }
+                case interprocess_t::cmd::DATA_TRANSFER: {
+                    short start_loc = b[0].pushdata((uint8_t *) ptr, len);
                     topush_ele.data_fd_rw.pointer = start_loc;
                     break;
-                case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
-                    topush_ele.data_fd_rw_zcv.pointer = start_loc;
-                    break;
+                }
                 default:
                     FATAL("Unknown command for rst offset, give me some hint"
                           "about how to set the length of data in metadata");
@@ -325,13 +331,62 @@ public:
                 topush_ele.fd = in_meta.data_fd_rw.fd;
                 topush_ele.inner_element.data_fd_rw.offset = 0;
                 break;
+            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY:
+            {
+                topush_ele.fd = in_meta.data_fd_rw_zc.fd;
+                unsigned long local_page = ((unsigned long)in_meta.data_fd_rw_zc.page_high << 32) + in_meta.data_fd_rw_zc.page_low;
+                unsigned int num_pages = in_meta.data_fd_rw_zc.num_pages;
+                unsigned long *remote_pages = (unsigned long *) malloc(sizeof(unsigned long) * num_pages);
+                int sent_pages = q[0].pushdata_zerocopy(local_page, num_pages, remote_pages);
+                if (sent_pages != num_pages) {
+                    ERROR("FD %d: Failed to send %d pages starting from %lx via zero copy, actually %d pages sent", topush_ele.fd, num_pages, local_page, sent_pages);
+                }
+
+                ptr = (void *) remote_pages;
+                len = sizeof(unsigned long) * num_pages;
+                topush_ele.size = len;
+                break;
+            }
+            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
+            {
+                topush_ele.fd = in_meta.data_fd_rw_zcv.fd;
+                unsigned int num_pages = in_meta.data_fd_rw_zcv.num_pages;
+                if (num_pages * sizeof(unsigned long) != len) {
+                    FATAL("length mismatch for DATA_TRANSFER_ZEROCOPY_VECTOR");
+                }
+                unsigned long *remote_pages = (unsigned long *) malloc(sizeof(unsigned long) * num_pages);
+                unsigned long *local_pages = (unsigned long *) ptr;
+                for (unsigned int i = 0; i < num_pages; i ++) {
+                    int sent_pages = q[0].pushdata_zerocopy(local_pages[i], 1, &remote_pages[i]);
+                    if (sent_pages != 1) {
+                        ERROR("FD %d: Failed to send page %lx via zero copy", topush_ele.fd, local_pages[0]);
+                    }
+                }
+
+                ptr = (void *) remote_pages;
+                topush_ele.size = len;
+                break;
+            }
             default:
                 FATAL("Unsupported FD type from 8 byte to 16 byte");
         }
 
         while (!q[0].push_nb(topush_ele,ptr));
+
+        switch (topush_ele.command)
+        {
+            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY:
+            case interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR:
+                if (topush_ele.size > 0 && ptr != NULL)
+                    free(ptr);
+                break;
+        }
         return len;
     };
+
+    void add_remote_page_to_pool(unsigned long page) {
+        q[0].add_remote_page_to_pool(page);
+    }
 
     int pop_data(iterator *iter, int len, void* ptr) final
     {

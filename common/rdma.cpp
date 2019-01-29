@@ -301,7 +301,6 @@ void RDMA_flow_ctl_t::reg(unpushed_data_t * entry)
     entry_lst.push_back(entry);
 }
 
-
 void RDMA_flow_ctl_t::sync()
 {
     int32_t cq_ret;
@@ -324,10 +323,29 @@ void RDMA_flow_ctl_t::sync()
             if (ret.isexist) {
                 ++num_req_sent;
                 bool issignal(false);
-                if (num_req_sent % SEND_PER_SIGNAL)
+                if (num_req_sent % SEND_PER_SIGNAL == 0)
                     issignal = true;
                 post_rdma_write(ret.localptr,ret.remoteptr, lkey, rkey, qp, ret.size, issignal);
             }
         } while (ret.isexist);
     }
+}
+
+void RDMA_flow_ctl_t::direct_rdma_write(void * local_addr, uintptr_t remote_addr, unsigned long size)
+{
+    int32_t cq_ret;
+    do
+    {
+        struct ibv_wc wc;
+        cq_ret = ibv_poll_cq(send_cq, 1, &wc);
+        avail_sq_depth += SEND_PER_SIGNAL;
+        if (cq_ret < 0)
+            FATAL("Poll CQ Err %s", strerror(cq_ret));
+    } while (cq_ret > 0);
+
+    ++num_req_sent;
+    bool issignal(false);
+    if (num_req_sent % SEND_PER_SIGNAL == 0)
+        issignal = true;
+    post_rdma_write(local_addr, remote_addr, lkey, rkey, qp, size, issignal);
 }

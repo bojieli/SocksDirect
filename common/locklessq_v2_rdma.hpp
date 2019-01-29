@@ -9,8 +9,10 @@
 #include <cstdint>
 #include <assert.h>
 #include <cstring>
+#include <vector>
 #include "interprocess_t_n.hpp"
 #include "rdma.h"
+#include "../lib/zerocopy.h"
 #define LOCKLESSQ_SIZE 512
 #define LOCKLESSQ_BITMAP_ISVALID 0x1
 #define LOCKLESSQ_BITMAP_ISDEL 0x2
@@ -81,6 +83,7 @@ public:
     };
 private:
     RDMA_flow_ctl_t * RDMA_flow_ctl;
+    std::vector<unsigned long> remote_pages_pool;
     uint32_t credits;
     element_t* bytes_arr;
     bool *return_flag;
@@ -140,6 +143,16 @@ public:
         else
             credits = LOCKLESSQ_SIZE;
         credit_disabled = false;
+
+        // initialize remote pages pool
+        // currently mock testing, only initialize some local pages
+        for (int i = 0; i < INIT_REMOTE_PAGE_POOL_SIZE; i ++) {
+            int alloc_size = (1 << MAX_ORDER) < INIT_REMOTE_PAGE_POOL_SIZE ? (1 << MAX_ORDER) : INIT_REMOTE_PAGE_POOL_SIZE;
+            unsigned long page_number = alloc_phys(alloc_size);
+            for (int j = 0; j < alloc_size; j ++)
+                add_remote_page_to_pool(page_number + j);
+            i += alloc_size;
+        }
     }
 
     inline void init_mem()
@@ -168,6 +181,41 @@ public:
         credits-=slots_occupied;
         RDMA_flow_ctl->sync();
         return true;
+    }
+
+    // return the number of pages that are sent via zerocopy
+    inline int pushdata_zerocopy(unsigned long start_local_page, int num_pages, unsigned long *remote_pages)
+    {
+        // fetch from remote page pool
+        int page_tosend = 0;
+        for (; page_tosend < num_pages; page_tosend ++) {
+            if (remote_pages_pool.empty())
+                break;
+            remote_pages[page_tosend] = remote_pages_pool.back();
+            remote_pages_pool.pop_back();
+        }
+        int page_sent = 0;
+        int head = page_sent;
+        while (page_sent < page_tosend) {
+            while (head + 1 < page_tosend && remote_pages[head] + 1 == remote_pages[head + 1]) {
+                // continous pages, should be sent in batch
+                head ++;
+            }
+            // send pages in batch
+            void * local_ptr = (void *) ((start_local_page + page_sent) * PAGE_SIZE);
+            uintptr_t remote_ptr = (uintptr_t) (remote_pages[page_sent] * PAGE_SIZE);
+            unsigned long num_pages = head - page_sent + 1;
+            unsigned long send_size = num_pages * PAGE_SIZE;
+            RDMA_flow_ctl->direct_rdma_write(local_ptr, remote_ptr, send_size);
+            page_sent = head + 1;
+            head ++;
+        }
+        return page_tosend;
+    }
+
+    inline void add_remote_page_to_pool(unsigned long remote_page)
+    {
+        remote_pages_pool.push_back(remote_page);
     }
 
     inline bool is_full()

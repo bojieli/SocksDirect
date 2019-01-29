@@ -58,6 +58,7 @@ public:
     RDMA_flow_ctl_t(uint32_t _sq_depth, uint32_t _lkey, uint32_t _rkey, ibv_qp *_qp, ibv_cq *_send_cq);
     void reg(unpushed_data_t * entry);
     void sync();
+    void direct_rdma_write(void * local_addr, uintptr_t remote_addr, unsigned long size);
 };
 
 

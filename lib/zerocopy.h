@@ -1,8 +1,16 @@
+#ifndef __ZEROCOPY_H__
+#define __ZEROCOPY_H__
+
 #include <unistd.h>
 #include <sys/syscall.h>
+#include <unordered_map>
 
+#ifndef PAGE_SIZE
 #define PAGE_SIZE (1<<12)
+#endif
+
 #define MAX_ORDER 11
+#define INIT_REMOTE_PAGE_POOL_SIZE 65536
 
 #define __NR_alloc_phys 333
 #define __NR_virt2phys 334
@@ -81,3 +89,5 @@ static inline void resume_mapping(void)
         }
 }
 #endif // __cplusplus
+
+#endif // #ifdef __ZEROCOPY_H__

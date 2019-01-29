@@ -7,6 +7,7 @@
 
 #include <cstdint>
 #include <pthread.h>
+#include <vector>
 #include "locklessqueue_n.hpp"
 
 #define INTERPROCESS_SLOTS_IN_BUFFER 1024
@@ -47,7 +48,6 @@ public:
         void init_mem();
 
         short pushdata(uint8_t *start_ptr, int size) volatile ;
-
         short popdata(unsigned short src, int &size, uint8_t *user_buf) volatile ;
         short popdata_nomemrelease(unsigned short src, int &size, uint8_t *user_buf) volatile ;
 
