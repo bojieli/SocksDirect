@@ -42,6 +42,7 @@ static int check_sockfd_event(int sockfd, int events)
 static unsigned int sys_poll_throttle_counter = 0;
 #define SYS_POLL_THROTTLE_FACTOR 65536
 
+#define DEBUGON 0
 // return revents
 static int check_fd_event(int fd, int events)
 {
@@ -54,14 +55,22 @@ static int check_fd_event(int fd, int events)
             sys_fd.events = events;
             sys_fd.revents = 0;
             orig_poll(&sys_fd, 1, 0);
+            if (sys_fd.revents != 0)
+                DEBUG("check_sys_fd fd %d event %d", fd, sys_fd.revents);
             return sys_fd.revents;
         }
+        return 0;
     }
     else { // user space fd
         int sockfd = get_real_fd(fd);
-        return check_sockfd_event(sockfd, events);
+        int ret = check_sockfd_event(sockfd, events);
+        if (ret != 0)
+            DEBUG("check_user_fd fd %d event %d", fd, ret);
+        return ret;
     }
 }
+
+#undef DEBUGON
 
 int poll(struct pollfd *fds, nfds_t nfds, int timeout)
 {
