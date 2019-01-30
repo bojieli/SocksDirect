@@ -1849,7 +1849,7 @@ int check_sockfd_receive(int sockfd)
     if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
     {
         errno = EBADF;
-        //ERROR("non-existing sockfd %d passed to epoll", sockfd);
+        DEBUG("non-existing sockfd %d passed to epoll", sockfd);
         return POLLERR;
     }
     
@@ -1933,7 +1933,7 @@ int check_sockfd_send(int sockfd)
     if (!thread_data->fds_datawithrd.is_keyvalid(sockfd))
     {
         errno = EBADF;
-        ERROR("non-existing sockfd %d passed to epoll", sockfd);
+        DEBUG("non-existing sockfd %d passed to epoll", sockfd);
         return POLLERR;
     }
     
