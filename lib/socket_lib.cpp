@@ -1332,9 +1332,8 @@ static ssize_t write_nbyte(int fd, int numofbytes, uint8_t *send_buffer, interpr
     }
     */
 
-    if ((numofbytes >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY) &&
+    if ((numofbytes >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY))
           //(((unsigned long)send_buffer & (PAGE_SIZE - 1)) == 0) &&
-            ((numofbytes & (PAGE_SIZE - 1)) == 0))
     {
         // mock test for now
         
@@ -1760,27 +1759,53 @@ ssize_t recvfrom(int sockfd, void *buf, size_t len, int flags,
                     }
                     else if (ele.command == interprocess_t::cmd::DATA_TRANSFER_ZEROCOPY_VECTOR)
                     {
-                        if (len == 0 || len % PAGE_SIZE != 0) {
-                            FATAL("zero copy receive with length not multiple of PAGE_SIZE: not supported yet");
-                        }
-                        int num_pages = ele.data_fd_rw_zcv.num_pages;
-                        if (num_pages * PAGE_SIZE > len) {
-                            num_pages = len / PAGE_SIZE;
-                        }
-                        unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
-                        if (received_pages == NULL) {
-                            FATAL("zero copy receive: malloc failed %d pages", num_pages);
-                        }
-                        int buffer_ret = buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long) * num_pages, (void *)received_pages);
-                        if ((unsigned int) buffer_ret != sizeof(unsigned long) * num_pages) {
-                            FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
-                            num_pages = buffer_ret / sizeof(unsigned long);
-                        }
-                        unsigned long *return_pages = map_and_return_pages(buf, received_pages, num_pages);
-                        free(received_pages);
-                        if (return_pages == NULL) {
-                            ret = 0;
+                        if (len <= 0) {
                             continue;
+                        }
+                        int num_pages = 0;
+                        unsigned long *return_pages = NULL;
+                        if (len < PAGE_SIZE) { // special case: we need to receive a part of data in zero copy page
+                            num_pages = 1;
+                            unsigned long received_page;
+                            int buffer_ret = buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long), &received_page);
+                            if ((unsigned int) buffer_ret != sizeof(unsigned long)) {
+                                FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, 1);
+                            }
+                            return_pages = map_and_return_pages(buf, &received_page, 1);
+                            if (return_pages == NULL) {
+                                FATAL("zero copy failed to get return pages");
+                            }
+                        }
+                        else {
+                            unsigned int remaining_len = len % PAGE_SIZE;
+                            if (remaining_len != 0) {
+                                // we only receive full pages via zero copy, and the last page should be mapped to temporary space and copied
+                                DEBUG("zero copy receive with length %d, not multiple of PAGE_SIZE", len);
+                                len = ((unsigned int)(len / PAGE_SIZE)) * PAGE_SIZE;
+                            }
+                            num_pages = ele.data_fd_rw_zcv.num_pages;
+                            if (num_pages * PAGE_SIZE > len) { // buffer not large enough
+                                // update element for number of remaining pages
+                                ele.data_fd_rw_zcv.num_pages = num_pages - len / PAGE_SIZE;
+                                // set real number of pages to map
+                                num_pages = len / PAGE_SIZE;
+                            }
+                            unsigned long *received_pages = (unsigned long *)malloc(sizeof(unsigned long) * num_pages);
+                            if (received_pages == NULL) {
+                                FATAL("zero copy receive: malloc failed %d pages", num_pages);
+                            }
+                            int buffer_ret = buffer_has_blk->pop_data(&loc_has_blk, sizeof(unsigned long) * num_pages, (void *)received_pages);
+                            if ((unsigned int) buffer_ret != sizeof(unsigned long) * num_pages) {
+                                FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);
+                                num_pages = buffer_ret / sizeof(unsigned long);
+                            }
+                            return_pages = map_and_return_pages(buf, received_pages, num_pages);
+                            free(received_pages);
+                            if (return_pages == NULL) {
+                                FATAL("zero copy failed to get return pages");
+                                ret = 0;
+                                continue;
+                            }
                         }
                         
                         // return pages to the remote side
