@@ -118,8 +118,9 @@ int main(int argc, char * argv[])
     pthread_create(&receiver_thread, NULL, receiver, nullptr);
     while (1)
     {
+        size_t last_glbcounter = glbcounter;
         sleep(1);
-        printf("%.2lf\n", (double)glbcounter/1e6);
+        printf("%.2lf\n", (double)(glbcounter - last_glbcounter)/1e6);
     }
     pthread_join(receiver_thread,NULL);
     return 0;
