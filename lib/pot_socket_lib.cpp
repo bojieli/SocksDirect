@@ -21,6 +21,9 @@
 #include "../rdma/hrd.h"
 #include <unordered_map>
 
+pthread_key_t pthread_key;
+pthread_key_t pthread_sock_key;
+
 const int MIN_PAGES_FOR_ZEROCOPY = 2;
 const int MAX_TST_MSG_SIZE=1024*1024*4;
 static uint8_t pot_mock_data[MAX_TST_MSG_SIZE * 2] __attribute__((aligned(PAGE_SIZE)));
@@ -41,6 +44,78 @@ static unsigned long send_buffer_phys[MAX_TST_MSG_SIZE * 2 / PAGE_SIZE];
 
 const int kAppUnsigBatch = 64;
 static size_t nb_tx = 0;
+
+void monitor2proc_hook()
+{
+    thread_data_t *thread_data = GET_THREAD_DATA();
+    metaqueue_ctl_element ele;
+    while (thread_data->metaqueue.q_emergency[1].pop_nb(ele))
+    {
+        switch (ele.command)
+        {
+        /*
+            case RES_PUSH_FORK:
+                res_push_fork_handler(ele);
+                break;
+            case REQ_RELAY_RECV:
+                recv_takeover_req_handler(ele);
+                break;
+                */
+            /*case REQ_RELAY_RECV_ACK:
+                recv_takeover_ack_handler(ele);
+                break;*/
+        }
+    }
+}
+
+adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator recv_empty_hook
+        (
+                adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterator iter,
+                int myfd
+        )
+{
+    thread_sock_data_t * thread_sock_data = GET_THREAD_SOCK_DATA();
+    thread_data_t * thread_data = GET_THREAD_DATA();
+    //if it is empty
+    if (iter->child[0] != -1 || iter->child[1] != -1)
+    {
+        //if it has child
+        if (dynamic_cast<interprocess_local_t *>(thread_sock_data->buffer[iter->buffer_idx].data)->q[1].isempty())
+        {
+            //remove itself and add its children
+            if (iter->child[0] != -1)
+                iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[0]]);
+            if (iter->child[1] != -1)
+                iter = thread_data->fds_datawithrd.add_element_at(iter, myfd, thread_data->rd_tree[iter->child[1]]);
+
+            //remove itself from adjlist
+            iter = thread_data->fds_datawithrd.del_element(iter);
+            return iter;
+        }
+    }
+    else
+    {
+        //check whether clock pointer is point to itself, if not
+        if (!(*(dynamic_cast<interprocess_local_t *>(thread_sock_data->buffer[iter->buffer_idx].data)
+                ->sender_turn[1]))[thread_data->fds_datawithrd[myfd].peer_fd])
+        {
+            //send takeover msg to monitor
+            metaqueue_ctl_element ele;
+            ele.command = REQ_RELAY_RECV;
+            ele.req_relay_recv.shmem = thread_sock_data->buffer[iter->buffer_idx].shmemkey;
+            ele.req_relay_recv.req_fd = myfd;
+            ele.req_relay_recv.peer_fd = thread_data->fds_datawithrd[myfd].peer_fd;
+            thread_data->metaqueue.q[0].push(ele);
+            DEBUG("Send takeover req for myfd %d on buffer idx %d since q empty and not pointed", myfd, iter->buffer_idx);
+
+        } else 
+        {
+            //DEBUG("No need for takeover req");
+        }
+    }
+    return iter.next();
+};
+
 
 void pot_init_write()
 {
