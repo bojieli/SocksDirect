@@ -119,7 +119,7 @@ adjlist<file_struc_rd_t, MAX_FD_OWN_NUM, fd_rd_list_t, MAX_FD_PEER_NUM>::iterato
 
 void pot_init_write()
 {
-    for (int i=0;i<2*MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (rand() % 255 + 1);
+    for (int i=0;i<2*MAX_TST_MSG_SIZE;++i) pot_mock_data[i] = (i % 255 + 1);
     virt2physv(reinterpret_cast<uint64_t>(pot_mock_data), send_buffer_phys, 2 * MAX_TST_MSG_SIZE / PAGE_SIZE);
 }
 
