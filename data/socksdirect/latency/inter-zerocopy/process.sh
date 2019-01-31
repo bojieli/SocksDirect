@@ -1,0 +1,1 @@
+for (( msgsize=8; msgsize<=1048576; msgsize*=2 )) do echo -n "$msgsize ";  cat samples-inter-$msgsize.out | sort -n | awk 'BEGIN{sum=0}{sum += $1; if (NR==100) printf "%s ",$1/1000; if (NR==9900) printf "%s ",$1/1000}END{print sum / NR/1000}' | awk '{print $3,$1,$2}'; done
