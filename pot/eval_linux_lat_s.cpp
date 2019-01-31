@@ -18,9 +18,9 @@ uint8_t buffer[MAX_MSGSIZE];
 #
 int main(int argc, char * argv[])
 {
-    if (argc < 2)
+    if (argc < 3)
     {
-        printf("Usage: <msgsize>");
+        printf("Usage: <msgsize> <port>");
         return -1;
     }
 
@@ -33,7 +33,7 @@ int main(int argc, char * argv[])
 
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(8080);
+    servaddr.sin_port = htons(atoi(argv[2]));
     servaddr.sin_addr.s_addr = htonl(INADDR_ANY);
     if (bind(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
         FATAL("failed to bind %s", strerror(errno));
@@ -49,9 +49,12 @@ int main(int argc, char * argv[])
 
 
 
-    int connect_fd = accept4(fd, NULL, NULL, 0);
-    if (connect_fd == -1)
-        FATAL("Failed to connect to client");
+    int connect_fd = -1;
+    while (connect_fd == -1) {
+        connect_fd = accept(fd, NULL, NULL);
+        if (connect_fd == -1 && (errno != EAGAIN && errno != EWOULDBLOCK))
+            FATAL("Failed to connect to client, errno %d", errno);
+    }
     int tmp = 1;
     setsockopt( connect_fd, IPPROTO_TCP, TCP_NODELAY, (void *)&tmp, sizeof(tmp));
     tmp = MAX_MSGSIZE;

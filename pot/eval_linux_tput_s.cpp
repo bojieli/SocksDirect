@@ -98,7 +98,7 @@ int main(int argc, char * argv[])
     for (int i=0;i<core_sum;++i)
     {
         int current_core_num = i* 2 + 2 - i % 2;
-        int connect_fd = accept4(fd, NULL, NULL, 0);
+        int connect_fd = accept(fd, NULL, NULL);
         if (connect_fd == -1)
             FATAL("Failed to connect to client %s", strerror(errno));
         int tmp = 1;
@@ -135,7 +135,7 @@ int main(int argc, char * argv[])
     FILE* output_f;
     output_f=fopen("data.out","a");
     fprintf(output_f, "%d ", core_sum);
-    for (int i=0;i<60;++i)
+    for (int i=0;i<10;++i)
     {
         old_ctr = new_ctr = 0;
         for (int j=0;j<core_sum;++j)
