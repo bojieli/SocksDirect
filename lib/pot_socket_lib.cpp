@@ -304,9 +304,7 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     volatile uint8_t *last_addr = cb->conn_buf + offset + len - 1;
     // wait
     while (*last_addr == 0) { }
-    // release
-    *last_addr = 0;
-
+    SW_BARRIER;
     uint64_t base_addr = reinterpret_cast<uint64_t>(cb->conn_buf + offset);
 
     if ((len >= PAGE_SIZE * MIN_PAGES_FOR_ZEROCOPY) &&
@@ -322,6 +320,11 @@ ssize_t pot_rdma_read_nbyte(int sockfd, size_t len)
     }
 
     credits += num_pages;
+
+    // release mem
+    SW_BARRIER;
+    *last_addr = 0;
+
     if (credits >= CREDIT_RETURN_THRESHOLD) {
         credits -= CREDIT_RETURN_THRESHOLD;
 
