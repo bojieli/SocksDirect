@@ -29,7 +29,8 @@ struct thread_ctx_t per_thread_ctx[64];
 pthread_t threads[64];
 
 
-uint8_t buffer[MAX_MSGSIZE];
+#define NUM_BUFFERS 1024
+uint8_t buffer[NUM_BUFFERS][MAX_MSGSIZE];
 
 void* tput_msg_receiver(void* p_ctx_tmp)
 {
@@ -44,14 +45,14 @@ void* tput_msg_receiver(void* p_ctx_tmp)
     {
         int len = 0;
         while (len < msgsize)
-            len += recvfrom(fd, (void *) buffer+len, msgsize-len, 0, NULL, NULL);
+            len += recvfrom(fd, (void *) buffer[i % NUM_BUFFERS]+len, msgsize-len, 0, NULL, NULL);
     }
     p_ctx->ready = 1;
     while (!done[corenum])
     {
         int len = 0;
         while (len < msgsize)
-            len += recvfrom(fd, (void *) buffer+len, msgsize-len, 0, NULL, NULL);
+            len += recvfrom(fd, (void *) buffer[p_ctx->counter % NUM_BUFFERS]+len, msgsize-len, 0, NULL, NULL);
         ++p_ctx->counter;
     }
     close(fd);
