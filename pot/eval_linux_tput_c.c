@@ -10,7 +10,8 @@
 #include "../lib/lib.h"
 
 #define MAX_MSGSIZE (1024*1024)
-uint8_t buffer[MAX_MSGSIZE];
+#define NUM_BUFFERS 1024
+uint8_t real_buffer[NUM_BUFFERS * MAX_MSGSIZE];
 
 
 struct thread_ctx_t
@@ -48,6 +49,10 @@ void* tput_msg_sender(void* p_ctx_tmp)
 
     pin_thread(p_ctx->core_num);
     InitRdtsc();
+
+    uint8_t *buffer = real_buffer;
+    uint8_t *real_buffer_end = real_buffer + sizeof(real_buffer);
+
     int msgsize = p_ctx->msgsize;
     while (!done[p_ctx->core_num])
     {
@@ -62,7 +67,9 @@ void* tput_msg_sender(void* p_ctx_tmp)
             }
             len += onetimelen;
         }
-
+        buffer += msgsize;
+        if (buffer >= real_buffer_end)
+            buffer = real_buffer;
     }
     return 0;
 }
@@ -85,7 +92,7 @@ int main(int argc, char * argv[])
 
     int fd;
 
-    for (int i=0;i<MAX_MSGSIZE;++i) buffer[i] = rand() % 256;
+    for (int i=0;i<MAX_MSGSIZE;++i) real_buffer[i] = rand() % 256;
 
     for (int i=0;i<coresum;++i)
     {

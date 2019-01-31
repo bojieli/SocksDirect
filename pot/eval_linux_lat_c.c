@@ -10,16 +10,17 @@
 #include "../lib/lib.h"
 
 #define MAX_MSGSIZE (1024*1024)
-uint8_t buffer[MAX_MSGSIZE];
+#define NUM_BUFFERS 1024
+uint8_t real_buffer[NUM_BUFFERS * MAX_MSGSIZE];
 #define TST_NUM 10000
 #define WARMUP_NUM 10000
 double samples[TST_NUM];
 
 int main(int argc, char * argv[])
 {
-    if (argc < 4)
+    if (argc < 5)
     {
-        printf("Usage <output name> <IP> <msgsize>");
+        printf("Usage <output name> <IP> <msgsize> <port>");
         return -1;
     }
     int msgsize=atoi(argv[3]);
@@ -35,16 +36,24 @@ int main(int argc, char * argv[])
     if (fd == -1) FATAL("Failed to create fd");
     struct sockaddr_in servaddr;
     servaddr.sin_family = AF_INET;
-    servaddr.sin_port = htons(8080);
+    servaddr.sin_port = htons(atoi(argv[4]));
     inet_pton(AF_INET, argv[2], &servaddr.sin_addr);
     int tmp=1;
     setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, (void *)&tmp, sizeof(tmp));
     tmp = MAX_MSGSIZE;
     setsockopt(fd, SOL_SOCKET, SO_RCVBUF, &tmp, sizeof(tmp));
     setsockopt(fd, SOL_SOCKET, SO_SNDBUF, &tmp, sizeof(tmp));
-    if (connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
-        FATAL("Failed to connect");
+    while (connect(fd, (struct sockaddr *) &servaddr, sizeof(servaddr)) < 0)
+    {
+        if (errno == EAGAIN || errno == EWOULDBLOCK)
+            continue;
+        else
+            FATAL("Failed to connect, errno %d", errno);
+    }
     printf("connect succeed\n");
+
+    uint8_t *buffer = real_buffer;
+    uint8_t *real_buffer_end = real_buffer + sizeof(real_buffer);
 
     for (int i=0;i<MAX_MSGSIZE;++i) buffer[i] = rand() % 256;
     TimingInit();
@@ -80,6 +89,10 @@ int main(int argc, char * argv[])
             }
             len += onetimelen;
         }
+
+        buffer += msgsize;
+        if (buffer >= real_buffer_end)
+            buffer = real_buffer;
 
         //get time
         //clock_gettime(CLOCK_REALTIME, &e_time);
