@@ -51,7 +51,8 @@ int enum_dev(rdma_pack *p)
     for (int dev_i = 0; dev_i < num_devices; dev_i++) {
         p->ib_ctx = ibv_open_device(dev_list[dev_i]);
         if (p->ib_ctx == nullptr) {
-            FATAL("Fail to open device %d", dev_i);
+            continue;
+            //FATAL("Fail to open device %d", dev_i);
         }
 
         struct ibv_device_attr device_attr;

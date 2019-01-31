@@ -120,7 +120,7 @@ static void after_thread_create_or_fork(thread_data_t *old_thread_data, thread_s
     import_thread_sock_data(thread_sock_data, old_thread_sock_data);
 
     // connect RDMA
-    rdma_init();
+    rdma_init_lib();
     thread_data->is_rdma_initialized = true;
 }
 

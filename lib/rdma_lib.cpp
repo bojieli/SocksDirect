@@ -32,7 +32,7 @@ static rdma_pack rdma_lib_context;
 static int rdma_metaqueue_buffer_seq=0;
 static int rdma_interprocess_seq=0;
 
-void rdma_init()
+void rdma_init_lib()
 {
     //several things
     //1. Init a large buffer
@@ -42,11 +42,12 @@ void rdma_init()
     // we need to call ibv_fork_init before ANY OTHER RDMA functions.
     // this will set the RDMA memory regions to NOT copy-on-write after fork.
     int ret;
+    /*
     if ((ret = ibv_fork_init()) != 0)
         FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);
     else
         DEBUG("RDMA fork prepare success");
-
+    */
     //enumerate device
     if (enum_dev(&rdma_lib_context) == -1) {
         return;
@@ -62,7 +63,7 @@ void rdma_init()
                     (size_t)RDMA_MAX_CONN * interprocess_t::get_sharedmem_size() +
                     (size_t)RDMA_MAX_METAQUEUE * metaqueue_t::get_sharememsize();
     rdma_lib_context.MR_ptr = memalign(4096, shared_buf_size);
-    printf("%ldbytes\n", shared_buf_size);
+    //printf("%ldbytes\n", shared_buf_size);
     rdma_lib_private_info.local_metaqueue_base_addr = (uintptr_t)rdma_lib_context.MR_ptr;
     rdma_lib_private_info.local_interprocess_base_addr = (uintptr_t)(rdma_lib_context.MR_ptr +
             (size_t)RDMA_MAX_METAQUEUE * metaqueue_t::get_sharememsize());

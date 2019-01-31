@@ -45,7 +45,7 @@ struct rdma_self_pack_t
     uint64_t localptr;
 };
 
-extern void rdma_init();
+extern void rdma_init_lib();
 extern rdma_metaqueue * rdma_try_connect_remote_monitor(struct in_addr remote_addr);
 extern rdma_self_pack_t * lib_new_qp();
 rdma_pack *rdma_get_pack();

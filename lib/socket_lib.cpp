@@ -647,11 +647,12 @@ int socket(int domain, int type, int protocol) __THROW
             FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);
         else
             DEBUG("RDMA fork prepare success");
-        rdma_init();
+
+        rdma_init_lib();
         data->is_rdma_initialized = true;
     }
 
-    rdma_init();
+    //rdma_init_lib();
     file_struc_rd_t nfd;
     nfd.property.is_addrreuse = false;
     nfd.property.is_blocking = true;
