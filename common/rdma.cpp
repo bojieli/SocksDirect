@@ -20,7 +20,7 @@ static std::string link_layer_str(uint8_t link_layer) {
 
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 
 #define RDMA_CONFIG_NAME "rdma_config.txt"
 static bool isRDMAnameGet=false;

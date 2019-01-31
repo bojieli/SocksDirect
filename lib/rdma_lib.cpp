@@ -13,7 +13,7 @@
 #include "../common/metaqueue.h"
 #include <sys/socket.h>
 
-#define DEBUGON 1
+#define DEBUGON 0
 #define RDMA_MAX_CONN 10
 #define RDMA_MAX_METAQUEUE 10
 

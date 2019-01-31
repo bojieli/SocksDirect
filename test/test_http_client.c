@@ -19,6 +19,8 @@
 
 const char* help_string = "Usage: simple-http [-h] [-4|-6] [-p PORT] [-o OUTPUT_FILE] [-b BATCH_SIZE] [-n THREAD_NUM] <SERVER-IP> <TESTSIZE-BYTES>\n";
 
+double latency[1000];
+
 void errExit(const char* str, char p)
 {
 	if ( p != 0 )
@@ -54,8 +56,9 @@ struct addrinfo *result, hints;
 void * worker_rd(void* args);
 void * worker(void * args)
 {
+    int cnt = 0;
     char request[512];
-    char *response = (char*) malloc(testsize);
+    char *response = (char*) malloc(8192);
     int fd;
     int id;
     struct addrinfo *result;
@@ -101,7 +104,7 @@ void * worker(void * args)
             int curr_ptr = 0;
             while (curr_ptr < req_len)
             {
-                int ret = (int)send(fd, request+curr_ptr, req_len, 0);
+                int ret = (int)send(fd, request+curr_ptr, req_len - curr_ptr, 0);
                 if (ret < 0 && errno != EAGAIN && errno != EWOULDBLOCK) return NULL;
                 curr_ptr += ret;
             }
@@ -116,7 +119,7 @@ void * worker(void * args)
             char* parse_ptr;
             while (1)
             {
-                int ret = (int)recv(fd, startptr+curr_ptr, testsize, 0);
+                int ret = (int)recv(fd, startptr+curr_ptr, 8192 - curr_ptr, 0);
                 if (ret < 0)
                 {
                     if (errno == EAGAIN || errno == EWOULDBLOCK)
@@ -135,10 +138,17 @@ void * worker(void * args)
                 }
                 curr_ptr += ret;
                 response[curr_ptr] = '\0';
-                parse_ptr = strstr(startptr, templaterepstr);
+                parse_ptr = strstr(response, templaterepstr);
                 /* header fully read */
                 if (parse_ptr != NULL)
                     break;
+            }
+            //If the response code is not 200, just ignore it
+            if (response[9] != '2' || response[10] != '0' || response[11] != '0')
+            {
+                startptr = response;
+                printf("Non 200 code\n");
+                continue;
             }
             /* Now we need to know where is the response body*/
             int body_ptr = parse_ptr - response + 4;
@@ -182,10 +192,18 @@ void * worker(void * args)
             }
             ++stat[id].counter;
             stat[id].totol_time += duration;
+            ++cnt;
+            if (cnt >= 10000)
+            {
+                if (cnt >= 11000)
+                    return NULL;
+                latency[cnt-10000] = duration;
+            }
 
             /* If we got more than one response I just copy it back to the front */
-            memcpy(response, parse_ptr + 4 + testsize, response + curr_ptr - (parse_ptr + 4 + testsize));
-            startptr = response;
+            int end_pos = response + curr_ptr - (parse_ptr + 4 + testsize);
+            memcpy(response, parse_ptr + 4 + testsize, end_pos);
+            startptr = response + end_pos;
         }
 
     }
@@ -260,6 +278,10 @@ int main (int argc, char** argv)
 	    pthread_create(&threads[i], NULL, worker, &thread_args[i]);
     }
 
+    pthread_join(threads[0], NULL);
+	for (int i=0;i<1000;++i)
+	    printf("%.3lf\n", latency[i]);
+    /*
     while (1)
     {
         sleep(1);
@@ -269,7 +291,7 @@ int main (int argc, char** argv)
             stat[i].last_counter = stat[i].counter;
         }
         printf("\n");
-    }
+    }*/
 	// Now we have an established connection.
 	/*
 	// XXX: Change the length if request string is modified!!!

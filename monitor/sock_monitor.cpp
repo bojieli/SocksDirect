@@ -107,7 +107,7 @@ void sock_monitor_init()
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 void accept_handler(metaqueue_ctl_element *req_body, int qid)
 {
     unsigned short port = req_body->req_accept.port;
@@ -129,7 +129,7 @@ void accept_handler(metaqueue_ctl_element *req_body, int qid)
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid)
 {
     unsigned short port = req_body->req_listen.port;
@@ -157,7 +157,7 @@ void listen_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_
 }
 
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res_body, int qid)
 {
     unsigned short port;
@@ -248,7 +248,7 @@ void connect_handler(metaqueue_ctl_element *req_body, metaqueue_ctl_element *res
     q2listener->q[0].push(res_to_listener);
 }
 #undef DEBUGON
-#define DEBUGON 1
+#define DEBUGON 0
 void close_handler(metaqueue_ctl_element *req_body, int qid)
 {
     unsigned short port=req_body->req_close.port;
@@ -277,7 +277,7 @@ void close_handler(metaqueue_ctl_element *req_body, int qid)
 }
 #undef DEBUGON
 
-#define DEBUGON 1
+#define DEBUGON 0
 void sock_resource_gc()
 {
     for (int i=0;i<=65535;++i)
