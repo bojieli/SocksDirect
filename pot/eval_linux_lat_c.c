@@ -11,7 +11,7 @@
 
 #define MAX_MSGSIZE (1024*1024)
 #define NUM_BUFFERS 1024
-uint8_t buffer[NUM_BUFFERS][MAX_MSGSIZE];
+uint8_t real_buffer[NUM_BUFFERS * MAX_MSGSIZE];
 #define TST_NUM 10000
 #define WARMUP_NUM 10000
 double samples[TST_NUM];
@@ -52,7 +52,10 @@ int main(int argc, char * argv[])
     }
     printf("connect succeed\n");
 
-    for (int i=0;i<MAX_MSGSIZE;++i) buffer[0][i] = rand() % 256;
+    uint8_t *buffer = real_buffer;
+    uint8_t *real_buffer_end = real_buffer + sizeof(real_buffer);
+
+    for (int i=0;i<MAX_MSGSIZE;++i) buffer[i] = rand() % 256;
     TimingInit();
     InitRdtsc();
     for (int i=0;i<WARMUP_NUM + TST_NUM;++i)
@@ -66,7 +69,7 @@ int main(int argc, char * argv[])
         int len=0;
         while (len < msgsize)
         {
-            int onetimelen=write(fd, (void *) buffer[i]+len, msgsize-len);
+            int onetimelen=write(fd, (void *) buffer+len, msgsize-len);
             if (onetimelen<0)
             {
                 printf("Wr err");
@@ -78,7 +81,7 @@ int main(int argc, char * argv[])
         len = 0;
         while (len < msgsize)
         {
-            int onetimelen = recvfrom(fd, (void *) buffer[i] + len, msgsize - len, 0, NULL, NULL);
+            int onetimelen = recvfrom(fd, (void *) buffer + len, msgsize - len, 0, NULL, NULL);
             if (onetimelen<0)
             {
                 printf("Wr err");
@@ -86,6 +89,10 @@ int main(int argc, char * argv[])
             }
             len += onetimelen;
         }
+
+        buffer += msgsize;
+        if (buffer >= real_buffer_end)
+            buffer = real_buffer;
 
         //get time
         //clock_gettime(CLOCK_REALTIME, &e_time);

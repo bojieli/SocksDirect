@@ -15,7 +15,7 @@
 #define WARMUP_NUM 10000
 
 #define NUM_BUFFERS 1024
-uint8_t buffer[NUM_BUFFERS][MAX_MSGSIZE];
+uint8_t real_buffer[NUM_BUFFERS * MAX_MSGSIZE];
 int main(int argc, char * argv[])
 {
     if (argc < 3)
@@ -63,18 +63,24 @@ int main(int argc, char * argv[])
 
     InitRdtsc();
 
+    uint8_t *buffer = real_buffer;
+    uint8_t *real_buffer_end = real_buffer + sizeof(real_buffer);
+
     for (int i=0;i<WARMUP_NUM+TST_NUM;++i)
     {
         int len = 0;
         while (len < msgsize)
-            len += recvfrom(connect_fd, (void *) buffer[i]+len, msgsize-len, 0, NULL, NULL);
+            len += recvfrom(connect_fd, (void *) buffer+len, msgsize-len, 0, NULL, NULL);
 
 
         len = 0;
         while (len < msgsize)
         {
-            len += write(connect_fd, (void *) buffer[i]+len, msgsize-len);
+            len += write(connect_fd, (void *) buffer+len, msgsize-len);
         }
 
+        buffer += msgsize;
+        if (buffer >= real_buffer_end)
+            buffer = real_buffer;
     }
 }

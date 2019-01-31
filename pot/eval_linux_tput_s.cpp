@@ -30,7 +30,7 @@ pthread_t threads[64];
 
 
 #define NUM_BUFFERS 1024
-uint8_t buffer[NUM_BUFFERS][MAX_MSGSIZE];
+uint8_t real_buffer[NUM_BUFFERS * MAX_MSGSIZE];
 
 void* tput_msg_receiver(void* p_ctx_tmp)
 {
@@ -41,19 +41,31 @@ void* tput_msg_receiver(void* p_ctx_tmp)
     pin_thread(corenum);
     InitRdtsc();
     printf("Connection for core %d inited\n", corenum);
+
+    uint8_t *buffer = real_buffer;
+    uint8_t *real_buffer_end = real_buffer + sizeof(real_buffer);
+
     for (int i=0;i<WARMUP_RND;++i)
     {
         int len = 0;
         while (len < msgsize)
-            len += recvfrom(fd, (void *) buffer[i % NUM_BUFFERS]+len, msgsize-len, 0, NULL, NULL);
+            len += recvfrom(fd, (void *) buffer+len, msgsize-len, 0, NULL, NULL);
+
+        buffer += msgsize;
+        if (buffer >= real_buffer_end)
+            buffer = real_buffer;
     }
     p_ctx->ready = 1;
     while (!done[corenum])
     {
         int len = 0;
         while (len < msgsize)
-            len += recvfrom(fd, (void *) buffer[p_ctx->counter % NUM_BUFFERS]+len, msgsize-len, 0, NULL, NULL);
+            len += recvfrom(fd, (void *) buffer+len, msgsize-len, 0, NULL, NULL);
         ++p_ctx->counter;
+
+        buffer += msgsize;
+        if (buffer >= real_buffer_end)
+            buffer = real_buffer;
     }
     close(fd);
     return 0;
