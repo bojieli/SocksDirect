@@ -322,7 +322,7 @@ pid_t fork()
     if ((ret = ibv_fork_init()) != 0)
         FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);
     else
-        printf("RDMA fork prepare success\n");
+        DEBUG("RDMA fork prepare success\n");
     thread_data_t * parent_thread_data = GET_THREAD_DATA();
     thread_sock_data_t * parent_thread_sock_data = GET_THREAD_SOCK_DATA();
 
