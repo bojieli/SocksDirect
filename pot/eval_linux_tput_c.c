@@ -92,7 +92,7 @@ int main(int argc, char * argv[])
 
     int fd;
 
-    for (int i=0;i<MAX_MSGSIZE;++i) buffer[i] = rand() % 256;
+    for (int i=0;i<MAX_MSGSIZE;++i) real_buffer[i] = rand() % 256;
 
     for (int i=0;i<coresum;++i)
     {
