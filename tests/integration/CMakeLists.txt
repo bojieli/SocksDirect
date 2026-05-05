@@ -82,6 +82,16 @@ set_tests_properties(integration-kernel-abi PROPERTIES
     TIMEOUT 30
     ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# --- conformance baseline (no preload; validates coverage.toml) -------------
+add_test(
+    NAME integration-conformance
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_conformance.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-conformance PROPERTIES
+    TIMEOUT 180
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # --- microbench smoke (validates JSON output matches the schema) ------------
 if(SOCKSDIRECT_BUILD_BENCH)
     add_test(

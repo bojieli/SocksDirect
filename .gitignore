@@ -25,3 +25,4 @@ __pycache__/
 .pytest_cache/
 *.pyc
 SocksDirect-paper/
+tests/conformance/.build/

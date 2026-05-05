@@ -7,6 +7,27 @@ follows semantic versioning once it reaches v1.0.
 ## [Unreleased]
 
 ### Added
+- **Conformance suite** at `tests/conformance/`:
+  - `coverage.toml` is the single source of truth for libc-function
+    support levels (accelerated / passthrough / partial / unsupported).
+  - `cases/*.c` — one tiny C program per category, validating glibc
+    behavior so libsd's preloaded behavior can be compared apples-to-
+    apples.
+  - `run_conformance.py` walks the table, compiles + runs each case,
+    and supports `--preload PATH/libsd.so` for the libsd path.
+- **Linux TCP loopback baseline** under `bench/baselines/` plus a
+  `loopback-baseline` reproduction figure so the comparison context
+  for intra-host claims is reproducible at every tier.
+- **Phase-0 documents**:
+  - `docs/MISSING_FEATURES.md` enumerating every paper-described
+    feature this tree doesn't yet implement, with disposition.
+  - `docs/THIRD_PARTY.md` listing every vendored / fetched dependency
+    and its license.
+- **DKMS test matrix** at `packaging/dkms/test-matrix.md` documenting
+  which kernels the LKM has been built against.
+- **Kernel patches placeholder** at `src/kernel/patches/README.md`
+  explaining that the LKM was selected over the syscall-patch
+  fallback.
 - **Public API headers** under `include/socksdirect/`:
   - `config.hpp` — INI-style configuration loader with env-override
     semantics. Replaces hardcoded paths/IPs in lib + monitor.

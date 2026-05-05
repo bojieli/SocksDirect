@@ -89,8 +89,12 @@ dispatch correctly between socket fds and file fds.
 - **UNSUPPORTED** is loud — it logs an error to libsd's log
   (`/var/log/socksdirect/<pid>.log`) and returns -1 with `errno=ENOSYS`
   or sets `errno=EOPNOTSUPP`.
-- The conformance suite is the source of truth; this document is
-  generated from `tests/conformance/coverage.toml` (TODO: Phase 4).
+- The conformance suite is the source of truth. Today the table is
+  hand-maintained against `tests/conformance/coverage.toml`; the
+  doc-generator script (Phase 4) is forthcoming. The CI job
+  `integration-conformance` validates that every entry in
+  `coverage.toml` has a runnable case under `tests/conformance/cases/`
+  and that the baseline (no-preload) path still works.
 
 ## Reporting a missing function
 

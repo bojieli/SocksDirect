@@ -95,7 +95,8 @@ jobs:
           missing=0
           for f in docs/ARCHITECTURE.md docs/API.md docs/CONFIGURATION.md \
                    docs/REPRODUCIBILITY.md docs/TROUBLESHOOTING.md \
-                   docs/KERNEL_MODULE.md CONTRIBUTING.md CHANGELOG.md; do
+                   docs/KERNEL_MODULE.md docs/MISSING_FEATURES.md \
+                   docs/THIRD_PARTY.md CONTRIBUTING.md CHANGELOG.md; do
             if [ ! -f "$f" ]; then
               echo "::error file=$f::referenced doc missing"
               missing=1
@@ -150,7 +151,7 @@ jobs:
         run: |
           cmake -S . -B build -DSOCKSDIRECT_WITH_RDMA=OFF
           cmake --build build -j -- socksdirect-ctl
-      - name: Run repro + perf-regression + ctl + ABI tests
+      - name: Run repro + perf-regression + ctl + ABI + conformance tests
         run: |
-          ctest --test-dir build -R 'integration-(repro|perf-regression|ctl|kernel-abi)' \
+          ctest --test-dir build -R 'integration-(repro|perf-regression|ctl|kernel-abi|conformance)' \
                 --output-on-failure

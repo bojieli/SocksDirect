@@ -124,6 +124,8 @@ common/, lib/, monitor/ Legacy trees from the research prototype.
 | [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Reproduction tiers, per-figure expectations. |
 | [`docs/KERNEL_MODULE.md`](docs/KERNEL_MODULE.md) | LKM build, load, and security model. |
 | [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Build/runtime diagnostics. |
+| [`docs/MISSING_FEATURES.md`](docs/MISSING_FEATURES.md) | What the paper describes that this tree doesn't yet implement. |
+| [`docs/THIRD_PARTY.md`](docs/THIRD_PARTY.md) | Vendored / fetched dependencies and their licenses. |
 | [`CONTRIBUTING.md`](CONTRIBUTING.md) | What we accept; how to run the test matrix. |
 | [`CHANGELOG.md`](CHANGELOG.md) | User-facing changes. |
 

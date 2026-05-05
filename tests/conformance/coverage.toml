@@ -1,0 +1,163 @@
+# Conformance coverage matrix — single source of truth for libc
+# function support levels. `tests/conformance/run_conformance.py`
+# walks this file. `docs/API.md` is regenerated from it (Phase 4).
+#
+# status options:
+#   accelerated   — libsd handles on the fast path
+#   passthrough   — libsd recognizes but forwards to glibc
+#   partial       — libsd partially handles; outcome is documented
+#   unsupported   — libsd refuses; returns an error
+#
+# case: relative to tests/conformance/. May be:
+#   - a path to a C source under cases/
+#   - the literal "ltp:<test_name>" referencing an LTP test
+#
+# fix_phase: when this column is non-empty, the function is on the
+#            REWRITE_PLAN list to upgrade its status. The number is
+#            the phase doing the work.
+
+[[function]]
+name        = "socket"
+status      = "accelerated"
+case        = "cases/socket_basic.c"
+notes       = "AF_INET/SOCK_STREAM is fast-path; others passthrough"
+
+[[function]]
+name        = "bind"
+status      = "accelerated"
+case        = "cases/bind_basic.c"
+
+[[function]]
+name        = "listen"
+status      = "accelerated"
+case        = "cases/listen_basic.c"
+
+[[function]]
+name        = "accept"
+status      = "accelerated"
+case        = "cases/accept_basic.c"
+
+[[function]]
+name        = "accept4"
+status      = "accelerated"
+case        = "cases/accept_basic.c"
+
+[[function]]
+name        = "connect"
+status      = "accelerated"
+case        = "cases/connect_basic.c"
+
+[[function]]
+name        = "send"
+status      = "accelerated"
+case        = "cases/send_recv_basic.c"
+
+[[function]]
+name        = "recv"
+status      = "accelerated"
+case        = "cases/send_recv_basic.c"
+
+[[function]]
+name        = "sendmsg"
+status      = "partial"
+case        = "cases/send_recv_basic.c"
+fix_phase   = 3
+notes       = "ancillary data passthrough; payload accelerated"
+
+[[function]]
+name        = "recvmsg"
+status      = "partial"
+case        = "cases/send_recv_basic.c"
+fix_phase   = 3
+
+[[function]]
+name        = "shutdown"
+status      = "unsupported"
+case        = "cases/shutdown_unsupported.c"
+fix_phase   = 3
+
+[[function]]
+name        = "getsockname"
+status      = "accelerated"
+case        = "cases/getsockname_basic.c"
+
+[[function]]
+name        = "getpeername"
+status      = "accelerated"
+case        = "cases/getsockname_basic.c"
+
+[[function]]
+name        = "epoll_create"
+status      = "accelerated"
+case        = "cases/epoll_basic.c"
+
+[[function]]
+name        = "epoll_create1"
+status      = "accelerated"
+case        = "cases/epoll_basic.c"
+
+[[function]]
+name        = "epoll_ctl"
+status      = "accelerated"
+case        = "cases/epoll_basic.c"
+
+[[function]]
+name        = "epoll_wait"
+status      = "accelerated"
+case        = "cases/epoll_basic.c"
+
+[[function]]
+name        = "dup"
+status      = "unsupported"
+case        = "cases/dup_unsupported.c"
+fix_phase   = 3
+
+[[function]]
+name        = "dup2"
+status      = "unsupported"
+case        = "cases/dup_unsupported.c"
+fix_phase   = 3
+
+[[function]]
+name        = "dup3"
+status      = "unsupported"
+case        = "cases/dup_unsupported.c"
+fix_phase   = 3
+
+[[function]]
+name        = "fcntl_F_GETFL"
+status      = "accelerated"
+case        = "cases/fcntl_basic.c"
+
+[[function]]
+name        = "fcntl_F_SETFL"
+status      = "accelerated"
+case        = "cases/fcntl_basic.c"
+
+[[function]]
+name        = "fcntl_F_DUPFD"
+status      = "unsupported"
+case        = "cases/dup_unsupported.c"
+fix_phase   = 3
+
+[[function]]
+name        = "fork"
+status      = "accelerated"
+case        = "cases/fork_basic.c"
+
+[[function]]
+name        = "vfork"
+status      = "unsupported"
+case        = "cases/vfork_unsupported.c"
+fix_phase   = 3
+
+[[function]]
+name        = "clone"
+status      = "unsupported"
+case        = "cases/clone_unsupported.c"
+fix_phase   = 3
+
+[[function]]
+name        = "close"
+status      = "accelerated"
+case        = "cases/close_basic.c"

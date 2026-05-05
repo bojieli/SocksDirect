@@ -63,6 +63,7 @@ maps to the paper. The summary report aggregates them.
 |------------------------------|----------------|---------------------|--------|
 | `queue-microbench`           | 1              | ~30 s               | landed |
 | `control-plane-overhead`     | 1              | ~30 s               | landed |
+| `loopback-baseline`          | 1              | ~1 min              | landed |
 | `msgsize-intra`              | 2              | ~3 min              | TODO Phase 6 |
 | `msgsize-inter`              | 3              | ~4 min              | TODO Phase 6 |
 | `corenum-intra` / `corenum-inter` | 2 / 3       | ~5 min each         | TODO Phase 6 |
@@ -79,8 +80,9 @@ prints whatever is available in your tree.
 ## What's missing from the paper artifact
 
 The original release does not contain enough to reproduce every figure
-even on the right hardware. Per Phase 0 of the rewrite plan, we need to
-backfill:
+even on the right hardware. The full inventory is in
+[`docs/MISSING_FEATURES.md`](MISSING_FEATURES.md); the headline items
+the rewrite needs to backfill are:
 
 - Share-core latency benchmark (Figure eval-context-switch).
 - NFV pipeline application (Figure eval-tun-tput).

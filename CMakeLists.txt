@@ -147,6 +147,7 @@ endif()
 # ---------------------------------------------------------------------------
 if(SOCKSDIRECT_BUILD_BENCH)
     add_subdirectory(bench/microbench)
+    add_subdirectory(bench/baselines)
 endif()
 if(SOCKSDIRECT_BUILD_BENCH AND SOCKSDIRECT_WITH_RDMA AND SOCKSDIRECT_WITH_HERD)
     add_subdirectory(bench)
