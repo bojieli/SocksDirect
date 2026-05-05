@@ -1,3 +1,3 @@
-build/socksdirect-monitor                         usr/bin/
-packaging/socksdirect.conf.example                etc/socksdirect/
-packaging/systemd/socksdirect-monitor.service     lib/systemd/system/
+debian/tmp/usr/sbin/socksdirect-monitor                 usr/sbin/
+packaging/socksdirect.conf.example                      etc/socksdirect/
+packaging/systemd/socksdirect-monitor.service           lib/systemd/system/

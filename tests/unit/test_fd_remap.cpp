@@ -181,3 +181,142 @@ TEST(FdRemap, ConcurrentAllocFreeChurn) {
 }
 
 }  // namespace
+
+// ---------------------------------------------------------------------------
+// Refcount tests (added for Phase 3: dup / dup2 / dup3 implementation)
+// ---------------------------------------------------------------------------
+
+TEST(FdRemap, AllocStartsRefcountAt1) {
+    FdRemapTable t;
+    int v = t.alloc(socksdirect::kSocket, 7);
+    EXPECT_EQ(1, t.refcount(v));
+}
+
+TEST(FdRemap, FreeReturnsZeroOnLastRef) {
+    FdRemapTable t;
+    int v = t.alloc(socksdirect::kSocket, 7);
+    EXPECT_EQ(0, t.free(v));   // last ref -> 0; caller may close real_fd
+    EXPECT_EQ(0, t.refcount(v));
+    // Idempotent.
+    EXPECT_EQ(0, t.free(v));
+}
+
+TEST(FdRemap, DupCreatesDistinctVfdSharingResource) {
+    FdRemapTable t;
+    int v1 = t.alloc(socksdirect::kSocket, 7);
+    int v2 = t.dup(v1);
+    EXPECT_NE(v1, v2);
+    EXPECT_GE(v2, 0);
+    EXPECT_EQ(7, t.lookup(v2).real_fd);
+    EXPECT_EQ(socksdirect::kSocket, t.lookup(v2).type);
+    EXPECT_EQ(2, t.refcount(v1));
+    EXPECT_EQ(2, t.refcount(v2));
+}
+
+TEST(FdRemap, FreeDecrementsRefcount) {
+    FdRemapTable t;
+    int v1 = t.alloc(socksdirect::kSocket, 7);
+    int v2 = t.dup(v1);
+    int v3 = t.dup(v1);
+    EXPECT_EQ(3, t.refcount(v1));
+    EXPECT_EQ(2, t.free(v2));   // 2 left
+    EXPECT_EQ(1, t.free(v3));   // 1 left
+    EXPECT_EQ(0, t.free(v1));   // last
+}
+
+TEST(FdRemap, DupOfUnmappedFails) {
+    FdRemapTable t;
+    errno = 0;
+    EXPECT_EQ(-1, t.dup(99));
+    EXPECT_EQ(EBADF, errno);
+}
+
+TEST(FdRemap, DupOfNegativeFails) {
+    FdRemapTable t;
+    errno = 0;
+    EXPECT_EQ(-1, t.dup(-1));
+    EXPECT_EQ(EBADF, errno);
+}
+
+TEST(FdRemap, DupToMovesBindingAndDecrementsOldTarget) {
+    FdRemapTable t;
+    int src = t.alloc(socksdirect::kSocket, 7);
+    int dst = t.alloc(socksdirect::kSocket, 8);
+    int prev_refs = -1;
+    auto prev = t.dup_to(src, dst, &prev_refs);
+    EXPECT_EQ(socksdirect::kSocket, prev.type);
+    EXPECT_EQ(8, prev.real_fd);
+    EXPECT_EQ(0, prev_refs);  // old binding had refcount 1; now 0
+    // dst now points at real_fd=7.
+    auto m = t.lookup(dst);
+    EXPECT_EQ(7, m.real_fd);
+    EXPECT_EQ(socksdirect::kSocket, m.type);
+    // Refcount on real_fd=7 is 2 (src + dst).
+    EXPECT_EQ(2, t.refcount(src));
+    EXPECT_EQ(2, t.refcount(dst));
+}
+
+TEST(FdRemap, DupToSelfIsNoOp) {
+    FdRemapTable t;
+    int v = t.alloc(socksdirect::kSocket, 7);
+    int prev_refs = -1;
+    auto prev = t.dup_to(v, v, &prev_refs);
+    EXPECT_EQ(socksdirect::kUnknown, prev.type);  // nothing to close
+    EXPECT_EQ(1, prev_refs);                      // refcount unchanged
+    EXPECT_EQ(1, t.refcount(v));
+}
+
+TEST(FdRemap, DupToWithUnboundDstStillCreatesMapping) {
+    FdRemapTable t;
+    int src = t.alloc(socksdirect::kSocket, 7);
+    int prev_refs = -1;
+    auto prev = t.dup_to(src, 100, &prev_refs);
+    EXPECT_EQ(socksdirect::kUnknown, prev.type);
+    EXPECT_EQ(-1, prev_refs);  // dst was unmapped
+    EXPECT_EQ(7, t.lookup(100).real_fd);
+    EXPECT_EQ(2, t.refcount(src));
+}
+
+TEST(FdRemap, ReverseLookupSurvivesDupAndPartialFree) {
+    FdRemapTable t;
+    int v1 = t.alloc(socksdirect::kSocket, 9);
+    int v2 = t.dup(v1);
+    EXPECT_EQ(v1, t.reverse_lookup(socksdirect::kSocket, 9));
+    // After freeing v1, the reverse map must still resolve to v2.
+    int rc = t.free(v1);
+    EXPECT_EQ(1, rc);
+    int back = t.reverse_lookup(socksdirect::kSocket, 9);
+    EXPECT_EQ(v2, back);
+    // Now drop the last ref.
+    rc = t.free(v2);
+    EXPECT_EQ(0, rc);
+    EXPECT_EQ(-1, t.reverse_lookup(socksdirect::kSocket, 9));
+}
+
+TEST(FdRemap, ConcurrentDupsAreSafe) {
+    FdRemapTable t;
+    int base = t.alloc(socksdirect::kSocket, 5);
+    constexpr int kThreads = 8;
+    constexpr int kPer = 200;
+    std::atomic<int> ready{0};
+    std::vector<std::vector<int>> per_thread(kThreads);
+    std::vector<std::thread> ts;
+    for (int n = 0; n < kThreads; ++n) {
+        ts.emplace_back([&, n]() {
+            ++ready;
+            while (ready.load() < kThreads) std::this_thread::yield();
+            for (int i = 0; i < kPer; ++i) {
+                int v = t.dup(base);
+                ASSERT_GE(v, 0);
+                per_thread[n].push_back(v);
+            }
+        });
+    }
+    for (auto& th : ts) th.join();
+    // Total refcount should be 1 + kThreads * kPer.
+    EXPECT_EQ(1 + kThreads * kPer, t.refcount(base));
+    // Free everything.
+    for (auto& v : per_thread)
+        for (int vfd : v) t.free(vfd);
+    EXPECT_EQ(0, t.free(base));
+}

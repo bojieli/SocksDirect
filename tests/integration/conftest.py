@@ -45,7 +45,11 @@ def _resolve_artifact(env_var: str, fallback_globs: list[str]) -> Path | None:
 def libsd_path() -> Path:
     p = _resolve_artifact(
         LIB_PATH_ENV,
-        ["build/libsd.so", "build*/libsd.so", "build*/libipc.so"],
+        # The libsd.so glob covers in-tree and out-of-tree CMake build
+        # dirs alike. The historical `libipc.so` name was retired in
+        # Phase 1 of the rewrite; if you hit a stale build with that
+        # name, rebuild from a clean tree.
+        ["build/libsd.so", "build*/libsd.so"],
     )
     if p is None:
         pytest.skip(

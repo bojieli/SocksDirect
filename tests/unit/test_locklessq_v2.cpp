@@ -30,17 +30,12 @@ struct alignas(16) Backing {
     uint8_t bytes[2 * kSlotBytes * LOCKLESSQ_SIZE + 64];
 };
 
-// KNOWN BUG in common/locklessq_v2.hpp: atomic_copy16's inline asm lacks a
-// "memory" clobber, so under -O3 the compiler does not realize the asm
-// writes to *dst. It can hoist subsequent reads of the destination above
-// the asm, returning stale data. This is a *production* correctness bug,
-// not a test-only artifact — anything that builds the queue with -O2/-O3
-// and reads-after-push from the same thread sees stale data.
-//
-// We work around it in this test with an explicit compiler memory barrier
-// after each push. The Phase 1 cleanup item is to fix the asm to add
-// `: "memory"` to the clobber list (and ideally rewrite using __atomic
-// builtins or std::atomic).
+// HISTORICAL: atomic_copy16 in common/locklessq_v2.hpp used to lack a
+// "memory" clobber on the inline asm, allowing GCC at -O2/-O3 to hoist
+// subsequent reads above the asm and return stale data. The Phase 1
+// fix added `: "memory"` to the clobber list. We keep the helper below
+// so the test file's intent stays grep-able; it's now functionally
+// redundant on the compiler but doesn't hurt.
 inline void compiler_memory_fence() {
     asm volatile("" ::: "memory");
 }

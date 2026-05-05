@@ -1,13 +1,12 @@
-# AddressSanitizer suppressions for known production bugs in the v0
-# prototype. Each entry below corresponds to an issue that the rewrite
-# is expected to fix; remove the suppression when the fix lands.
+# AddressSanitizer suppressions.
 #
 # Format: https://github.com/google/sanitizers/wiki/AddressSanitizerLeakSanitizer
-
-# --- common/locklessq_v3.hpp:init_ptr leaks block descriptors ------------
-# init_ptr() allocates two `locklessq_block_t` with `new` and never frees
-# them. There is no destructor on locklessqueue_t_v3 and the queue
-# headers are reused for the lifetime of the process in production, so
-# the leak does not grow unbounded — but it's still a leak.
-# Phase 1 fix: add a destructor (or move ownership to the caller).
-leak:locklessqueue_t_v3
+#
+# This file is intentionally near-empty. Suppressions for known
+# production bugs in the v0 prototype have been retired:
+#
+#   * locklessqueue_t_v3 init_ptr leak — fixed by adding a destructor
+#     in common/locklessq_v3.hpp.
+#
+# Add a new suppression here only with a comment explaining why and
+# linking the issue tracker entry.

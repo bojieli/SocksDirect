@@ -1,0 +1,27 @@
+# Vagrantfile — bring up two VMs from the packer-built tier1 image,
+# wired together on a private virtio network so they can talk over
+# SoftRoCE. After `vagrant up`, the harness reads inventory.yml on
+# each box and `./reproduce/repro check` resolves Tier 1.
+#
+# Override the image with VAGRANT_IMG=/path/to/socksdirect-tier1.qcow2.
+
+Vagrant.configure("2") do |config|
+  config.vm.box = ENV["VAGRANT_BOX"] || "ubuntu/jammy64"
+
+  config.vm.define "alpha" do |alpha|
+    alpha.vm.hostname = "alpha"
+    alpha.vm.network "private_network", ip: "10.0.0.1"
+  end
+
+  config.vm.define "beta" do |beta|
+    beta.vm.hostname = "beta"
+    beta.vm.network "private_network", ip: "10.0.0.2"
+  end
+
+  config.vm.provider "libvirt" do |lv|
+    lv.memory = 2048
+    lv.cpus   = 2
+  end
+
+  config.vm.synced_folder ".", "/vagrant"
+end

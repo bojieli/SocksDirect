@@ -104,10 +104,25 @@ if(SOCKSDIRECT_WITH_RDMA AND SOCKSDIRECT_WITH_HERD)
 endif()
 
 # ---------------------------------------------------------------------------
-# Monitor daemon
+# Monitor daemon (production, post-rewrite)
 # ---------------------------------------------------------------------------
+# The new daemon under src/monitor/ uses the new Logger / Metrics /
+# MonitorIpc / Config and is built unconditionally. It implements the
+# control plane that socksdirect-ctl(1) talks to and the daemon
+# lifecycle bits (signalfd, sd_notify, pid file). The data-plane
+# wiring lands in Phase 3.
+add_executable(socksdirect-monitor src/monitor/main.cpp)
+target_include_directories(socksdirect-monitor PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(socksdirect-monitor PRIVATE Threads::Threads)
+install(TARGETS socksdirect-monitor RUNTIME DESTINATION sbin)
+
+# Legacy data-plane monitor (RDMA bootstrap) preserved for the libsd
+# build path during the migration. Renamed to avoid colliding with the
+# new daemon.
 if(SOCKSDIRECT_WITH_RDMA)
-    add_executable(socksdirect-monitor
+    add_executable(socksdirect-monitor-legacy
         common/helper.c
         common/interprocess_t.cpp
         common/rdma.cpp
@@ -116,9 +131,15 @@ if(SOCKSDIRECT_WITH_RDMA)
         monitor/sock_monitor.cpp
         monitor/main.cpp
         monitor/rdma_monitor.cpp)
-    target_link_libraries(socksdirect-monitor PRIVATE Threads::Threads ${IBVERBS_LIBRARY})
-    target_include_directories(socksdirect-monitor PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    target_link_libraries(socksdirect-monitor-legacy PRIVATE Threads::Threads ${IBVERBS_LIBRARY})
+    target_include_directories(socksdirect-monitor-legacy PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
 endif()
+
+# ---------------------------------------------------------------------------
+# Apps — small demo / reproduction binaries (built unconditionally;
+# they're plain BSD socket programs and need no RDMA).
+# ---------------------------------------------------------------------------
+add_subdirectory(apps/rpclib-demo)
 
 # ---------------------------------------------------------------------------
 # socksdirect-ctl — control-plane CLI talking to the monitor daemon.

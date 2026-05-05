@@ -1,0 +1,20 @@
+#cloud-config
+# Subiquity autoinstall config for the packer-built images.
+# Single-user "ubuntu" with password "ubuntu"; SSH enabled; minimal install.
+
+autoinstall:
+  version: 1
+  identity:
+    hostname: socksdirect
+    username: ubuntu
+    password: "$6$rounds=4096$0123456789ABCDEF$Sj0n9xXjJM7lAvTZjT5fCM5Tvxw/uW2/lpeXm0u4F3DGZxUZjkQqdtvEs0eU7Ud0DxV.wIQHmCJOGlVl7L5Yj0"
+  ssh:
+    install-server: true
+    allow-pw: true
+  packages:
+    - openssh-server
+  storage:
+    layout:
+      name: direct
+  late-commands:
+    - echo 'ubuntu ALL=(ALL) NOPASSWD:ALL' > /target/etc/sudoers.d/ubuntu

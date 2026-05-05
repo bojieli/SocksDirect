@@ -64,14 +64,15 @@ maps to the paper. The summary report aggregates them.
 | `queue-microbench`           | 1              | ~30 s               | landed |
 | `control-plane-overhead`     | 1              | ~30 s               | landed |
 | `loopback-baseline`          | 1              | ~1 min              | landed |
-| `msgsize-intra`              | 2              | ~3 min              | TODO Phase 6 |
-| `msgsize-inter`              | 3              | ~4 min              | TODO Phase 6 |
-| `corenum-intra` / `corenum-inter` | 2 / 3       | ~5 min each         | TODO Phase 6 |
-| `sharecore-lat`              | 2              | ~2 min              | TODO Phase 6 |
-| `fork-tput`                  | 2              | ~3 min              | TODO Phase 6 |
-| `tab1-latency-breakdown`     | 2              | ~10 min             | TODO Phase 6 |
-| `nginx`                      | 3              | ~10 min             | TODO Phase 6 |
-| `nfv`                        | 2              | ~5 min              | TODO Phase 6 |
+| `msgsize-intra`              | 2              | ~3 min              | landed (driver script; needs libsd build) |
+| `msgsize-inter`              | 3              | ~4 min              | landed (driver script; needs libsd + 2 hosts) |
+| `corenum-intra`              | 2              | ~5 min              | landed |
+| `corenum-inter`              | 3              | ~5 min              | scaffold (driver TODO) |
+| `sharecore-lat`              | 2              | ~2 min              | landed (proxy: queue-only) |
+| `fork-tput`                  | 2              | ~3 min              | landed |
+| `tab1-latency-breakdown`     | 2              | ~10 min             | landed (partial; queue segment only) |
+| `nginx`                      | 2              | ~10 min             | landed |
+| `nfv`                        | 2              | ~5 min              | landed |
 
 The two CI-runnable figures are useful as harness smoke checks. The
 remaining figures land per Phase 6 of the rewrite plan; `./repro list`

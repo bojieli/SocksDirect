@@ -195,32 +195,189 @@ static long sd_ioctl_free_phys(struct sd_filp_state *st, unsigned long arg)
     return found ? 0 : -EINVAL;
 }
 
-/* virt2phys / map_phys live in arch-specific land. The skeleton here
- * accepts the arguments and returns -ENOSYS so the userspace library
- * sees the operation is not yet wired and falls back to copy mode. The
- * userspace ABI (struct layouts, ioctl numbers) is locked-in regardless. */
+/* Look up the cookie at a user virtual address by walking the caller's
+ * mm. We resolve the VMA, find the struct page backing it, and report
+ * the PFN as a 64-bit cookie. The userspace ABI doesn't require the
+ * cookie to be a PFN — but a PFN is the cheapest stable identifier. */
+static long sd_resolve_virt(unsigned long virt, u64 *cookie_out)
+{
+    struct mm_struct *mm = current->mm;
+    struct vm_area_struct *vma;
+    struct page *page = NULL;
+    int got;
+
+    if (virt & (PAGE_SIZE - 1)) return -EINVAL;
+    if (!mm) return -ESRCH;
+
+    mmap_read_lock(mm);
+    vma = find_vma(mm, virt);
+    if (!vma || virt < vma->vm_start) {
+        mmap_read_unlock(mm);
+        return -EFAULT;
+    }
+    /* Pin and walk one page. */
+    got = get_user_pages_remote(mm, virt, 1, FOLL_GET, &page, NULL, NULL);
+    mmap_read_unlock(mm);
+    if (got != 1 || !page) return -EFAULT;
+    *cookie_out = (u64)page_to_pfn(page);
+    put_page(page);
+    return 0;
+}
+
 static long sd_ioctl_virt2phys(unsigned long arg)
 {
-    (void)arg;
-    return -ENOSYS;
+    struct sd_virt2phys req;
+    long rc;
+    if (copy_from_user(&req, (void __user *)arg, sizeof(req))) return -EFAULT;
+    rc = sd_resolve_virt((unsigned long)req.virt, &req.cookie);
+    if (rc) return rc;
+    if (copy_to_user((void __user *)arg, &req, sizeof(req))) return -EFAULT;
+    return 0;
 }
 
 static long sd_ioctl_virt2phys_vec(unsigned long arg)
 {
-    (void)arg;
-    return -ENOSYS;
+    struct sd_virt2phys_vec req;
+    u64 *cookies;
+    unsigned long virt;
+    long rc = 0;
+    u32 i;
+
+    if (copy_from_user(&req, (void __user *)arg, sizeof(req))) return -EFAULT;
+    if (req.npages == 0 || req.npages > (1u << SOCKSDIRECT_MAX_ORDER))
+        return -EINVAL;
+    cookies = kmalloc_array(req.npages, sizeof(u64), GFP_KERNEL);
+    if (!cookies) return -ENOMEM;
+    virt = (unsigned long)req.virt;
+    for (i = 0; i < req.npages; ++i) {
+        rc = sd_resolve_virt(virt + (unsigned long)i * PAGE_SIZE, &cookies[i]);
+        if (rc) goto out;
+    }
+    if (copy_to_user((void __user *)(unsigned long)req.cookies,
+                     cookies, sizeof(u64) * req.npages))
+        rc = -EFAULT;
+out:
+    kfree(cookies);
+    return rc;
 }
 
-static long sd_ioctl_map_phys(unsigned long arg)
+/* Find the allocation node holding `cookie` (the alloc-time cookie,
+ * NOT the PFN cookie) on the open fd. */
+static struct sd_alloc_node *sd_find_alloc_locked(struct sd_filp_state *st,
+                                                  u64 cookie)
 {
-    (void)arg;
-    return -ENOSYS;
+    struct sd_alloc_node *n;
+    list_for_each_entry(n, &st->allocations, link) {
+        if (n->cookie == cookie)
+            return n;
+    }
+    return NULL;
 }
 
-static long sd_ioctl_map_phys_vec(unsigned long arg)
+/* Replace the page at user-vaddr `virt` with the first page of the
+ * allocation identified by `cookie`. We use vm_insert_page() which is
+ * the supported way for an LKM to install a kernel-allocated page into
+ * a user VMA without touching arch-specific page-table code directly. */
+static long sd_map_one(struct sd_filp_state *st, unsigned long virt, u64 cookie,
+                       u64 *old_cookie_out)
 {
-    (void)arg;
-    return -ENOSYS;
+    struct mm_struct *mm = current->mm;
+    struct vm_area_struct *vma;
+    struct sd_alloc_node *node;
+    struct page *page = NULL;
+    long rc;
+
+    if (virt & (PAGE_SIZE - 1)) return -EINVAL;
+    if (!mm) return -ESRCH;
+
+    mutex_lock(&st->lock);
+    node = sd_find_alloc_locked(st, cookie);
+    mutex_unlock(&st->lock);
+    if (!node) return -EINVAL;
+
+    mmap_write_lock(mm);
+    vma = find_vma(mm, virt);
+    if (!vma || virt < vma->vm_start) {
+        mmap_write_unlock(mm);
+        return -EFAULT;
+    }
+    /* Capture the previous PFN if the caller asked for it. */
+    if (old_cookie_out) {
+        rc = get_user_pages_remote(mm, virt, 1, FOLL_GET, &page, NULL, NULL);
+        if (rc == 1 && page) {
+            *old_cookie_out = (u64)page_to_pfn(page);
+            put_page(page);
+        } else {
+            *old_cookie_out = 0;
+        }
+    }
+    /* vm_insert_page requires VM_MIXEDMAP on the VMA. The userspace
+     * library is expected to allocate the target VMA via
+     * mmap(/dev/socksdirect, ...) which sets VM_MIXEDMAP from
+     * sd_mmap() below. If the caller used a plain anonymous mapping,
+     * vm_insert_page returns -EINVAL and the caller falls back to
+     * copy mode. */
+    rc = vm_insert_page(vma, virt, node->pages);
+    mmap_write_unlock(mm);
+    return rc;
+}
+
+static long sd_ioctl_map_phys(struct sd_filp_state *st, unsigned long arg)
+{
+    struct sd_map_phys req;
+    long rc;
+    if (copy_from_user(&req, (void __user *)arg, sizeof(req))) return -EFAULT;
+    rc = sd_map_one(st, (unsigned long)req.virt, req.cookie, &req.old_cookie);
+    if (rc) return rc;
+    if (copy_to_user((void __user *)arg, &req, sizeof(req))) return -EFAULT;
+    return 0;
+}
+
+static long sd_ioctl_map_phys_vec(struct sd_filp_state *st, unsigned long arg)
+{
+    struct sd_map_phys_vec req;
+    u64 *cookies = NULL;
+    u64 *olds    = NULL;
+    long rc = 0;
+    u32 i;
+
+    if (copy_from_user(&req, (void __user *)arg, sizeof(req))) return -EFAULT;
+    if (req.npages == 0 || req.npages > (1u << SOCKSDIRECT_MAX_ORDER))
+        return -EINVAL;
+    cookies = kmalloc_array(req.npages, sizeof(u64), GFP_KERNEL);
+    olds    = kmalloc_array(req.npages, sizeof(u64), GFP_KERNEL);
+    if (!cookies || !olds) { rc = -ENOMEM; goto out; }
+    if (copy_from_user(cookies, (void __user *)(unsigned long)req.cookies,
+                       sizeof(u64) * req.npages)) { rc = -EFAULT; goto out; }
+    for (i = 0; i < req.npages; ++i) {
+        rc = sd_map_one(st, (unsigned long)req.virt + (unsigned long)i * PAGE_SIZE,
+                        cookies[i], &olds[i]);
+        if (rc) goto out;
+    }
+    if (copy_to_user((void __user *)(unsigned long)req.old_cookies,
+                     olds, sizeof(u64) * req.npages))
+        rc = -EFAULT;
+out:
+    kfree(cookies);
+    kfree(olds);
+    return rc;
+}
+
+/* mmap on /dev/socksdirect — sets up a VMA that map_phys can later
+ * install pages into. The mmap call itself doesn't have a cookie; it
+ * just allocates address space and marks the VMA VM_MIXEDMAP so
+ * vm_insert_page() works. The userspace library then follows up with
+ * SD_IOC_MAP_PHYS to point each page at a specific allocation. */
+static int sd_mmap(struct file *filp, struct vm_area_struct *vma)
+{
+    (void)filp;
+    if ((vma->vm_end - vma->vm_start) > (1UL << (SOCKSDIRECT_MAX_ORDER + PAGE_SHIFT)))
+        return -EINVAL;
+    /* VM_MIXEDMAP lets vm_insert_page work; VM_DONTEXPAND prevents
+     * mremap from breaking our invariants; VM_DONTDUMP keeps the
+     * region out of core dumps (it's IPC scratch). */
+    vma->vm_flags |= VM_MIXEDMAP | VM_DONTEXPAND | VM_DONTDUMP;
+    return 0;
 }
 
 static long sd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -233,8 +390,8 @@ static long sd_unlocked_ioctl(struct file *filp, unsigned int cmd, unsigned long
     case SD_IOC_FREE_PHYS:      return sd_ioctl_free_phys(st, arg);
     case SD_IOC_VIRT2PHYS:      return sd_ioctl_virt2phys(arg);
     case SD_IOC_VIRT2PHYS_VEC:  return sd_ioctl_virt2phys_vec(arg);
-    case SD_IOC_MAP_PHYS:       return sd_ioctl_map_phys(arg);
-    case SD_IOC_MAP_PHYS_VEC:   return sd_ioctl_map_phys_vec(arg);
+    case SD_IOC_MAP_PHYS:       return sd_ioctl_map_phys(st, arg);
+    case SD_IOC_MAP_PHYS_VEC:   return sd_ioctl_map_phys_vec(st, arg);
     default:                    return -ENOTTY;
     }
 }
@@ -245,6 +402,7 @@ static const struct file_operations sd_fops = {
     .release        = sd_release,
     .unlocked_ioctl = sd_unlocked_ioctl,
     .compat_ioctl   = sd_unlocked_ioctl,
+    .mmap           = sd_mmap,
 };
 
 static int __init sd_init(void)

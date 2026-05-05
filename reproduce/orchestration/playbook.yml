@@ -1,0 +1,99 @@
+---
+# playbook.yml — minimal Ansible playbook for the two-host reproduction
+# tier. Drives `./repro <figure>` against a fleet of hosts described in
+# `inventory.yml` (Ansible's, derived from reproduce/inventory.yml at
+# runtime by the wrapper script).
+#
+# What this does:
+#   1. Verifies build deps on each host.
+#   2. Pulls the SocksDirect repo to `remote_repo_path`.
+#   3. Builds libsd.
+#   4. Generates a per-host inventory.yml so each host can resolve its
+#      peer.
+#   5. Runs the requested figure on the driver host (peer-side processes
+#      are launched inline by the figure's run.sh).
+#
+# Usage:
+#   ansible-playbook -i inventory.ini playbook.yml \
+#       -e figure=msgsize-inter -e socksdirect_branch=master
+#
+# inventory.ini is derived from reproduce/inventory.yml by
+# `tools/inv-to-ansible.py` (zero deps). Run that first:
+#   python3 tools/inv-to-ansible.py reproduce/inventory.yml \
+#       > reproduce/orchestration/inventory.ini
+
+- name: SocksDirect — provision + run
+  hosts: all
+  gather_facts: yes
+  vars:
+    socksdirect_branch: master
+    figure: msgsize-inter
+  tasks:
+
+    - name: install build deps
+      become: true
+      ansible.builtin.apt:
+        name:
+          - cmake
+          - build-essential
+          - python3
+          - python3-pytest
+          - libgtest-dev
+          - libibverbs-dev
+          - rdma-core
+          - libnuma-dev
+          - libmemcached-dev
+        state: present
+        update_cache: yes
+      when: ansible_os_family == 'Debian'
+
+    - name: clone repo
+      ansible.builtin.git:
+        repo: "{{ socksdirect_repo | default('https://github.com/bojieli/SocksDirect.git') }}"
+        dest: "{{ remote_repo_path }}"
+        version: "{{ socksdirect_branch }}"
+        force: yes
+
+    - name: configure
+      ansible.builtin.command:
+        chdir: "{{ remote_repo_path }}"
+        cmd: cmake -S . -B build -DSOCKSDIRECT_WITH_RDMA=ON
+      changed_when: false
+
+    - name: build
+      ansible.builtin.command:
+        chdir: "{{ remote_repo_path }}"
+        cmd: cmake --build build -j
+      changed_when: false
+
+- name: Run figure on driver host
+  hosts: driver
+  vars:
+    figure: msgsize-inter
+  tasks:
+    - name: render local inventory
+      ansible.builtin.copy:
+        dest: "{{ remote_repo_path }}/reproduce/inventory.yml"
+        content: |
+          hosts:
+          {% for h in groups['all'] %}
+            {{ h }}:
+              ssh: {{ hostvars[h].ansible_host | default(h) }}
+              cores: {{ hostvars[h].cores | default([0,1,2,3,4,5,6,7]) }}
+              nic: {{ hostvars[h].nic | default('mlx5_0') }}
+              rdma_ip: {{ hostvars[h].rdma_ip }}
+          {% endfor %}
+          remote_repo_path: {{ remote_repo_path }}
+          transport: rdma
+          tier: 3
+          results_dir: ./results
+
+    - name: run figure
+      ansible.builtin.command:
+        chdir: "{{ remote_repo_path }}"
+        cmd: "./reproduce/repro {{ figure }}"
+      register: repro
+      changed_when: false
+
+    - debug:
+        var: repro.stdout_lines

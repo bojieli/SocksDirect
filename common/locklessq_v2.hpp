@@ -83,18 +83,23 @@ private:
     bool credit_disabled;
     inline void atomic_copy16(element_t *dst, const element_t *src)
     {
+        // The "memory" clobber is load-bearing: without it, GCC at -O2/-O3
+        // can hoist a subsequent read of *dst above this asm because it
+        // doesn't see the asm as writing through the dst pointer. That
+        // produced stale-data reads in the prototype; see the historical
+        // workaround in tests/unit/test_locklessq_v2.cpp. Phase 1 fix.
         asm volatile ( "movdqa (%0),%%xmm0\n"
                        "movaps %%xmm0,(%1)\n"
         : /* no output registers */
         : "r" (src), "r" (dst)
-        : "xmm0" );
+        : "xmm0", "memory" );
     }
 
     inline void atomic_copy8(element_t *dst, const element_t *src)
     {
         asm volatile (
-                "mov (%0), %rax\n"
-                "mov %rax, (%1)\n"
+                "mov (%0), %%rax\n"
+                "mov %%rax, (%1)\n"
                 :
                 : "r"(src), "r"(dst)
                 : "rax");

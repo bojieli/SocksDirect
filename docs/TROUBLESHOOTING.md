@@ -104,16 +104,18 @@ when you know nothing else relies on them.)
 
 ### `test_locklessq_v2` fails under `-O3` only
 
-This is the production bug documented in `tests/unit/test_locklessq_v2.cpp`:
-`atomic_copy16` lacks a memory clobber, so the compiler can hoist
-reads across the SSE asm. The test works around it with an explicit
-fence; the production code itself needs fixing in Phase 1.
+Historical bug in `common/locklessq_v2.hpp`: `atomic_copy16` lacked a
+`"memory"` clobber on its inline asm, so GCC at -O2/-O3 could hoist
+reads across the SSE asm. **Fixed in Phase 1**; the test's
+`compiler_memory_fence()` helper is now functionally redundant but
+kept for grep-ability.
 
 ### `test_locklessq_v3` reports leaks under ASan
 
-Suppressed via `tests/asan.supp` for now. `locklessq_v3::init_ptr`
-allocates two block descriptors with `new` and never deletes them —
-a known leak with no destructor. Phase 1 fix.
+Was a known leak: `locklessq_v3::init_ptr` allocated two block
+descriptors with `new` and the class had no destructor. **Fixed in
+Phase 1** by adding a destructor that frees the block pair.
+`tests/asan.supp` no longer suppresses it.
 
 ### TSan crashes with "unexpected memory mapping"
 

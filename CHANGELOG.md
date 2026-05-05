@@ -7,6 +7,72 @@ follows semantic versioning once it reaches v1.0.
 ## [Unreleased]
 
 ### Added
+- **Production monitor daemon** at `src/monitor/main.cpp` — single
+  threaded poll() event loop using the new Logger / Metrics /
+  MonitorIpc / Config; ops `status`, `connections`, `dump-state`,
+  `dump-config`, `metrics`, `reload`, `drain`, `ping`, `help`;
+  signalfd-based SIGTERM/SIGHUP; sd_notify(READY=1) when systemd
+  Type=notify is in use; PID file lifecycle; graceful socket cleanup
+  on exit. End-to-end pytest suite (`integration-monitor-daemon`)
+  exercises every op against the real binary.
+- **FdRemapTable refcounting**: `dup()` / `dup_to()` (dup2 semantics)
+  / `refcount()` / refcount-aware `free()` returning the post-decrement
+  count. Phase 3 prerequisite for socket-fd dup/dup2/dup3 in libsd.
+- **`tools/render_api_doc.py`**: regenerates `docs/API.md` from
+  `tests/conformance/coverage.toml`. CI gate
+  (`integration-api-doc-drift`) fails on divergence.
+- **`tools/scan_error_handling.py`**: enumerates every `FATAL/assert/
+  abort` site in the legacy tree and emits
+  `docs/error-handling-audit.md`. CI gate
+  (`integration-error-handling-audit`) fails on drift.
+- **Phase 5 LKM page mapping**: `SD_IOC_VIRT2PHYS{,_VEC}` and
+  `SD_IOC_MAP_PHYS{,_VEC}` are now functional via
+  `get_user_pages_remote` + `vm_insert_page`. The kernel module
+  exposes `mmap()` on `/dev/socksdirect` to install a `VM_MIXEDMAP`
+  VMA the userspace library can later substitute pages into.
+- **All Phase 6 figures** present in `reproduce/figures/`:
+  `msgsize-{intra,inter}`, `corenum-{intra,inter}`, `sharecore-lat`,
+  `fork-tput`, `tab1-latency-breakdown`, `nginx`, `nfv` plus the
+  shared helper at `reproduce/figures/_lib.sh` and gnuplot templates
+  under `reproduce/plot-templates/`. Each figure gracefully skips
+  with a sentinel `SKIPPED.txt` when its prerequisites aren't met.
+- **`apps/`** demo programs with `LD_PRELOAD`-friendly entry points:
+  `nfv-pipeline/` (5 tiny Python NFs piped together), `nginx-demo/`,
+  `redis-demo/`, `rpclib-demo/` (C client+server, ~87 K msg/s on
+  loopback in this VM).
+- **Two-host orchestration** via Ansible:
+  `reproduce/orchestration/playbook.yml` plus
+  `tools/inv-to-ansible.py` to render the harness inventory as an
+  Ansible inventory.
+- **Packer manifests** for the Tier-1 / Tier-2 VM images at
+  `reproduce/vm-images/{tier1,tier2}.pkr.hcl`, with cloud-init
+  autoinstall config under `http/` and a Vagrantfile.
+- **RPM spec** (`packaging/rpm/socksdirect.spec`) plus full Debian
+  maintainer scripts: `postinst` creates the `socksdirect` user/
+  group and enables the systemd unit; `prerm`/`postrm` handle the
+  uninstall path.
+- **Hardened systemd unit**: `Type=notify`, `NotifyAccess=main`,
+  `SystemCallFilter=@system-service`, `~@privileged @mount @raw-io ...`.
+- **Packaging-lint integration test** validates that every
+  `debian/*.install` references a real path and that the spec/unit/
+  packer/playbook files parse.
+
+### Changed
+- `common/locklessq_v2.hpp`: `atomic_copy16` and `atomic_copy8` now
+  carry the `"memory"` clobber on their inline asm (Phase 1 fix for
+  the stale-read bug under -O2/-O3).
+- `common/locklessq_v3.hpp`: added a destructor that frees the two
+  block descriptors `init_ptr` allocates, fixing the leak previously
+  suppressed via `tests/asan.supp`. Also added the `"memory"` clobber
+  to the matching `atomic_copy16` here.
+- Deleted: `__deprecated_attachqueue_*` files in `common/`, `lib/`,
+  and `monitor/`. Naming gate enforces they stay deleted.
+- Naming gate widened to include `apps/` and to require the
+  `__deprecated_*` files stay deleted.
+- `tests/asan.supp` now near-empty (the locklessq_v3 leak was the
+  only remaining suppression).
+
+### Added — also
 - **Conformance suite** at `tests/conformance/`:
   - `coverage.toml` is the single source of truth for libc-function
     support levels (accelerated / passthrough / partial / unsupported).

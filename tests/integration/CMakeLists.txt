@@ -52,6 +52,18 @@ if(TARGET socksdirect-ctl)
             "SOCKSDIRECT_CTL=${_ctl_path};PYTHONDONTWRITEBYTECODE=1")
 endif()
 
+# --- monitor daemon end-to-end suite ----------------------------------------
+if(TARGET socksdirect-monitor AND TARGET socksdirect-ctl)
+    add_test(
+        NAME integration-monitor-daemon
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_monitor_daemon.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-monitor-daemon PROPERTIES
+        TIMEOUT 120
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+endif()
+
 # --- repro CLI suite (pure-python, runs everywhere) -------------------------
 add_test(
     NAME integration-repro
@@ -79,6 +91,36 @@ add_test(
             ${CMAKE_CURRENT_SOURCE_DIR}/test_kernel_abi_check.py
             -v --tb=short --color=yes)
 set_tests_properties(integration-kernel-abi PROPERTIES
+    TIMEOUT 30
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# --- packaging metadata lint -------------------------------------------------
+add_test(
+    NAME integration-packaging-lint
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_packaging_lint.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-packaging-lint PROPERTIES
+    TIMEOUT 30
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# --- error-handling-audit drift gate -----------------------------------------
+add_test(
+    NAME integration-error-handling-audit
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_error_handling_audit.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-error-handling-audit PROPERTIES
+    TIMEOUT 30
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# --- API.md drift gate -------------------------------------------------------
+add_test(
+    NAME integration-api-doc-drift
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_api_doc_drift.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-api-doc-drift PROPERTIES
     TIMEOUT 30
     ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 

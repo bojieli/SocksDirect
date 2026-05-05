@@ -69,17 +69,30 @@ jobs:
         run: |
           # Strings that should not appear in NEW code. The legacy
           # research-prototype trees (common/, lib/, monitor/, data/,
-          # pot/, demo/, test/, zerocopy/, rdma/) are exempt — Phase 1
-          # of the rewrite plan tackles them in a tracked migration.
-          # The gate enforces that anything *under the post-rewrite
-          # layout* (src/, include/, tests/, tools/, bench/, reproduce/,
-          # packaging/, docs/, .github/, CMakeLists.txt) is clean.
+          # pot/, demo/, test/, zerocopy/, rdma/) carry historical
+          # references — Phase 1+ of the rewrite plan migrates them
+          # piecewise. The gate enforces that anything in the post-
+          # rewrite tree (src/, include/, tests/, tools/, bench/,
+          # reproduce/, packaging/, docs/, apps/, .github/) is clean.
+          # `apps/` is included because it's user-facing demo code.
           BAD='libipc\.so|IPC-Direct|/sampa/home/cuity|/home/boj/libsd|netsys34|10\.1\.2\.[0-9]+|10\.2\.5\.[0-9]+'
+          # Files exempt because they reference the strings *intentionally*
+          # (CHANGELOG documents history; conftest.py keeps a fallback for
+          # build trees produced before the rename; this CI file *is* the
+          # gate). Add new exceptions sparingly.
+          EXCEPT=':!CHANGELOG.md :!.github/workflows/ci.yml'
           if git grep -nE "$BAD" -- \
                 src/ include/ tests/ tools/ bench/ reproduce/ \
-                packaging/ docs/ .github/ CMakeLists.txt CHANGELOG.md \
-                CONTRIBUTING.md README.md; then
+                packaging/ docs/ apps/ .github/ \
+                CMakeLists.txt CONTRIBUTING.md README.md \
+                $EXCEPT; then
             echo "::error::Obsolete identifiers detected in post-rewrite tree — see matches above"
+            exit 1
+          fi
+          # And the deprecated stub files MUST stay deleted.
+          if find lib monitor common -name '__deprecated_*' 2>/dev/null | grep -q .; then
+            echo "::error::__deprecated_* files reappeared; Phase 1 deleted them"
+            find lib monitor common -name '__deprecated_*'
             exit 1
           fi
 

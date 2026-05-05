@@ -1,3 +1,4 @@
-build/libsd.so                  usr/lib/
-build/libsdcommon.so            usr/lib/
-include/socksdirect/*.hpp       usr/include/socksdirect/
+debian/tmp/usr/lib/libsd.so              usr/lib/
+debian/tmp/usr/lib/libsdcommon.so        usr/lib/
+include/socksdirect/*.hpp                usr/include/socksdirect/
+include/socksdirect/*.h                  usr/include/socksdirect/

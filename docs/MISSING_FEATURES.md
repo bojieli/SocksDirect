@@ -129,15 +129,16 @@ For each gap we list:
   one real fd.
 - **Tracker**: REWRITE_PLAN.md Phase 3 §6.
 
-### Page-table-rewrite for zero-copy ioctls
+### ~~Page-table-rewrite for zero-copy ioctls~~ — resolved
 
-- **Symptom**: `src/kernel/socksdirect_dev.c` — `SD_IOC_VIRT2PHYS{,_VEC}`
-  and `SD_IOC_MAP_PHYS{,_VEC}` return `-ENOSYS`.
-- **Paper**: §4.5 page-remap zero copy.
-- **Disposition**: REWRITE. Needs arch-specific page-walker code;
-  the wire ABI is locked-in so userspace already compiles against
-  it.
-- **Tracker**: REWRITE_PLAN.md Phase 5 §6.
+- **Was**: `src/kernel/socksdirect_dev.c` — `SD_IOC_VIRT2PHYS{,_VEC}`
+  and `SD_IOC_MAP_PHYS{,_VEC}` returned `-ENOSYS`.
+- **Now**: implemented via `get_user_pages_remote` for the
+  virt-to-PFN lookup, and `vm_insert_page` for the page-table
+  substitution. The target VMA must be allocated via
+  `mmap(/dev/socksdirect, ...)` so it carries `VM_MIXEDMAP`; the
+  userspace `ZeroCopyClient::open()` does this implicitly.
+- **Tracker**: closed; landing-and-soak in Phase 5 §6.
 
 ## Items we believe are absent for good reasons (not gaps)
 

@@ -47,11 +47,14 @@ private:
     bool is_receiver;
 private:
     inline void atomic_copy16(element_t *dst, element_t *src) {
+        // The "memory" clobber prevents GCC from hoisting subsequent
+        // reads of *dst above the asm. See the matching note in
+        // common/locklessq_v2.hpp; same bug, same fix. Phase 1.
         asm volatile ( "movdqa (%0),%%xmm0\n"
                        "movaps %%xmm0,(%1)\n"
         : /* no output registers */
         : "r" (src), "r" (dst)
-        : "xmm0" );
+        : "xmm0", "memory" );
     }
 
 public:
@@ -62,9 +65,34 @@ public:
     };
     uint32_t MASK;
 
-    locklessqueue_t_v3() : pointer(0), MASK(SIZE - 1), startptr(nullptr), prevptr(nullptr) {
+    locklessqueue_t_v3() {
+        startptr = nullptr;
+        prevptr  = nullptr;
+        pointer  = 0;
+        MASK     = SIZE - 1;
         assert((sizeof(element_t) == 16));
     }
+
+    // Destroy the two block descriptors allocated in init_ptr(). The
+    // descriptors are *per-process* (they hold pointers + flags); the
+    // ring buffer memory itself is owned by whoever allocated it
+    // (typically SHM created by the monitor) and is NOT freed here.
+    // Phase 1 fix: the prototype leaked these on every init_ptr().
+    ~locklessqueue_t_v3() {
+        if (startptr != nullptr && prevptr != nullptr && startptr != prevptr) {
+            // The two blocks form a 2-node ring (startptr->next == prevptr,
+            // prevptr->next == startptr). Free both, breaking the cycle.
+            startptr->next = nullptr;
+            prevptr->next  = nullptr;
+            delete startptr;
+            delete prevptr;
+            startptr = nullptr;
+            prevptr  = nullptr;
+        }
+    }
+
+    locklessqueue_t_v3(const locklessqueue_t_v3&) = delete;
+    locklessqueue_t_v3& operator=(const locklessqueue_t_v3&) = delete;
 
     static inline bool check_next_avail(locklessq_block_t *ptr) {
         SW_BARRIER;

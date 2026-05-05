@@ -6,10 +6,12 @@ Wants=network-online.target
 
 [Service]
 Type=notify
-ExecStart=/usr/bin/socksdirect-monitor
+ExecStart=/usr/sbin/socksdirect-monitor
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=2
+TimeoutStopSec=10
+NotifyAccess=main
 
 # RDMA queues need locked memory.
 LimitMEMLOCK=infinity
@@ -37,6 +39,13 @@ ReadWritePaths=/run/socksdirect /var/log/socksdirect /var/lib/socksdirect
 # CAP_IPC_LOCK is needed for ibv_reg_mr.
 CapabilityBoundingSet=CAP_IPC_LOCK CAP_NET_RAW CAP_NET_ADMIN
 AmbientCapabilities=CAP_IPC_LOCK
+
+# seccomp filter — minimal allowlist for the new daemon (poll loop +
+# unix socket I/O + signalfd + timer reads). Verified by booting with
+# strace -c and capturing the actual call set.
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @mount @raw-io @reboot @swap @cpu-emulation @debug @keyring @module
+SystemCallErrorNumber=EPERM
 
 [Install]
 WantedBy=multi-user.target

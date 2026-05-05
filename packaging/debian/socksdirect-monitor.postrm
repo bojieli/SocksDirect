@@ -1,0 +1,15 @@
+#!/bin/sh
+set -e
+case "$1" in
+    purge)
+        deluser --quiet --system socksdirect 2>/dev/null || true
+        delgroup --quiet --system socksdirect 2>/dev/null || true
+        rm -rf /var/log/socksdirect /run/socksdirect /var/lib/socksdirect
+        ;;
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload || true
+        fi
+        ;;
+esac
+exit 0

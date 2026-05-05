@@ -1,0 +1,10 @@
+#!/bin/sh
+set -e
+case "$1" in
+    remove|deconfigure|upgrade)
+        if [ -d /run/systemd/system ]; then
+            systemctl stop socksdirect-monitor.service || true
+        fi
+        ;;
+esac
+exit 0

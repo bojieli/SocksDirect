@@ -15,71 +15,60 @@ membership in the ACCELERATED column. The unit + integration matrix
 under `tests/unit/` and `tests/integration/` is in place today; the LTP
 runner is the next addition (see `REWRITE_PLAN.md` Phase 4).
 
-## Sockets
+## Function-by-function compatibility
+
+<!-- AUTO-TABLE-BEGIN -->
+
+_The table below is generated from [tests/conformance/coverage.toml](../tests/conformance/coverage.toml). Edit that file (and the matching case under `tests/conformance/cases/`) instead of editing this section by hand. CI fails on drift._
+
+### Sockets
 
 | Function | Status | Notes |
 |---|---|---|
-| `socket(AF_INET, SOCK_STREAM, ...)`  | ACCELERATED | Other family/type combos pass through |
-| `socket(AF_INET6, ...)`              | PASSTHROUGH | IPv6 not yet on the fast path |
-| `socket(AF_UNIX, ...)`               | PASSTHROUGH | |
-| `bind` / `listen` / `accept` / `accept4` | ACCELERATED | |
-| `connect`                            | ACCELERATED | Local destinations short-circuit through SHM |
-| `send` / `recv`                      | ACCELERATED | |
-| `sendto` / `recvfrom`                | ACCELERATED for connected sockets; PASSTHROUGH otherwise |
-| `sendmsg` / `recvmsg`                | PARTIAL | Ancillary data passes through; payload uses fast path. **Phase 3 fix.** |
-| `sendfile`                           | PASSTHROUGH | |
-| `read` / `write` / `readv` / `writev` | ACCELERATED on socket fds; PASSTHROUGH on others |
-| `shutdown`                           | UNSUPPORTED | Currently silently ignored. **Phase 3 fix.** |
-| `getsockopt` / `setsockopt`          | PARTIAL | TCP_NODELAY, SO_REUSEADDR, SO_REUSEPORT, SO_KEEPALIVE supported; others passthrough |
-| `getsockname` / `getpeername`        | ACCELERATED | |
-| `socketpair`                         | PASSTHROUGH | |
+| `accept` | ACCELERATED |  |
+| `accept4` | ACCELERATED |  |
+| `bind` | ACCELERATED |  |
+| `connect` | ACCELERATED |  |
+| `getpeername` | ACCELERATED |  |
+| `getsockname` | ACCELERATED |  |
+| `listen` | ACCELERATED |  |
+| `recv` | ACCELERATED |  |
+| `recvmsg` | PARTIAL | **Phase 3 fix.** |
+| `send` | ACCELERATED |  |
+| `sendmsg` | PARTIAL | ancillary data passthrough; payload accelerated **Phase 3 fix.** |
+| `shutdown` | UNSUPPORTED | **Phase 3 fix.** |
+| `socket` | ACCELERATED | AF_INET/SOCK_STREAM is fast-path; others passthrough |
 
-## Multiplexing
-
-| Function | Status | Notes |
-|---|---|---|
-| `epoll_create` / `epoll_create1`   | ACCELERATED |  |
-| `epoll_ctl`                        | ACCELERATED | Mixed kernel + user fds via per-process epoll thread |
-| `epoll_wait` / `epoll_pwait`       | ACCELERATED |  |
-| `EPOLLIN` / `EPOLLOUT` / `EPOLLERR` | ACCELERATED | |
-| `EPOLLHUP` / `EPOLLRDHUP`          | UNSUPPORTED | **Phase 3 fix.** |
-| `select` / `pselect`               | PASSTHROUGH | Use epoll for accelerated paths |
-| `poll` / `ppoll`                   | PARTIAL | Slow path; use epoll for performance |
-
-## File descriptors
+### Multiplexing
 
 | Function | Status | Notes |
 |---|---|---|
-| `close`                            | ACCELERATED | |
-| `dup` / `dup2` / `dup3`            | UNSUPPORTED on socket fds | **Phase 3 fix.** Returns -1 + ERROR log |
-| `fcntl(F_GETFL/F_SETFL/F_GETFD/F_SETFD)` | ACCELERATED | |
-| `fcntl(F_DUPFD)`                   | UNSUPPORTED | **Phase 3 fix.** |
-| `fcntl(F_NOTIFY/F_GETLEASE/...)`   | PASSTHROUGH | |
-| `ioctl(FIONBIO/FIONREAD/SIOCGIFADDR)` | ACCELERATED | |
-| `ioctl(other)`                     | PASSTHROUGH | |
+| `epoll_create` | ACCELERATED |  |
+| `epoll_create1` | ACCELERATED |  |
+| `epoll_ctl` | ACCELERATED |  |
+| `epoll_wait` | ACCELERATED |  |
 
-## Process lifecycle
+### File descriptors
 
 | Function | Status | Notes |
 |---|---|---|
-| `fork`                             | ACCELERATED | Per paper §4.4 |
-| `vfork`                            | UNSUPPORTED | **Phase 3 fix.** |
-| `clone`                            | UNSUPPORTED | **Phase 3 fix.** |
-| `pthread_create`                   | ACCELERATED | Child thread inherits remap table |
-| `exec*`                            | PASSTHROUGH | libsd is reloaded in the new image |
-| `daemon`                           | UNSUPPORTED | **Phase 3 fix.** |
-| `sigaction`                        | PASSTHROUGH | (until Phase 3) |
+| `close` | ACCELERATED |  |
+| `dup` | UNSUPPORTED | **Phase 3 fix.** |
+| `dup2` | UNSUPPORTED | **Phase 3 fix.** |
+| `dup3` | UNSUPPORTED | **Phase 3 fix.** |
+| `fcntl_F_DUPFD` | UNSUPPORTED | **Phase 3 fix.** |
+| `fcntl_F_GETFL` | ACCELERATED |  |
+| `fcntl_F_SETFL` | ACCELERATED |  |
 
-## Files
-
-Files are not the SocksDirect target, but the preload runtime needs to
-dispatch correctly between socket fds and file fds.
+### Process lifecycle
 
 | Function | Status | Notes |
 |---|---|---|
-| `open` / `openat` / `creat`        | PASSTHROUGH | |
-| `read` / `write` / `pread` / `pwrite` (on file fds) | PASSTHROUGH | |
-| `mmap` / `munmap`                  | PASSTHROUGH | |
+| `clone` | UNSUPPORTED | **Phase 3 fix.** |
+| `fork` | ACCELERATED |  |
+| `vfork` | UNSUPPORTED | **Phase 3 fix.** |
+
+<!-- AUTO-TABLE-END -->
 
 ## How to read this table
 
@@ -105,3 +94,4 @@ preload, file an issue with:
 2. `strace -f -e trace=network,file <your_app>` output (compares with
    and without preload).
 3. The application name and version.
+

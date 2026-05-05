@@ -1,1 +1,1 @@
-build/socksdirect-ctl           usr/bin/
+debian/tmp/usr/bin/socksdirect-ctl           usr/bin/

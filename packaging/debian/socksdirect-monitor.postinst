@@ -1,0 +1,20 @@
+#!/bin/sh
+# postinst — create socksdirect user/group; reload systemd; enable unit.
+set -e
+case "$1" in
+    configure)
+        if ! getent group socksdirect >/dev/null; then
+            addgroup --system --quiet socksdirect
+        fi
+        if ! getent passwd socksdirect >/dev/null; then
+            adduser --system --quiet --no-create-home \
+                    --ingroup socksdirect --shell /usr/sbin/nologin \
+                    socksdirect
+        fi
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            systemctl enable --now socksdirect-monitor.service || true
+        fi
+        ;;
+esac
+exit 0

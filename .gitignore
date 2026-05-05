@@ -26,3 +26,4 @@ __pycache__/
 *.pyc
 SocksDirect-paper/
 tests/conformance/.build/
+build-rdma/

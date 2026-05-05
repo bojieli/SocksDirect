@@ -14,8 +14,12 @@ Where the SocksDirect LKM has been built and loaded successfully.
 mode 0660 and group `socksdirect`. The functional ioctl tests run
 green against `SD_IOC_GET_VERSION`, `SD_IOC_ECHO`, `SD_IOC_ALLOC_PHYS`,
 `SD_IOC_FREE_PHYS`. The page-table-rewrite ioctls
-(`SD_IOC_VIRT2PHYS{,_VEC}`, `SD_IOC_MAP_PHYS{,_VEC}`) return
-`-ENOSYS`; this is not a regression — see `docs/MISSING_FEATURES.md`.
+(`SD_IOC_VIRT2PHYS{,_VEC}` and `SD_IOC_MAP_PHYS{,_VEC}`) are
+implemented via `get_user_pages_remote` + `vm_insert_page` and need
+the userspace target VMA to have been allocated via
+`mmap(/dev/socksdirect, ...)` so it carries `VM_MIXEDMAP`. If the
+caller mmap'd anonymously, `vm_insert_page` returns `-EINVAL` and
+the userspace shim falls back to copy mode.
 
 ## Untested but expected to work
 
