@@ -1,0 +1,17 @@
+#!/usr/bin/make -f
+# debian/rules for SocksDirect.
+# Standard CMake-based build via debhelper.
+
+export DEB_BUILD_MAINT_OPTIONS = hardening=+all
+export DH_VERBOSE = 1
+
+%:
+	dh $@ --buildsystem=cmake
+
+override_dh_auto_configure:
+	dh_auto_configure -- \
+		-DCMAKE_BUILD_TYPE=Release \
+		-DSOCKSDIRECT_WITH_RDMA=ON \
+		-DSOCKSDIRECT_WITH_HERD=OFF \
+		-DSOCKSDIRECT_BUILD_TESTS=OFF \
+		-DSOCKSDIRECT_BUILD_LEGACY=OFF

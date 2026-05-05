@@ -1,47 +1,132 @@
-# SocksDirect: Fast and Compatible Sockets in User Space
+# SocksDirect
 
-Linux socket is implemented in the kernel space with shared data structures that needs concurrency protection, which incurs significant overhead. Communication intensive applications in hosts with multi-core CPU and highspeed networking hardware often put considerable stress on the socket system. Recent work on user-space sockets either does not support intra-host communication among containers and applications, or has limitations on compatibility, isolation and multi-thread scalability.
+User-space, drop-in BSD socket replacement that bypasses the kernel for
+intra-host TCP and uses RDMA for inter-host. The original research
+prototype is described in the SOCKSDIRECT paper (`paper/`); this tree
+is the in-progress rewrite that turns the prototype into a system you
+can install, reproduce, and contribute to. See `REWRITE_PLAN.md` for
+the multi-phase plan and `CHANGELOG.md` for what has landed so far.
 
-In this paper, we describe SOCKSDIRECT, a high performance socket system. SOCKSDIRECT is implemented in user space to avoid kernel crossing cost. It achieves security and isolation by employing a trusted monitor daemon to handle control plane operations such as connection establishment and access control. SOCKSDIRECT is fully compatible with Linux socket and can be used as a drop-in replacement with no modification to existing applications. The design fully handles Linux fork semantics, and can handle both intra- and inter-host communications with hosts equipped with SOCKSDIRECT as well as those without. Last but not least, SOCKSDIRECT is performant. SOCKSDIRECT uses shared memory queue and modern RDMA transport for intra- and inter-host communication. It removes multithread synchronization in common cases and improves memory efficiency with many concurrent connections. It leverages techniques such as cooperative multitasking and pageremapping based zero-copy to remove many overheads of existing socket systems. Experiment shows that SOCKSDIRECT achieves 7 to 20x better message throughput, 17 to 35x better latency, and 20x connection setup throughput compared with Linux socket.
+> Status: rewrite in progress. The user-facing tooling (`socksdirect-ctl`,
+> `reproduce/repro`, microbenchmarks, kernel-module skeleton) and tests
+> are in place. The fast-path library and monitor daemon still build
+> from the legacy `lib/`/`monitor/` trees and are being migrated under
+> `src/lib/`+`src/monitor/` per Phase 1–3 of the plan.
 
-Please refer to the paper for technical details.
+## Quick start (no RDMA, ~5 minutes on stock Ubuntu)
 
-## Build
+```bash
+sudo apt-get install -y cmake build-essential libgtest-dev googletest python3-pytest
+git clone <this repo> socksdirect && cd socksdirect
 
-Currently SocksDirect is available on Linux using ```cmake``` build system.
+cmake -S . -B build -DSOCKSDIRECT_WITH_RDMA=OFF
+cmake --build build -j
+ctest --test-dir build --output-on-failure
+```
 
-1. Create a build directory (e.g. ```build```).
-2. ```cd``` to the build directory.
-3. ```cmake ..```
-4. ```make -j```
-5. The binaries should be built in the ```cmake``` directory.
+You should see 16/16 tests pass: unit tests for every header in
+`include/socksdirect/`, plus integration tests for `socksdirect-ctl`,
+the `reproduce/repro` harness, the `perf_regression.py` script, the
+microbench JSON contract, and the kernel/userspace ABI consistency
+check.
 
-## Usage
+## Quick start (RDMA, full library)
 
-### Standalone tests without ```LD_PRELOAD```
+You need a Mellanox ConnectX-4 or newer, libibverbs, and Mellanox OFED
+for the HERD helper. See `docs/TROUBLESHOOTING.md` for the build flags.
 
-In build directory, run ```./test_sock_server``` in background (or in another terminal), then run ```./test_sock_client```. It should print the throughput (messages per second) every second.
+```bash
+sudo apt-get install -y libibverbs-dev rdma-core libmemcached-dev libnuma-dev
+cmake -S . -B build -DSOCKSDIRECT_WITH_RDMA=ON -DSOCKSDIRECT_WITH_HERD=ON
+cmake --build build -j
+```
 
-Similarly, we can run the pairs of ```./test_sock_server_2``` and ```./test_sock_client_2```, as well ```./test_sock_server_3``` and ```./test_sock_client_3```.
+This builds `libsd.so` (the preload library) and `socksdirect-monitor`
+(the per-host daemon). With `LD_PRELOAD=/path/to/libsd.so` your TCP
+application will route intra-host traffic over shared memory and
+inter-host traffic over RDMA. The supported API surface is documented
+in `docs/API.md`.
 
-The code for the tests are in ```$libsd/test/```.
+## Reproducing the paper
 
-### Tests with ```LD_PRELOAD```
+```bash
+cp reproduce/inventory.example.yml reproduce/inventory.yml
+$EDITOR reproduce/inventory.yml         # set hostnames / NICs / IPs
+./reproduce/repro check                 # auto-detect tier
+./reproduce/repro all                   # run every figure for that tier
+./reproduce/repro report                # produce results/summary.md
+```
 
-```LD_PRELOAD=$libsd/build/libsd.so $progname $args```
+Three reproduction tiers, auto-detected from the inventory + your
+hardware:
 
-You can use a standard BSD socket application (e.g. ```iperf```).
+- **Tier 1** — any Linux box. SoftRoCE for inter-host transport;
+  inter-host *perf* numbers are explicitly excluded from the report.
+  Intra-host numbers are functional only.
+- **Tier 2** — one Linux box with KVM, hugepages, ≥8 cores. Reproduces
+  every intra-host figure within ~10 % of the paper.
+- **Tier 3** — two bare-metal hosts with Mellanox ConnectX-4 (or newer)
+  and a 100 GbE switch. Reproduces every figure.
 
-The current code branch is not fully tested with many applications.
+See `docs/REPRODUCIBILITY.md` for which figures land at which tier and
+what to check if your numbers diverge.
 
-### Tests to replicate experiments in the paper
+## Operating the monitor
 
-They are ```./pot_server_*``` and ```./pot_client_*```. Documents TODO.
+```bash
+sudo cp packaging/systemd/socksdirect-monitor.service /etc/systemd/system/
+sudo systemctl enable --now socksdirect-monitor
 
-The code for the tests are in ```$libsd/pot/```.
+# Check status / connections / config from any user with access to the
+# control socket:
+socksdirect-ctl status
+socksdirect-ctl connections
+socksdirect-ctl reload
+```
 
-## Application experiment
-    In demo folder, there is a sample nginx configure file, please change the path accordingly. 
-    If you want to see more errors. Change the error level in the config.
-    In your build folder, run ./pot_web_service as the backend service
-    run ./test_http_client -p <port> -b <batch size per request> -n <thread_number> <IP> <test response size>
+`socksdirect-ctl` is a thin wrapper around the newline-delimited JSON
+protocol in `include/socksdirect/monitor_ipc.hpp`. Its op surface is
+extensible without bumping the binary.
+
+## Layout
+
+```
+include/socksdirect/    Public, header-only stop-gap APIs (config, log,
+                        metrics, monitor_ipc, fd_remap, zerocopy).
+src/kernel/             Out-of-tree LKM exposing /dev/socksdirect.
+tools/                  socksdirect-ctl + Python tooling
+                        (perf_regression.py, check_kernel_abi.py).
+bench/microbench/       Standalone microbenchmarks. JSON output;
+                        consumed by tools/perf_regression.py.
+tests/unit/             gtest-based unit tests for every header.
+tests/integration/      pytest-based integration suites
+                        (ctl, repro CLI, perf gate, ABI drift, bench
+                        smoke).
+reproduce/              Reproduction harness + per-figure scripts.
+packaging/              Debian rules, DKMS metadata, systemd unit,
+                        example config.
+docs/                   ARCHITECTURE / API / CONFIGURATION /
+                        REPRODUCIBILITY / TROUBLESHOOTING /
+                        KERNEL_MODULE.
+common/, lib/, monitor/ Legacy trees from the research prototype.
+                        Phase 1–3 of the rewrite migrates these into
+                        src/. Don't add new code here.
+```
+
+## Documentation
+
+| Document | Purpose |
+|---|---|
+| [`REWRITE_PLAN.md`](REWRITE_PLAN.md) | The multi-phase plan and exit criteria for each phase. |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Paper sections → code modules. |
+| [`docs/API.md`](docs/API.md) | Which libc functions are accelerated, passthrough, or unsupported. |
+| [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Every config knob, env-var override, and default. |
+| [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Reproduction tiers, per-figure expectations. |
+| [`docs/KERNEL_MODULE.md`](docs/KERNEL_MODULE.md) | LKM build, load, and security model. |
+| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Build/runtime diagnostics. |
+| [`CONTRIBUTING.md`](CONTRIBUTING.md) | What we accept; how to run the test matrix. |
+| [`CHANGELOG.md`](CHANGELOG.md) | User-facing changes. |
+
+## License
+
+See the project root.

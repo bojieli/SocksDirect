@@ -1,0 +1,3 @@
+build/libsd.so                  usr/lib/
+build/libsdcommon.so            usr/lib/
+include/socksdirect/*.hpp       usr/include/socksdirect/

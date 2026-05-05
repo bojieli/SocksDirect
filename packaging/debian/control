@@ -1,0 +1,53 @@
+Source: socksdirect
+Section: net
+Priority: optional
+Maintainer: SocksDirect Maintainers <socksdirect@example.invalid>
+Build-Depends: debhelper-compat (= 13),
+               cmake (>= 3.16),
+               libibverbs-dev,
+               libmemcached-dev,
+               libnuma-dev,
+               python3
+Standards-Version: 4.6.2
+Homepage: https://github.com/anthropics/socksdirect
+
+Package: socksdirect
+Architecture: amd64
+Depends: ${misc:Depends},
+         ${shlibs:Depends},
+         libibverbs1,
+         socksdirect-monitor (= ${binary:Version})
+Description: Fast and compatible user-space sockets — preload library
+ SocksDirect is a drop-in BSD socket replacement that bypasses the
+ kernel for both intra-host (shared memory) and inter-host (RDMA)
+ transports. This package ships libsd.so for use via LD_PRELOAD.
+
+Package: socksdirect-monitor
+Architecture: amd64
+Depends: ${misc:Depends},
+         ${shlibs:Depends},
+         libibverbs1,
+         adduser
+Description: Fast and compatible user-space sockets — monitor daemon
+ The trusted daemon that handles control-plane operations (connection
+ establishment, port allocation, fork bookkeeping) for SocksDirect.
+ Required by the socksdirect package.
+
+Package: socksdirect-tools
+Architecture: amd64
+Depends: ${misc:Depends},
+         ${shlibs:Depends}
+Description: Fast and compatible user-space sockets — operator tools
+ Ships the socksdirect-ctl CLI for inspecting and managing a running
+ monitor. Optional.
+
+Package: socksdirect-dkms
+Architecture: all
+Depends: ${misc:Depends},
+         dkms,
+         libc6-dev,
+         build-essential
+Description: Fast and compatible user-space sockets — DKMS kernel module
+ Out-of-tree kernel module that exposes /dev/socksdirect for the
+ page-remap zero-copy fast path. Without it, libsd falls back to
+ memcpy mode for messages >= 16 KiB.

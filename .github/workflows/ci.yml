@@ -1,0 +1,156 @@
+name: CI
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+
+jobs:
+  # -------------------------------------------------------------------
+  # Unit tests on multiple Ubuntu LTS versions, both Release and Debug.
+  # No RDMA / no kernel module — these run on stock GitHub-hosted runners.
+  # -------------------------------------------------------------------
+  unit:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, ubuntu-24.04]
+        build_type: [Release, Debug]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libgtest-dev googletest python3-pytest
+      - name: Configure
+        run: |
+          cmake -S . -B build \
+                -DCMAKE_BUILD_TYPE=${{ matrix.build_type }} \
+                -DSOCKSDIRECT_WITH_RDMA=OFF \
+                -DSOCKSDIRECT_BUILD_LEGACY=OFF
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j
+
+  # -------------------------------------------------------------------
+  # ASan + UBSan job — catches the production memory/UB bugs.
+  # -------------------------------------------------------------------
+  sanitizers:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential libgtest-dev googletest
+      - name: Configure with ASan + UBSan
+        run: |
+          cmake -S . -B build \
+                -DCMAKE_BUILD_TYPE=Debug \
+                -DSOCKSDIRECT_WITH_RDMA=OFF \
+                -DSOCKSDIRECT_BUILD_LEGACY=OFF \
+                -DSOCKSDIRECT_WITH_ASAN=ON \
+                -DSOCKSDIRECT_WITH_UBSAN=ON
+      - name: Build
+        run: cmake --build build -j
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  # -------------------------------------------------------------------
+  # Naming-consistency gate. Fails if old project names slip back in.
+  # -------------------------------------------------------------------
+  naming:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Reject obsolete identifiers
+        run: |
+          # Strings that should not appear in NEW code. The legacy
+          # research-prototype trees (common/, lib/, monitor/, data/,
+          # pot/, demo/, test/, zerocopy/, rdma/) are exempt — Phase 1
+          # of the rewrite plan tackles them in a tracked migration.
+          # The gate enforces that anything *under the post-rewrite
+          # layout* (src/, include/, tests/, tools/, bench/, reproduce/,
+          # packaging/, docs/, .github/, CMakeLists.txt) is clean.
+          BAD='libipc\.so|IPC-Direct|/sampa/home/cuity|/home/boj/libsd|netsys34|10\.1\.2\.[0-9]+|10\.2\.5\.[0-9]+'
+          if git grep -nE "$BAD" -- \
+                src/ include/ tests/ tools/ bench/ reproduce/ \
+                packaging/ docs/ .github/ CMakeLists.txt CHANGELOG.md \
+                CONTRIBUTING.md README.md; then
+            echo "::error::Obsolete identifiers detected in post-rewrite tree — see matches above"
+            exit 1
+          fi
+
+  # -------------------------------------------------------------------
+  # Docs lint — verify all referenced docs exist.
+  # -------------------------------------------------------------------
+  docs:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify referenced docs exist
+        run: |
+          missing=0
+          for f in docs/ARCHITECTURE.md docs/API.md docs/CONFIGURATION.md \
+                   docs/REPRODUCIBILITY.md docs/TROUBLESHOOTING.md \
+                   docs/KERNEL_MODULE.md CONTRIBUTING.md CHANGELOG.md; do
+            if [ ! -f "$f" ]; then
+              echo "::error file=$f::referenced doc missing"
+              missing=1
+            fi
+          done
+          exit $missing
+
+  # -------------------------------------------------------------------
+  # Microbenchmark smoke — verify the perf binaries run and emit valid
+  # JSON. We do NOT compare to a baseline here (CI runners are too noisy
+  # for trustworthy perf numbers); the perf-regression gate runs on a
+  # self-hosted runner via a separate workflow.
+  # -------------------------------------------------------------------
+  bench-smoke:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential python3-pytest libgtest-dev googletest
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSOCKSDIRECT_WITH_RDMA=OFF
+          cmake --build build -j -- bench_queue_v3 bench_fd_remap bench_metrics bench_config
+      - name: Smoke-run benchmarks via pytest
+        run: |
+          ctest --test-dir build -R integration-bench-smoke --output-on-failure
+
+  # -------------------------------------------------------------------
+  # Kernel/userspace ABI drift gate. Header sets must match.
+  # -------------------------------------------------------------------
+  kernel-abi:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run ABI consistency check
+        run: python3 tools/check_kernel_abi.py
+
+  # -------------------------------------------------------------------
+  # Reproduction harness CLI tests — verify the user-facing tool works.
+  # -------------------------------------------------------------------
+  repro-cli:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y python3-pytest cmake build-essential libgtest-dev googletest
+      - name: Configure + build (only what the repro CLI needs)
+        run: |
+          cmake -S . -B build -DSOCKSDIRECT_WITH_RDMA=OFF
+          cmake --build build -j -- socksdirect-ctl
+      - name: Run repro + perf-regression + ctl + ABI tests
+        run: |
+          ctest --test-dir build -R 'integration-(repro|perf-regression|ctl|kernel-abi)' \
+                --output-on-failure

@@ -1,0 +1,5 @@
+socksdirect (0.1.0-1) UNRELEASED; urgency=medium
+
+  * Initial packaging skeleton. Phase 1 of the rewrite plan.
+
+ -- SocksDirect Maintainers <socksdirect@example.invalid>  Mon, 05 May 2026 00:00:00 +0000

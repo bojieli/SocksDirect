@@ -1,0 +1,62 @@
+# /etc/socksdirect/socksdirect.conf
+#
+# Site configuration for the SocksDirect monitor and preload library.
+# Every value below also accepts an environment-variable override of the
+# form SOCKSDIRECT_<SECTION>_<KEY> (uppercased), so per-process tuning
+# works without editing this file. Example: SOCKSDIRECT_MONITOR_LOG_LEVEL=trace.
+#
+# Lines starting with # or ; are comments. Values are NOT quoted.
+
+[monitor]
+# Unix-domain socket where the monitor listens for new clients.
+socket_path = /run/socksdirect/monitor.sock
+
+# Where per-process logs are written. Must be writable by anything
+# running under LD_PRELOAD.
+log_dir = /var/log/socksdirect
+
+# trace | debug | info | warn | error
+log_level = info
+
+# Prometheus-compatible stats endpoint (also a Unix-domain socket).
+metrics_socket = /run/socksdirect/metrics.sock
+
+[fd]
+# Range of "virtual" fd numbers reserved for libsd. Must not overlap the
+# kernel's normal fd range.
+virtual_fd_base = 1073741824    # 0x40000000
+virtual_fd_top  = 2147483647    # 0x7fffffff
+
+[shm]
+# Hugepage size used for the per-connection ring buffers. 2048 = 2 MiB.
+hugepage_size_kb = 2048
+ring_pages       = 64
+
+[rdma]
+# Mellanox device name. "auto" picks the first device with an active port.
+device           = auto
+
+# RoCEv2 GID index. `show_gids` from rdma-core lists what's available.
+gid_index        = 3
+
+# IB MTU. 4096 is the highest setting on ConnectX-4 and newer.
+mtu              = 4096
+
+# QP send queue depth.
+qp_depth         = 128
+
+# How many completions to batch in a single CQ poll.
+batch_completions = 64
+
+# Fallback when no real RDMA NIC is available. "rxe" enables SoftRoCE
+# for functional testing; "none" disables inter-host transport.
+fallback         = rxe
+
+[zerocopy]
+# Auto-detects /dev/socksdirect (the kernel module). Set to "off" to
+# force memcpy mode even when the module is loaded.
+enabled          = auto
+
+# Messages smaller than this are always copied; larger get the
+# page-remap path described in the SocksDirect paper.
+min_message_size = 16384

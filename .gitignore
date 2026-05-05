@@ -16,3 +16,12 @@ cmake-build-relwithdebinfo/
 *.tar.gz
 *.swp
 build/
+build-asan/
+build-tsan/
+results-eval/
+reproduce/results/
+reproduce/inventory.yml
+__pycache__/
+.pytest_cache/
+*.pyc
+SocksDirect-paper/

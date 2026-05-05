@@ -1,0 +1,42 @@
+[Unit]
+Description=SocksDirect monitor daemon
+Documentation=https://github.com/anthropics/socksdirect/blob/main/docs/ARCHITECTURE.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=notify
+ExecStart=/usr/bin/socksdirect-monitor
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=2
+
+# RDMA queues need locked memory.
+LimitMEMLOCK=infinity
+
+# Hardening. Tighten further once Phase 2 lands a stable feature surface.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+PrivateTmp=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictRealtime=true
+SystemCallArchitectures=native
+
+# The monitor needs to write its socket and per-process logs.
+RuntimeDirectory=socksdirect
+LogsDirectory=socksdirect
+StateDirectory=socksdirect
+ReadWritePaths=/run/socksdirect /var/log/socksdirect /var/lib/socksdirect
+
+# CAP_IPC_LOCK is needed for ibv_reg_mr.
+CapabilityBoundingSet=CAP_IPC_LOCK CAP_NET_RAW CAP_NET_ADMIN
+AmbientCapabilities=CAP_IPC_LOCK
+
+[Install]
+WantedBy=multi-user.target

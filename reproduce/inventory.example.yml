@@ -1,0 +1,47 @@
+# reproduce/inventory.yml — single source of truth for hosts, NICs, IPs.
+#
+# Copy this to inventory.yml and edit. The reproduce harness reads this
+# file once; figure scripts must NOT contain SSH commands or hostnames.
+#
+# `transport: auto` resolves to "rdma" if both hosts have a working
+# Mellanox NIC and a configured RoCEv2 GID, else "rxe" (SoftRoCE). When
+# the resolved transport is "rxe", the harness produces inter-host CSVs
+# but the report explicitly excludes them — see docs/REPRODUCIBILITY.md.
+
+hosts:
+  alpha:
+    ssh: alpha.example.com           # Anything ssh(1) accepts (user@host:port)
+    cores: [0, 1, 2, 3, 4, 5, 6, 7]  # Cores available for benchmark pinning
+    nic: mlx5_0                      # ibv_devices output
+    rdma_ip: 10.0.0.1                # IP on the RoCE network
+  beta:
+    ssh: beta.example.com
+    cores: [0, 1, 2, 3, 4, 5, 6, 7]
+    nic: mlx5_0
+    rdma_ip: 10.0.0.2
+
+# Where the SocksDirect tree is located on each host. The harness will
+# pull the current commit on the remote when run.
+remote_repo_path: /opt/socksdirect
+
+# Transport: rdma | rxe | auto
+transport: auto
+
+# Reproduction tier: 1 (functional, VMs+SoftRoCE) | 2 (intra-host VM perf)
+#                  | 3 (full bare-metal perf) | auto
+tier: auto
+
+# Where results land locally (relative paths resolve from this file).
+results_dir: ./results
+
+# Optional: knobs for individual figures. Each figure script reads only
+# what it needs and falls back to its own defaults.
+figures:
+  msgsize-intra:
+    sizes: [8, 64, 256, 1024, 4096, 16384, 65536, 262144, 1048576]
+    iterations: 5
+  corenum:
+    max_cores: 16
+  nginx:
+    response_sizes: [1, 64, 1024, 16384]
+    duration_sec: 30

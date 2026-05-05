@@ -1,0 +1,95 @@
+# Integration tests are driven by pytest. CMake registers per-suite CTest
+# entries that delegate to pytest filtered by file. Tests skip themselves
+# at runtime if their dependencies (libsd, monitor, ctl) aren't present —
+# so a CI runner without RDMA still gets the control-plane suite.
+
+find_package(Python3 COMPONENTS Interpreter)
+
+if(NOT Python3_Interpreter_FOUND)
+    message(STATUS "Python3 not found; integration tests will be skipped")
+    return()
+endif()
+
+# Helper to resolve a target file path that may not exist at configure
+# time (e.g. when libsd is gated off).
+function(_resolve_target_file var target)
+    if(TARGET ${target})
+        set(${var} "$<TARGET_FILE:${target}>" PARENT_SCOPE)
+    else()
+        set(${var} "" PARENT_SCOPE)
+    endif()
+endfunction()
+
+_resolve_target_file(_libsd_path        sd)
+_resolve_target_file(_monitor_path      socksdirect-monitor)
+_resolve_target_file(_ctl_path          socksdirect-ctl)
+
+# --- libsd-dependent suite (preload-based scenarios) ------------------------
+if(TARGET sd)
+    add_test(
+        NAME integration-preload
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_intra_host_tcp_echo.py
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_preload_does_not_break_basic_commands.py
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_smoke_passthrough.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-preload PROPERTIES
+        TIMEOUT 300
+        ENVIRONMENT
+            "SOCKSDIRECT_LIB=${_libsd_path};SOCKSDIRECT_MONITOR=${_monitor_path};PYTHONDONTWRITEBYTECODE=1")
+endif()
+
+# --- ctl suite (no libsd needed) --------------------------------------------
+if(TARGET socksdirect-ctl)
+    add_test(
+        NAME integration-ctl
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_socksdirect_ctl.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-ctl PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT
+            "SOCKSDIRECT_CTL=${_ctl_path};PYTHONDONTWRITEBYTECODE=1")
+endif()
+
+# --- repro CLI suite (pure-python, runs everywhere) -------------------------
+add_test(
+    NAME integration-repro
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_repro_cli.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-repro PROPERTIES
+    TIMEOUT 60
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# --- perf-regression CLI suite (pure-python) --------------------------------
+add_test(
+    NAME integration-perf-regression
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_perf_regression.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-perf-regression PROPERTIES
+    TIMEOUT 60
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# --- kernel ABI consistency suite (pure-python) -----------------------------
+add_test(
+    NAME integration-kernel-abi
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_kernel_abi_check.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-kernel-abi PROPERTIES
+    TIMEOUT 30
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# --- microbench smoke (validates JSON output matches the schema) ------------
+if(SOCKSDIRECT_BUILD_BENCH)
+    add_test(
+        NAME integration-bench-smoke
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_bench_smoke.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-bench-smoke PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+endif()

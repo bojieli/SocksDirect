@@ -1,0 +1,391 @@
+#!/usr/bin/env python3
+"""repro — reproduce paper figures from SocksDirect.
+
+Subcommands:
+  check                Validate hardware/kernel/RDMA; resolve tier=auto.
+  list                 Print every figure the harness can produce.
+  <figure-name>        Run one figure end-to-end (e.g. `repro msgsize-intra`).
+  all                  Run every figure for the resolved tier.
+  report               Aggregate ./results/*/result.csv into summary.md.
+  clean                Wipe ./results.
+
+The harness reads reproduce/inventory.yml exactly once. SSH commands,
+hostnames, and IPs are NEVER embedded in figure scripts.
+
+Tier resolution (when tier: auto in inventory.yml):
+  - Tier 3 if both hosts in inventory advertise an RDMA NIC reachable via
+    `ibv_devices` AND we can `rping`-style probe the rdma_ip.
+  - Tier 2 if RDMA isn't available but the local host has hugepages and
+    KVM and the kernel module is loadable.
+  - Tier 1 otherwise.
+
+The summary report banners the resolved tier and tags any inter-host CSV
+that came from SoftRoCE so readers don't accidentally compare them
+against paper numbers.
+"""
+
+from __future__ import annotations
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import os
+from pathlib import Path
+from typing import Any
+
+# yaml is optional; we load the inventory with a tiny parser if pyyaml
+# isn't installed, so `./repro check` works in a stock Ubuntu VM.
+try:
+    import yaml as _yaml
+    HAVE_YAML = True
+except ImportError:
+    HAVE_YAML = False
+
+REPO = Path(__file__).resolve().parents[1]
+HERE = Path(__file__).resolve().parent
+DEFAULT_INVENTORY = HERE / "inventory.yml"
+
+# Tests and ad-hoc invocations can override the figures/results roots
+# without touching the in-tree reproduce/ directory. The flags
+# `--figures-dir` and `--results-dir` set these explicitly; otherwise
+# we fall back to the env vars REPRO_FIGURES_DIR and REPRO_RESULTS_DIR
+# (useful for the integration-test workspace), and finally to HERE.
+def _default_figures_dir() -> Path:
+    return Path(os.environ.get("REPRO_FIGURES_DIR") or (HERE / "figures"))
+
+def _default_results_dir(inv: dict[str, Any] | None = None) -> Path:
+    env = os.environ.get("REPRO_RESULTS_DIR_BASE")
+    if env:
+        return Path(env)
+    inv_dir = (inv or {}).get("results_dir")
+    if inv_dir:
+        # Inventory results_dir can be absolute or relative-to-HERE.
+        p = Path(inv_dir)
+        if not p.is_absolute():
+            p = HERE / p
+        return p
+    return HERE / "results"
+
+def _default_inventory_path() -> Path:
+    env = os.environ.get("REPRO_INVENTORY")
+    if env:
+        return Path(env)
+    return DEFAULT_INVENTORY
+
+
+# ---------------------------------------------------------------------------
+# Inventory loading
+# ---------------------------------------------------------------------------
+
+def load_inventory(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        die(
+            f"{path} not found. Copy inventory.example.yml to inventory.yml "
+            "and edit it for your hardware."
+        )
+    if HAVE_YAML:
+        with path.open() as fh:
+            return _yaml.safe_load(fh)
+    # Fallback: a tiny YAML subset that handles the example file.
+    return _tiny_yaml(path)
+
+
+def _tiny_yaml(path: Path) -> dict[str, Any]:
+    """Minimal YAML loader for the inventory subset.
+
+    Handles: top-level keys, nested dicts (one level), inline lists
+    [a, b, c], and string/int/bool scalars. NOT a real YAML parser; used
+    only when PyYAML isn't installed so `./repro check` boots on a
+    stock Ubuntu image.
+    """
+    out: dict[str, Any] = {}
+    stack: list[tuple[int, dict]] = [(0, out)]
+    with path.open() as fh:
+        for raw in fh:
+            line = raw.rstrip()
+            if not line.strip() or line.lstrip().startswith("#"):
+                continue
+            indent = len(line) - len(line.lstrip())
+            content = line.strip()
+            while stack and indent < stack[-1][0]:
+                stack.pop()
+            if ":" not in content:
+                continue
+            k, _, v = content.partition(":")
+            k = k.strip()
+            v = v.strip()
+            target = stack[-1][1]
+            if not v:
+                new_dict: dict[str, Any] = {}
+                target[k] = new_dict
+                stack.append((indent + 2, new_dict))
+            else:
+                target[k] = _parse_scalar(v)
+    return out
+
+
+def _parse_scalar(s: str) -> Any:
+    if s.startswith("[") and s.endswith("]"):
+        inner = s[1:-1].strip()
+        if not inner:
+            return []
+        return [_parse_scalar(p.strip()) for p in inner.split(",")]
+    if s.lower() in ("true", "yes", "on"):  return True
+    if s.lower() in ("false", "no", "off"): return False
+    try:
+        return int(s)
+    except ValueError:
+        return s
+
+
+# ---------------------------------------------------------------------------
+# Tier detection
+# ---------------------------------------------------------------------------
+
+def detect_tier(inv: dict[str, Any]) -> tuple[int, list[str]]:
+    """Returns (tier, notes). notes is a list of human-readable findings."""
+    notes: list[str] = []
+    tier_pref = (inv.get("tier") or "auto")
+    if tier_pref in (1, 2, 3):
+        notes.append(f"tier forced to {tier_pref} via inventory.yml")
+        return int(tier_pref), notes
+
+    has_rdma = _has_real_rdma()
+    notes.append("RDMA hardware detected" if has_rdma else "no RDMA hardware (will use SoftRoCE if needed)")
+
+    has_hugepages = _has_hugepages()
+    notes.append("hugepages configured" if has_hugepages else "no hugepages configured")
+
+    has_kvm = Path("/dev/kvm").exists()
+    notes.append("/dev/kvm present" if has_kvm else "no /dev/kvm (cannot run Tier 2 VM)")
+
+    if has_rdma and len(inv.get("hosts", {})) >= 2:
+        return 3, notes
+    if has_hugepages and has_kvm:
+        return 2, notes
+    return 1, notes
+
+
+def _has_real_rdma() -> bool:
+    if shutil.which("ibv_devices") is None:
+        return False
+    try:
+        out = subprocess.run(["ibv_devices"], capture_output=True, text=True, timeout=2)
+        # ibv_devices always prints a header; >2 lines means at least one device.
+        return len([l for l in out.stdout.splitlines() if l.strip()]) >= 3
+    except Exception:
+        return False
+
+
+def _has_hugepages() -> bool:
+    p = Path("/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages")
+    if not p.exists():
+        return False
+    try:
+        return int(p.read_text().strip()) > 0
+    except Exception:
+        return False
+
+
+# ---------------------------------------------------------------------------
+# Figure discovery
+# ---------------------------------------------------------------------------
+
+def list_figures(figures_dir: Path | None = None) -> list[Path]:
+    d = figures_dir if figures_dir is not None else _default_figures_dir()
+    if not d.exists():
+        return []
+    return sorted(p for p in d.iterdir() if p.is_dir() and (p / "run.sh").exists())
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: check
+# ---------------------------------------------------------------------------
+
+def cmd_check(args: argparse.Namespace) -> int:
+    inv = load_inventory(args.inventory)
+    tier, notes = detect_tier(inv)
+    print(f"Resolved tier: {tier}")
+    for n in notes:
+        print(f"  - {n}")
+    figs = list_figures(args.figures_dir)
+    print(f"\nDiscovered {len(figs)} figure(s):")
+    for f in figs:
+        print(f"  - {f.name}")
+    if tier == 1:
+        print("\nNote: Tier 1 produces functional CSVs only. Inter-host perf")
+        print("numbers must NOT be compared to the paper.")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: list
+# ---------------------------------------------------------------------------
+
+def cmd_list(args: argparse.Namespace) -> int:
+    figs = list_figures(args.figures_dir)
+    for f in figs:
+        readme = f / "README.md"
+        title = readme.read_text().splitlines()[0].lstrip("# ").strip() if readme.exists() else f.name
+        print(f"{f.name:30s} {title}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: run a single figure
+# ---------------------------------------------------------------------------
+
+def cmd_run_figure(name: str, args: argparse.Namespace) -> int:
+    fig_dir = args.figures_dir / name
+    if not (fig_dir / "run.sh").exists():
+        die(f"unknown figure: {name}. Try `repro list`.")
+
+    inv = load_inventory(args.inventory)
+    results_root = args.results_dir if args.results_dir is not None else _default_results_dir(inv)
+    results_dir = results_root / name
+    results_dir.mkdir(parents=True, exist_ok=True)
+
+    # The figure script gets the inventory + tier in its environment so it
+    # never has to parse YAML itself.
+    tier, _ = detect_tier(inv)
+    env = os.environ.copy()
+    env.update({
+        "REPRO_INVENTORY": str(args.inventory.resolve()),
+        "REPRO_RESULTS_DIR": str(results_dir.resolve()),
+        "REPRO_TIER": str(tier),
+        "REPRO_REPO": str(REPO),
+    })
+    print(f"▶ running figure {name} (tier {tier})")
+    rc = subprocess.run(["bash", str(fig_dir / "run.sh")], env=env).returncode
+    if rc != 0:
+        print(f"✗ figure {name} failed with exit code {rc}")
+    else:
+        print(f"✓ figure {name} done; results in {results_dir}")
+    return rc
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: all
+# ---------------------------------------------------------------------------
+
+def cmd_all(args: argparse.Namespace) -> int:
+    figs = list_figures(args.figures_dir)
+    fails = 0
+    for f in figs:
+        if cmd_run_figure(f.name, args) != 0:
+            fails += 1
+    print(f"\nDone: {len(figs) - fails}/{len(figs)} figures succeeded.")
+    return 1 if fails else 0
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: report
+# ---------------------------------------------------------------------------
+
+def cmd_report(args: argparse.Namespace) -> int:
+    inv = load_inventory(args.inventory)
+    tier, notes = detect_tier(inv)
+    results_root = args.results_dir if args.results_dir is not None else _default_results_dir(inv)
+    summary_path = results_root / "summary.md"
+    results_root.mkdir(parents=True, exist_ok=True)
+
+    lines: list[str] = []
+    lines.append(f"# SocksDirect reproduction summary")
+    lines.append("")
+    lines.append(f"**Resolved tier: {tier}**")
+    lines.append("")
+    if tier == 1:
+        lines.append("> Tier 1 (functional). Inter-host perf numbers are excluded "
+                     "from comparison — they came from SoftRoCE, not RDMA.")
+        lines.append("")
+    elif tier == 2:
+        lines.append("> Tier 2 (intra-host perf). Inter-host figures skipped.")
+        lines.append("")
+    for n in notes:
+        lines.append(f"- {n}")
+    lines.append("")
+
+    # Each figure's run.sh is expected to drop a `result.csv` and a
+    # `result.pdf` into its results dir; the summary just links to them.
+    for fig in list_figures(args.figures_dir):
+        fig_results = results_root / fig.name
+        lines.append(f"## {fig.name}")
+        if not fig_results.exists():
+            lines.append("_not run_")
+            continue
+        for art in sorted(fig_results.iterdir()):
+            lines.append(f"- [{art.name}]({fig.name}/{art.name})")
+        lines.append("")
+
+    summary_path.write_text("\n".join(lines))
+    print(f"wrote {summary_path}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Subcommand: clean
+# ---------------------------------------------------------------------------
+
+def cmd_clean(args: argparse.Namespace) -> int:
+    inv = load_inventory(args.inventory)
+    results_root = args.results_dir if args.results_dir is not None else _default_results_dir(inv)
+    if results_root.exists():
+        shutil.rmtree(results_root)
+        print(f"removed {results_root}")
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+def die(msg: str) -> None:
+    print(f"error: {msg}", file=sys.stderr)
+    sys.exit(2)
+
+
+def main(argv: list[str]) -> int:
+    p = argparse.ArgumentParser(description="reproduce SocksDirect paper figures")
+    p.add_argument("--inventory", type=Path, default=_default_inventory_path(),
+                   help="path to inventory.yml")
+    p.add_argument("--figures-dir", type=Path, default=_default_figures_dir(),
+                   dest="figures_dir",
+                   help="root containing per-figure subdirs with run.sh")
+    p.add_argument("--results-dir", type=Path, default=None,
+                   dest="results_dir",
+                   help="override the inventory results_dir (absolute path)")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sub.add_parser("check")
+    sub.add_parser("list")
+    sub.add_parser("all")
+    sub.add_parser("report")
+    sub.add_parser("clean")
+    # Allow `./repro <figure-name>` without a subcommand keyword.
+    # We need to peek at --figures-dir before subparser registration; a
+    # tiny pre-pass over argv covers --figures-dir=PATH and --figures-dir PATH.
+    pre_figs = _default_figures_dir()
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a.startswith("--figures-dir="):
+            pre_figs = Path(a.split("=", 1)[1])
+        elif a == "--figures-dir" and i + 1 < len(argv):
+            pre_figs = Path(argv[i + 1])
+            i += 1
+        i += 1
+    for f in list_figures(pre_figs):
+        sub.add_parser(f.name, help=f"run figure {f.name}")
+
+    args = p.parse_args(argv)
+    if args.cmd == "check":  return cmd_check(args)
+    if args.cmd == "list":   return cmd_list(args)
+    if args.cmd == "all":    return cmd_all(args)
+    if args.cmd == "report": return cmd_report(args)
+    if args.cmd == "clean":  return cmd_clean(args)
+    return cmd_run_figure(args.cmd, args)
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
