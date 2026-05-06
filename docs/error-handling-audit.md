@@ -19,19 +19,46 @@ maintained by hand as fixes land.
 
 ## Disposition history
 
-| Date | Site | Disposition | Phase 3 PR |
-|---|---|---|---|
-| _(none yet)_ | | | |
+| Date       | Site                                    | Disposition                                |
+|------------|-----------------------------------------|--------------------------------------------|
+| 2026-05-06 | `lib/socket_lib.cpp` AF_INET check      | CONVERT — now returns -1 + EAFNOSUPPORT.   |
+| 2026-05-06 | `lib/socket_lib.cpp` inet_aton failure  | CONVERT — now returns -1 + EINVAL.         |
+
+## Why the rest aren't all converted yet
+
+Most remaining `FATAL`/`assert` sites in the legacy tree fall into
+one of these buckets:
+
+1. **Resource-exhaustion FATALs** (e.g. `newbuffer()` when the
+   per-thread buffer pool fills). Converting them to errno
+   requires also fixing the call sites — current callers don't
+   check for failure and would hit memory corruption instead of
+   a clean abort. The Phase 3 dynamic-allocation work fixes both
+   ends together.
+2. **Internal-corruption FATALs** (e.g. `unordered accept response`).
+   These represent invariant violations that should never happen
+   if the protocol is correct; demoting them masks real bugs.
+   KEEP per the rewrite plan.
+3. **Bootstrap FATALs** (e.g. monitor unreachable in
+   `setup_sock_lib.cpp:25`). The new `src/lib/` already handles
+   this gracefully; the legacy site is on the deprecated path.
+   Phase 3 deletes the legacy file outright.
+
+The two converted sites above are the only ones where conversion
+was safe in isolation: the function returned `int` and the call
+site already had an EINVAL/EAFNOSUPPORT path. The remaining ~113
+land as part of the Phase 3 lib rewrite, not a separate retrofit
+on the about-to-be-retired legacy code.
 
 <!-- AUTO-AUDIT-BEGIN -->
 
 _Auto-generated from `tools/scan_error_handling.py`. Re-run on every PR that touches `lib/`, `monitor/`, or `common/`._
 
-**Total sites:** 115 across 20 file(s).
+**Total sites:** 113 across 20 file(s).
 
 | Kind | Count |
 |---|---|
-| `FATAL(...)` | 105 |
+| `FATAL(...)` | 103 |
 | `assert(...)` | 10 |
 
 ### common/interprocess_t.cpp
@@ -175,23 +202,21 @@ _Auto-generated from `tools/scan_error_handling.py`. Re-run on every PR that tou
 | 602 | `FATAL` | `FATAL("could not create virtual fd");` |
 | 619 | `FATAL` | `FATAL("pthread_key not initialized");` |
 | 647 | `FATAL` | `FATAL("RDMA Fork prepare fail, %s %d, %d", strerror(errno), errno, ret);` |
-| 805 | `FATAL` | `FATAL("Only support TCP connection");` |
-| 824 | `FATAL` | `FATAL("Invalid remote addr");` |
-| 858 | `FATAL` | `FATAL("Failed to get thread specific data.");` |
-| 892 | `FATAL` | `FATAL("Invalid RDMA info");` |
-| 1037 | `FATAL` | `FATAL("unordered accept response");` |
-| 1045 | `FATAL` | `FATAL("Incorrect accept order for different ports");` |
-| 1077 | `FATAL` | `FATAL("Invalid RDMA info");` |
-| 1103 | `FATAL` | `FATAL("ACK Failed");` |
-| 1584 | `FATAL` | `FATAL("zero copy receive return vector: malloc failed %d pages", num_pages);` |
-| 1588 | `FATAL` | `FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);` |
-| 1773 | `FATAL` | `FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, 1);` |
-| 1777 | `FATAL` | `FATAL("zero copy failed to get return pages");` |
-| 1796 | `FATAL` | `FATAL("zero copy receive: malloc failed %d pages", num_pages);` |
-| 1800 | `FATAL` | `FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);` |
-| 1806 | `FATAL` | `FATAL("zero copy failed to get return pages");` |
-| 1839 | `FATAL` | `FATAL("Not implemented yet");` |
-| 1842 | `FATAL` | `FATAL("Unknown command %d", ele.command);` |
+| 866 | `FATAL` | `FATAL("Failed to get thread specific data.");` |
+| 900 | `FATAL` | `FATAL("Invalid RDMA info");` |
+| 1045 | `FATAL` | `FATAL("unordered accept response");` |
+| 1053 | `FATAL` | `FATAL("Incorrect accept order for different ports");` |
+| 1085 | `FATAL` | `FATAL("Invalid RDMA info");` |
+| 1111 | `FATAL` | `FATAL("ACK Failed");` |
+| 1592 | `FATAL` | `FATAL("zero copy receive return vector: malloc failed %d pages", num_pages);` |
+| 1596 | `FATAL` | `FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);` |
+| 1781 | `FATAL` | `FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, 1);` |
+| 1785 | `FATAL` | `FATAL("zero copy failed to get return pages");` |
+| 1804 | `FATAL` | `FATAL("zero copy receive: malloc failed %d pages", num_pages);` |
+| 1808 | `FATAL` | `FATAL("zero copy received metadata corrupted, ret %d bytes, expected %d pages", buffer_ret, num_pages);` |
+| 1814 | `FATAL` | `FATAL("zero copy failed to get return pages");` |
+| 1847 | `FATAL` | `FATAL("Not implemented yet");` |
+| 1850 | `FATAL` | `FATAL("Unknown command %d", ele.command);` |
 
 ### monitor/main.cpp
 

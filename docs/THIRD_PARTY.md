@@ -8,21 +8,39 @@ where to look for known-CVE'd dependencies.
 
 ## Vendored at source-level
 
-### HERD — `rdma/hrd_*.{cc,h}`
+### HERD-derived helpers — `rdma/hrd_*.{cc,h}`
 
-- Upstream: <https://github.com/efficient/HERD>
-- License: BSD-3-Clause
-- Used by: `libsd` and the RDMA microbenchmarks in `rdma/`,
-  `bench/baselines/raw-rdma/`. The HERD helper provides the
-  experimental-verbs path that the paper's RDMA results were measured
-  on.
-- Modifications: minor portability fixes (none security-relevant).
-- Build gating: `-DSOCKSDIRECT_WITH_HERD=ON`. Off by default —
-  requires Mellanox OFED experimental verbs that aren't in stock
-  `rdma-core`.
-- Migration plan: HERD is the legacy code path. `src/lib/rdma.cpp`
-  (Phase 3) drops the experimental-verbs dependency in favor of
-  stock `rdma-core` for the post-rewrite tree.
+- Upstream: the C++ `hrd.{h,cc}` files match the
+  `libhrd_cpp/` directory of <https://github.com/efficient/rdma_bench>
+  (a successor of the original HERD project at
+  <https://github.com/efficient/HERD>). Authors: Anuj Kalia,
+  Michael Kaminsky, David G. Andersen (Carnegie Mellon).
+- **License: NOT DECLARED upstream as of 2026-05-06.** Both
+  `efficient/HERD` and `efficient/rdma_bench` ship without a
+  LICENSE file; GitHub's API reports `license: null` for both.
+  By default that means "all rights reserved": there is no
+  blanket permission to redistribute under Apache-2.0.
+- **Implication for SocksDirect's Apache-2.0 release:** the source
+  tarball / GitHub Release artifacts produced by
+  `.github/workflows/release.yml` exclude these files unless the
+  builder is operating under an out-of-band redistribution grant
+  from the HERD authors. The default build (`-DSOCKSDIRECT_WITH_HERD=OFF`)
+  doesn't compile them; the `-DSOCKSDIRECT_WITH_HERD=ON` opt-in
+  is intended for the paper-reproduction path on a developer
+  machine, not for distributable binaries.
+- Used by: `sd-legacy.so` (the RDMA + HERD opt-in build) and the
+  RDMA microbenchmarks in `rdma/`, `bench/baselines/raw-rdma/`.
+- Migration plan: replace with the equivalent functionality from
+  <https://github.com/erpc-io/eRPC> (Apache-2.0, same authors) or
+  rewrite against stock `rdma-core` in Phase 3. Tracked in
+  `docs/MISSING_FEATURES.md`.
+
+If you want to consume the HERD path:
+1. Verify your situation against the upstream license status (it
+   may have changed since this doc was written).
+2. Or obtain written permission from the HERD authors.
+3. Do not distribute binaries linked against `libhrd.so` from a
+   source tarball that doesn't include explicit grant documentation.
 
 ### googletest — fetched at configure time
 

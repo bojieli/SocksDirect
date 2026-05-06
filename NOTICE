@@ -1,0 +1,33 @@
+SocksDirect
+Copyright 2026 The SocksDirect Authors
+
+This product includes software developed by the SocksDirect Authors.
+
+----------------------------------------------------------------------
+Third-party software
+----------------------------------------------------------------------
+
+The source tree contains code derived from or referencing the
+following projects. License terms for each are documented in
+docs/THIRD_PARTY.md; the file below is the Apache-2.0 §4(d) NOTICE
+that downstream redistributors must propagate.
+
+  HERD-derived helpers (rdma/hrd_*.{cc,h})
+    Authors: Anuj Kalia, Michael Kaminsky, David G. Andersen
+    Affiliation: Carnegie Mellon University
+    Upstream: https://github.com/efficient/HERD,
+              https://github.com/efficient/rdma_bench (libhrd_cpp/)
+    License status: NOT DECLARED upstream as of 2026-05-06.
+    Build gating: opt-in (-DSOCKSDIRECT_WITH_HERD=ON; OFF by default).
+    Excluded from source tarballs produced by
+    .github/workflows/release.yml. See docs/THIRD_PARTY.md for the
+    redistribution caveat.
+
+  googletest (fetched at configure time when the system package
+  is unavailable)
+    Upstream: https://github.com/google/googletest
+    License: BSD-3-Clause
+    Pinned: v1.14.0 with SHA256 verification (tests/CMakeLists.txt).
+
+  Apache License, Version 2.0 (LICENSE) — the project's own license.
+    Source: https://www.apache.org/licenses/LICENSE-2.0

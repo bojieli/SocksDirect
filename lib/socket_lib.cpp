@@ -801,8 +801,13 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     //init
     char addr_str[100];
     inet_ntop(AF_INET, ((void *) &((struct sockaddr_in *) address)->sin_addr), addr_str, address_len);
-    if (address->sa_family != AF_INET)
-        FATAL("Only support TCP connection");
+    if (address->sa_family != AF_INET) {
+        // Phase 3 fix: pre-rewrite this aborted on user-input.
+        // Now we surface a clean errno so unsupported address
+        // families (AF_INET6, AF_UNIX, etc.) fall through to glibc.
+        errno = EAFNOSUPPORT;
+        return -1;
+    }
 
     thread_data_t *data;
     data = reinterpret_cast<thread_data_t *>(pthread_getspecific(pthread_key));
@@ -820,8 +825,11 @@ int connect(int socket, const struct sockaddr *address, socklen_t address_len)
     if (strcmp(addr_str, "127.0.0.1") != 0)
     {
         struct in_addr remote_addr_int;
-        if (!inet_aton(addr_str, &remote_addr_int))
-            FATAL("Invalid remote addr");
+        if (!inet_aton(addr_str, &remote_addr_int)) {
+            // Phase 3 fix: was FATAL on malformed address.
+            errno = EINVAL;
+            return -1;
+        }
         q2monitor = connect_with_rdma_stub(socket, remote_addr_int);
         isRDMA = true;
         //FATAL("not support unlocal address");

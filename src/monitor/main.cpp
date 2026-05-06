@@ -27,6 +27,7 @@
 #include "socksdirect/log.hpp"
 #include "socksdirect/metrics.hpp"
 #include "socksdirect/monitor_ipc.hpp"
+#include "socksdirect/shm_handshake.hpp"
 
 #include <atomic>
 #include <cerrno>
@@ -70,6 +71,10 @@ struct Daemon {
         std::string buf;
     };
     std::map<int, CtlConn> ctl_conns;
+
+    // SHM intra-host pair registry (Phase 3 scaffold). The full ring
+    // semantics live in src/lib/; the monitor only brokers keys.
+    sd::ShmHandshakeRegistry shm_registry;
 
     // Cached counter handles to avoid map lookups in the hot path.
     sd::Counter* m_ctl_requests = nullptr;
@@ -262,7 +267,56 @@ sd::CtlResponse op_help(const Daemon&, const sd::CtlRequest&) {
     r.lines.push_back("reload         re-read config; reopen log sink");
     r.lines.push_back("drain          stop accepting new ctl clients");
     r.lines.push_back("ping [msg]     echo (defaults to 'pong')");
+    r.lines.push_back("shm-register A B PID   broker SHM key for the (A,B) pair");
+    r.lines.push_back("shm-unregister A B     drop the SHM key for (A,B)");
     r.lines.push_back("help           this list");
+    return r;
+}
+
+// shm-register <endpoint_a> <endpoint_b> <pid> — Phase 3 scaffold
+// for the SHM intra-host fast path. Both peers call this with the
+// same canonical (a,b) pair; the monitor returns a shared key and
+// indicates whether the caller is the creator or joiner. The actual
+// SHM ring is allocated + mapped by libsd using the returned key.
+sd::CtlResponse op_shm_register(Daemon& d, const sd::CtlRequest& req) {
+    sd::CtlResponse r;
+    if (req.args.size() < 3) {
+        r.ok = false;
+        r.error = "usage: shm-register <endpoint_a> <endpoint_b> <pid>";
+        return r;
+    }
+    int pid = std::atoi(req.args[2].c_str());
+    if (pid <= 0) {
+        r.ok = false;
+        r.error = "shm-register: bad pid";
+        return r;
+    }
+    auto id = sd::ShmHandshakeRegistry::make(req.args[0], req.args[1]);
+    auto res = d.shm_registry.register_endpoint(id, pid);
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), "shm_key=%llu",
+                  static_cast<unsigned long long>(res.key));
+    r.lines.push_back(buf);
+    r.lines.push_back(res.role == sd::ShmHandshakeRegistry::Role::kCreator
+                          ? "role=creator" : "role=joiner");
+    std::snprintf(buf, sizeof(buf), "pid_a=%d pid_b=%d",
+                  res.pid_a, res.pid_b);
+    r.lines.push_back(buf);
+    r.ok = true;
+    return r;
+}
+
+sd::CtlResponse op_shm_unregister(Daemon& d, const sd::CtlRequest& req) {
+    sd::CtlResponse r;
+    if (req.args.size() < 2) {
+        r.ok = false;
+        r.error = "usage: shm-unregister <endpoint_a> <endpoint_b>";
+        return r;
+    }
+    auto id = sd::ShmHandshakeRegistry::make(req.args[0], req.args[1]);
+    bool removed = d.shm_registry.unregister_endpoint(id);
+    r.ok = true;
+    r.lines.push_back(removed ? "removed" : "not_present");
     return r;
 }
 
@@ -275,8 +329,10 @@ sd::CtlResponse dispatch(Daemon& d, const sd::CtlRequest& req) {
     if (req.op == "metrics")     return op_metrics(d, req);
     if (req.op == "reload")      return op_reload(d, req);
     if (req.op == "drain")       return op_drain(d, req);
-    if (req.op == "ping")        return op_ping(d, req);
-    if (req.op == "help")        return op_help(d, req);
+    if (req.op == "ping")           return op_ping(d, req);
+    if (req.op == "help")           return op_help(d, req);
+    if (req.op == "shm-register")   return op_shm_register(d, req);
+    if (req.op == "shm-unregister") return op_shm_unregister(d, req);
     sd::CtlResponse r;
     r.ok = false;
     r.error = std::string("unknown op: ") + req.op + " (try 'help')";

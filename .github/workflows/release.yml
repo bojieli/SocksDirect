@@ -19,10 +19,16 @@ jobs:
         run: |
           name="socksdirect-${{ steps.ver.outputs.v }}"
           mkdir -p dist
+          # Exclude `rdma/hrd_*` from the source release: those files
+          # have unclear upstream licensing (see docs/THIRD_PARTY.md)
+          # and shouldn't be redistributed under our Apache-2.0 grant.
           tar --transform "s,^\.,${name}," \
               --exclude='.git' --exclude='build' --exclude='build-*' \
               --exclude='dist' --exclude='reproduce/results' \
               --exclude='SocksDirect-paper' \
+              --exclude='rdma/hrd_conn.cc' \
+              --exclude='rdma/hrd_util.cc' \
+              --exclude='rdma/hrd.h' \
               -czf "dist/${name}.tar.gz" .
           (cd dist && sha256sum *.tar.gz > SHA256SUMS)
       - uses: actions/upload-artifact@v4
@@ -70,6 +76,9 @@ jobs:
           tar --transform "s,^\.,socksdirect-${version}," \
               --exclude='.git' --exclude='build' --exclude='build-*' \
               --exclude='dist' --exclude='SocksDirect-paper' \
+              --exclude='rdma/hrd_conn.cc' \
+              --exclude='rdma/hrd_util.cc' \
+              --exclude='rdma/hrd.h' \
               -czf "/tmp/rpmbuild/SOURCES/socksdirect-${version}.tar.gz" .
           cp packaging/rpm/socksdirect.spec /tmp/rpmbuild/SPECS/
           rpmbuild --define "_topdir /tmp/rpmbuild" \

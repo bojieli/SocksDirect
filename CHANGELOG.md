@@ -7,6 +7,49 @@ follows semantic versioning once it reaches v1.0.
 ## [Unreleased]
 
 ### Added
+- **`LICENSE`** — Apache License, Version 2.0. Hard prerequisite
+  for any public release; copied from OpenClickNP and retagged
+  "Copyright 2026 The SocksDirect Authors".
+- **`NOTICE`** — Apache-2.0 §4(d) attribution file. Lists
+  HERD-derived helpers, googletest, and the project's own
+  license.
+- **`RELEASE_NOTES.md`** — explicit `v0.1.0-preview` release
+  notes with the tag command queued (not pushed; user-action
+  required).
+- **`include/socksdirect/zerocopy_mock.hpp`** + 8 unit tests —
+  in-process fake of `/dev/socksdirect` so `ZeroCopyClient` is
+  exercised end-to-end without loading the real kernel module.
+  Closes the "LKM page-mapping has no functional test on this
+  VM" soft blocker.
+- **`include/socksdirect/shm_handshake.hpp`** + 7 unit tests +
+  3 monitor-daemon integration tests — Phase 3 keystone scaffold.
+  Two preloaded peers register with the monitor; the registry
+  hands back the same SHM key to both sides regardless of who
+  calls first. The monitor exposes `shm-register` and
+  `shm-unregister` ops. The actual ring semantics (allocation,
+  mmap, send/recv replacement, fallback) are the next Phase 3 PR.
+- **FATAL→errno conversions in legacy `lib/socket_lib.cpp`**:
+  - The `AF_INET` family check now returns `-1 + EAFNOSUPPORT`.
+  - The `inet_aton` failure path now returns `-1 + EINVAL`.
+  - 113 sites remain in the legacy tree;
+    `docs/error-handling-audit.md` documents why the rest are
+    deferred to the Phase 3 lib rewrite rather than retrofit on
+    the about-to-be-retired code.
+- **Maintainer email** pinned in `docs/SECURITY.md` for vuln
+  reports (`bojieli@gmail.com`).
+
+### Changed
+- **`docs/THIRD_PARTY.md`** — corrected the HERD entry. Upstream
+  declares no license as of 2026-05-06; vendored files
+  (`rdma/hrd_*`) are excluded from the source tarball produced
+  by `release.yml` unless the builder has an out-of-band
+  redistribution grant.
+- **`reproduce/vm-images/{tier1,tier2}.pkr.hcl`** — annotated
+  the default cloud-init credentials (`ubuntu`/`ubuntu`) with a
+  security note pointing at a "Hardening before redistribution"
+  section in the README.
+
+### Documentation expansion (in this release cycle)
 - **Documentation expansion**:
   - `docs/README.md` — entry-point doc index. Tells newcomers
     which file to open based on their goal (try / reproduce /

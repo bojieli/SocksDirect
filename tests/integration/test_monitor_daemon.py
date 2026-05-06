@@ -267,3 +267,46 @@ def test_graceful_shutdown_is_clean(monitor_path, tmp_path):
     assert rc == 0
     assert not sock.exists()
     assert not pid_file.exists()
+
+
+# ---------------------------------------------------------------------------
+# SHM intra-host handshake — Phase 3 scaffold. Two ctl calls register
+# the same canonical pair; the second sees the same key.
+# ---------------------------------------------------------------------------
+
+def test_shm_handshake_creator_then_joiner(ctl_path, monitor):
+    _, sock = monitor
+    a = "127.0.0.1:11000"
+    b = "127.0.0.1:11001"
+    r1 = _ctl(ctl_path, sock, "shm-register", a, b, "1234")
+    assert r1.returncode == 0, r1.stderr
+    out1 = r1.stdout.decode()
+    assert "role=creator" in out1
+    key1 = next(l for l in out1.splitlines() if l.startswith("shm_key="))
+    r2 = _ctl(ctl_path, sock, "shm-register", b, a, "5678")  # reversed order
+    assert r2.returncode == 0, r2.stderr
+    out2 = r2.stdout.decode()
+    assert "role=joiner" in out2
+    assert key1 in out2  # same key after canonicalization
+    assert "pid_a=1234" in out2
+    assert "pid_b=5678" in out2
+
+
+def test_shm_handshake_unregister(ctl_path, monitor):
+    _, sock = monitor
+    a, b = "127.0.0.1:11002", "127.0.0.1:11003"
+    _ctl(ctl_path, sock, "shm-register", a, b, "100")
+    r = _ctl(ctl_path, sock, "shm-unregister", a, b)
+    assert r.returncode == 0
+    assert b"removed" in r.stdout
+    # second unregister is a no-op
+    r2 = _ctl(ctl_path, sock, "shm-unregister", a, b)
+    assert r2.returncode == 0
+    assert b"not_present" in r2.stdout
+
+
+def test_shm_handshake_bad_args(ctl_path, monitor):
+    _, sock = monitor
+    r = _ctl(ctl_path, sock, "shm-register", "only-one-arg")
+    assert r.returncode == 1
+    assert b"usage" in r.stderr

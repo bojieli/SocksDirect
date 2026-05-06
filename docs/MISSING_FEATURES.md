@@ -140,6 +140,29 @@ For each gap we list:
   userspace `ZeroCopyClient::open()` does this implicitly.
 - **Tracker**: closed; landing-and-soak in Phase 5 §6.
 
+### SHM intra-host data plane (Phase 3 keystone)
+
+- **Symptom**: the new `src/lib/libsd.so` is instrumented
+  passthrough — every libc call is observed and forwarded to glibc
+  unchanged. The paper's intra-host throughput claims aren't yet
+  reproducible against this library; only `libsd-legacy.so` (the
+  RDMA + HERD opt-in build) hits them.
+- **Status**: scaffold landed. `include/socksdirect/shm_handshake.hpp`
+  provides the handshake registry; the monitor exposes
+  `shm-register` / `shm-unregister` ops; integration test verifies
+  two preloaded peers converge on the same SHM key.
+- **Disposition**: REWRITE. Remaining work:
+  1. Allocate the SHM segment from a hugepage pool when the
+     monitor brokers a key.
+  2. `mmap()` it on both sides into the libsd-side connection
+     state, replacing send/recv/sendmsg/recvmsg's data path with
+     ring writes/reads.
+  3. Notification: signalfd or futex-on-ring so a recv blocks
+     when the ring is empty.
+  4. Fall back to TCP cleanly when the SHM ring goes away (peer
+     died, monitor restarted, etc.).
+- **Tracker**: REWRITE_PLAN.md Phase 3 §6.
+
 ## Items we believe are absent for good reasons (not gaps)
 
 - **TLS / authentication on the data plane.** Out of scope per the

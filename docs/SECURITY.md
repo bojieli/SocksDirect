@@ -156,7 +156,10 @@ narrow the bounding set as Phase 3 lands.
 
 For issues you believe affect downstream users:
 
-1. **Don't open a public issue.** Email the project maintainers.
+1. **Don't open a public issue.** Email the project maintainer:
+   **`bojieli@gmail.com`** (Bojie Li). PGP not currently
+   available; use the address for initial contact and we'll
+   move to a side channel if the report is sensitive.
 2. Include a reproducer, the package versions, and the kernel
    version (`uname -a`).
 3. We follow a 90-day coordinated-disclosure window unless the
