@@ -1,0 +1,31 @@
+# syntax=docker/dockerfile:1
+#
+# Dockerfile.rpm-builder — produce socksdirect .rpm packages.
+#
+#   docker build -t socksdirect-rpm-builder \
+#       -f packaging/docker/Dockerfile.rpm-builder .
+#   docker run --rm -v "$(pwd)/dist:/out" socksdirect-rpm-builder
+
+FROM rockylinux:9 AS builder
+
+RUN dnf install -y rpm-build cmake gcc-c++ \
+    rdma-core-devel numactl-devel libmemcached-devel \
+    systemd-rpm-macros python3 git tar \
+    && dnf clean all
+
+WORKDIR /src
+COPY . /src
+
+RUN VERSION=$(grep -oP '^Version:\s*\K\S+' packaging/rpm/socksdirect.spec) \
+    && mkdir -p /tmp/build/SOURCES /tmp/build/SPECS /tmp/build/BUILD \
+    && tar --transform "s,^\.,socksdirect-${VERSION}," \
+           -czf /tmp/build/SOURCES/socksdirect-${VERSION}.tar.gz \
+           --exclude='.git' --exclude='build' --exclude='build-*' \
+           --exclude='dist' . \
+    && cp packaging/rpm/socksdirect.spec /tmp/build/SPECS/ \
+    && rpmbuild --define "_topdir /tmp/build" \
+                -bb /tmp/build/SPECS/socksdirect.spec || true \
+    && mkdir -p /out && cp /tmp/build/RPMS/*/*.rpm /out/ 2>/dev/null || true
+
+FROM scratch
+COPY --from=builder /out /out

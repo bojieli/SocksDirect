@@ -1,0 +1,108 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+      - 'v[0-9]+.[0-9]+.[0-9]+-*'
+
+jobs:
+  source-tarball:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { fetch-depth: 0 }
+      - name: Render version
+        id: ver
+        run: echo "v=$(echo ${GITHUB_REF#refs/tags/v})" >> $GITHUB_OUTPUT
+      - name: Build source tarball
+        run: |
+          name="socksdirect-${{ steps.ver.outputs.v }}"
+          mkdir -p dist
+          tar --transform "s,^\.,${name}," \
+              --exclude='.git' --exclude='build' --exclude='build-*' \
+              --exclude='dist' --exclude='reproduce/results' \
+              --exclude='SocksDirect-paper' \
+              -czf "dist/${name}.tar.gz" .
+          (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: source-tarball
+          path: dist/*
+
+  deb:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y devscripts debhelper fakeroot cmake \
+              build-essential libibverbs-dev libmemcached-dev libnuma-dev \
+              rdma-core
+      - name: dpkg-buildpackage
+        run: |
+          cp -r packaging/debian debian
+          dpkg-buildpackage -us -uc -b -d || true
+          mkdir -p dist
+          mv ../*.deb dist/ 2>/dev/null || true
+          ls -1 dist/ || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: deb-packages
+          path: dist/*.deb
+          if-no-files-found: warn
+
+  rpm:
+    runs-on: ubuntu-22.04
+    container: rockylinux:9
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          dnf install -y rpm-build cmake gcc-c++ rdma-core-devel \
+              numactl-devel libmemcached-devel systemd-rpm-macros \
+              python3 git tar
+      - name: rpmbuild
+        run: |
+          version="${GITHUB_REF#refs/tags/v}"
+          mkdir -p /tmp/rpmbuild/{SOURCES,SPECS,BUILD,RPMS,SRPMS}
+          tar --transform "s,^\.,socksdirect-${version}," \
+              --exclude='.git' --exclude='build' --exclude='build-*' \
+              --exclude='dist' --exclude='SocksDirect-paper' \
+              -czf "/tmp/rpmbuild/SOURCES/socksdirect-${version}.tar.gz" .
+          cp packaging/rpm/socksdirect.spec /tmp/rpmbuild/SPECS/
+          rpmbuild --define "_topdir /tmp/rpmbuild" \
+                   -bb /tmp/rpmbuild/SPECS/socksdirect.spec || true
+          mkdir -p dist
+          find /tmp/rpmbuild/RPMS -name '*.rpm' -exec cp {} dist/ \; || true
+          ls -1 dist/ || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rpm-packages
+          path: dist/*.rpm
+          if-no-files-found: warn
+
+  github-release:
+    needs: [source-tarball, deb, rpm]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist/
+      - name: Flatten artifacts
+        run: |
+          mkdir -p release
+          find dist/ -type f \( -name '*.deb' -o -name '*.rpm' \
+                              -o -name '*.tar.gz' -o -name 'SHA256SUMS' \) \
+                              -exec cp {} release/ \;
+          (cd release && sha256sum *.deb *.rpm *.tar.gz 2>/dev/null > SHA256SUMS) || true
+          ls -lh release/
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
+          fail_on_unmatched_files: false

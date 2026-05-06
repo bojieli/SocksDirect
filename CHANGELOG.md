@@ -7,6 +7,42 @@ follows semantic versioning once it reaches v1.0.
 ## [Unreleased]
 
 ### Added
+- **Phase 3 keystone — new src/lib/ libsd preload library**:
+  - `src/lib/preload.cpp` — constructor (logger init, config load,
+    FdRemapTable allocation, optional monitor handshake), destructor,
+    `g_active`/`g_in_hook` re-entrancy guards.
+  - `src/lib/socket_api.cpp` — full socket family with proper
+    semantics for ACCELERATED / PASSTHROUGH / PARTIAL entries.
+  - `src/lib/file_api.cpp` — close/dup/dup2/dup3/fcntl using
+    FdRemapTable's refcount machinery (retiring the prototype's
+    UNSUPPORTED tag for the dup family).
+  - `src/lib/poll_api.cpp` — epoll family.
+  - `src/lib/process_api.cpp` — fork/vfork/sigaction.
+  - Built unconditionally; no RDMA/HERD dep; visibility=hidden so
+    only the SOCKSDIRECT_HOOK extern "C" symbols escape.
+  - 14 new pytest cases verify LD_PRELOAD survives `true`/`echo`/
+    `ls`/`curl`/forked TCP echo; the conformance suite runs green
+    under preload; libsd registers with the monitor when present
+    and falls back to standalone mode otherwise.
+- **`tests/conformance/run_conformance.py --preload`** wires every
+  coverage.toml entry through the new libsd; each status class is
+  honored.
+- **LTP socket conformance** at `tests/conformance/ltp.py` plus
+  `integration-ltp` ctest. Skips cleanly when LTP isn't installed.
+- **Release workflow** at `.github/workflows/release.yml` — on tag
+  push, builds source-tarball, .deb, .rpm, uploads to a GitHub
+  release with SHA256SUMS. `packaging/docker/Dockerfile.{deb,rpm}-builder`
+  for local artifact builds.
+- **Self-hosted perf-regression workflow** at
+  `.github/workflows/perf-regression.yml` (`[self-hosted, perf]`,
+  10% threshold, `tools/perf-baselines/` storage,
+  `workflow_dispatch -f refresh_baseline=true`).
+- **Packer validation** in main CI — `packer validate -syntax-only`
+  on tier1/tier2 manifests; doesn't need KVM.
+- **Repro dry-run sweep** at `tools/repro_dry_run.sh` plus the
+  `repro-dry-run` CI job. Every figure script either runs end-to-end
+  at Tier 1 or emits a sentinel artifact, so script bit-rot is
+  caught without RDMA hardware.
 - **Production monitor daemon** at `src/monitor/main.cpp` — single
   threaded poll() event loop using the new Logger / Metrics /
   MonitorIpc / Config; ops `status`, `connections`, `dump-state`,

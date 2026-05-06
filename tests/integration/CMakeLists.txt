@@ -24,19 +24,17 @@ _resolve_target_file(_libsd_path        sd)
 _resolve_target_file(_monitor_path      socksdirect-monitor)
 _resolve_target_file(_ctl_path          socksdirect-ctl)
 
-# --- libsd-dependent suite (preload-based scenarios) ------------------------
+# --- libsd preload suite (uses the new src/lib/ libsd) ----------------------
 if(TARGET sd)
     add_test(
-        NAME integration-preload
+        NAME integration-libsd-preload
         COMMAND ${Python3_EXECUTABLE} -m pytest
-                ${CMAKE_CURRENT_SOURCE_DIR}/test_intra_host_tcp_echo.py
-                ${CMAKE_CURRENT_SOURCE_DIR}/test_preload_does_not_break_basic_commands.py
-                ${CMAKE_CURRENT_SOURCE_DIR}/test_smoke_passthrough.py
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_libsd_preload.py
                 -v --tb=short --color=yes)
-    set_tests_properties(integration-preload PROPERTIES
+    set_tests_properties(integration-libsd-preload PROPERTIES
         TIMEOUT 300
         ENVIRONMENT
-            "SOCKSDIRECT_LIB=${_libsd_path};SOCKSDIRECT_MONITOR=${_monitor_path};PYTHONDONTWRITEBYTECODE=1")
+            "SOCKSDIRECT_LIB=${_libsd_path};PYTHONDONTWRITEBYTECODE=1")
 endif()
 
 # --- ctl suite (no libsd needed) --------------------------------------------
@@ -122,6 +120,16 @@ add_test(
             -v --tb=short --color=yes)
 set_tests_properties(integration-api-doc-drift PROPERTIES
     TIMEOUT 30
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+# --- LTP socket conformance --------------------------------------------------
+add_test(
+    NAME integration-ltp
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_ltp.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-ltp PROPERTIES
+    TIMEOUT 180
     ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
 # --- conformance baseline (no preload; validates coverage.toml) -------------

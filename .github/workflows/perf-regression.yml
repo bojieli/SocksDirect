@@ -1,0 +1,96 @@
+name: perf-regression
+
+# Microbenchmark regression gate. Runs on a self-hosted runner so we
+# get pinned-CPU stable numbers. The "self-hosted" + "perf" labels
+# select a machine the maintainers control; if that label set isn't
+# claimed, the job stays queued and a comment lands on the PR (see
+# `if:` guard below).
+#
+# Baselines live in `tools/perf-baselines/` and are refreshed by
+# manual workflow_dispatch when the maintainers commit to a new
+# floor.
+
+on:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      refresh_baseline:
+        description: "Overwrite tools/perf-baselines/<bench>.jsonl"
+        type: boolean
+        default: false
+
+concurrency:
+  # One PR run at a time; the self-hosted box can't multitask
+  # without skewing numbers.
+  group: perf-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bench:
+    if: ${{ vars.PERF_RUNNER_AVAILABLE == 'true' }}
+    runs-on: [self-hosted, perf]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Configure + build (Release, no RDMA)
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DSOCKSDIRECT_WITH_RDMA=OFF
+          cmake --build build -j -- bench_queue_v3 bench_fd_remap bench_metrics bench_config
+
+      - name: Pin CPUs and isolate
+        run: |
+          # Self-hosted runners are expected to have isolcpus=4-7 in
+          # cmdline. We taskset to those for stable numbers.
+          for f in /sys/devices/system/cpu/intel_pstate/no_turbo; do
+              [ -e "$f" ] && echo 1 | sudo tee "$f" || true
+          done
+
+      - name: Run benchmarks
+        run: |
+          set -x
+          mkdir -p current
+          taskset -c 4 ./build/bench/microbench/bench_queue_v3 --mode=throughput --count=10000000 > current/queue_v3.jsonl
+          taskset -c 4 ./build/bench/microbench/bench_queue_v3 --mode=latency    --count=200000  >> current/queue_v3.jsonl
+          taskset -c 4 ./build/bench/microbench/bench_fd_remap --mode=throughput --count=1000000 --threads=4 > current/fd_remap.jsonl
+          taskset -c 4 ./build/bench/microbench/bench_fd_remap --mode=latency    --count=200000          >> current/fd_remap.jsonl
+          taskset -c 4 ./build/bench/microbench/bench_metrics  --mode=throughput --count=5000000 --threads=4 > current/metrics.jsonl
+          taskset -c 4 ./build/bench/microbench/bench_config   --count=2000000                              > current/config.jsonl
+          cat current/*.jsonl > current/all.jsonl
+
+      - name: Compare to baseline
+        run: |
+          if [ ! -f tools/perf-baselines/all.jsonl ]; then
+            echo "::warning::no baseline at tools/perf-baselines/all.jsonl; skipping comparison"
+            exit 0
+          fi
+          python3 tools/perf_regression.py \
+              --baseline tools/perf-baselines/all.jsonl \
+              --current  current/all.jsonl \
+              --threshold 0.10
+
+      - name: Refresh baseline (manual)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.refresh_baseline == true }}
+        run: |
+          mkdir -p tools/perf-baselines
+          cp current/all.jsonl tools/perf-baselines/all.jsonl
+          git config user.name  "perf-bot"
+          git config user.email "perf-bot@socksdirect.local"
+          git add tools/perf-baselines/all.jsonl
+          git commit -m "perf: refresh baseline"
+          git push
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perf-current
+          path: current/
+
+  no-self-hosted:
+    if: ${{ vars.PERF_RUNNER_AVAILABLE != 'true' }}
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Note absence
+        run: |
+          echo "::notice::Self-hosted perf runner not configured; perf gate skipped."
+          echo "To enable: configure a self-hosted runner with the 'perf' label"
+          echo "and set repository variable PERF_RUNNER_AVAILABLE=true."

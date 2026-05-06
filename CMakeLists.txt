@@ -73,10 +73,38 @@ if(SOCKSDIRECT_WITH_HERD)
 endif()
 
 # ---------------------------------------------------------------------------
-# libsd (the preloaded user-space library)
+# libsd — the preloaded user-space library (post-rewrite, Phase 3).
+#
+# Built unconditionally. No RDMA / HERD dependency. Provides correct
+# semantics for every libc function in tests/conformance/coverage.toml,
+# using the new public APIs under include/socksdirect/. The SHM data
+# plane lives in src/lib/ and is "instrumented passthrough" today —
+# every call is observed, bookkept via FdRemapTable, and forwarded to
+# glibc. The data-plane fast paths (SHM rings, page-remap zero-copy)
+# land on top of this scaffold in follow-up Phase 3 PRs.
 # ---------------------------------------------------------------------------
+add_library(sd SHARED
+    src/lib/preload.cpp
+    src/lib/socket_api.cpp
+    src/lib/file_api.cpp
+    src/lib/poll_api.cpp
+    src/lib/process_api.cpp)
+set_target_properties(sd PROPERTIES OUTPUT_NAME "sd")
+target_include_directories(sd PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    ${CMAKE_CURRENT_SOURCE_DIR}/include)
+target_link_libraries(sd PRIVATE Threads::Threads dl)
+# -fvisibility=hidden so only the SOCKSDIRECT_HOOK extern "C" symbols
+# escape; all internal symbols stay private.
+target_compile_options(sd PRIVATE -fvisibility=hidden -fPIC)
+install(TARGETS sd LIBRARY DESTINATION lib)
+
+# Legacy data-plane libsd (RDMA + HERD wiring). Built only when those
+# are enabled. Kept in tree as `sd-legacy` so existing perf scripts and
+# the old reproduction figures still work; will be retired when Phase 3
+# completes the SHM/RDMA data-plane port to src/lib/.
 if(SOCKSDIRECT_WITH_RDMA AND SOCKSDIRECT_WITH_HERD)
-    set(LIBSD_SOURCES
+    set(LIBSD_LEGACY_SOURCES
         common/helper.c
         common/interprocess_t.cpp
         common/rdma.cpp
@@ -87,20 +115,16 @@ if(SOCKSDIRECT_WITH_RDMA AND SOCKSDIRECT_WITH_HERD)
         lib/lib.cpp
         lib/fork.cpp
         lib/rdma_lib.cpp)
-    add_library(sd SHARED ${LIBSD_SOURCES})
-    set_target_properties(sd PROPERTIES OUTPUT_NAME "sd")
-    target_link_libraries(sd PUBLIC hrd dl Threads::Threads ${IBVERBS_LIBRARY})
-    target_include_directories(sd PUBLIC
+    add_library(sd-legacy SHARED ${LIBSD_LEGACY_SOURCES})
+    set_target_properties(sd-legacy PROPERTIES OUTPUT_NAME "sd-legacy")
+    target_link_libraries(sd-legacy PUBLIC hrd dl Threads::Threads ${IBVERBS_LIBRARY})
+    target_include_directories(sd-legacy PUBLIC
         ${CMAKE_CURRENT_SOURCE_DIR}
         ${CMAKE_CURRENT_SOURCE_DIR}/include)
 
     add_library(sd-common SHARED common/helper.c lib/pot_socket_lib.cpp common/rdma.cpp)
     set_target_properties(sd-common PROPERTIES OUTPUT_NAME "sdcommon")
     target_link_libraries(sd-common PUBLIC hrd dl Threads::Threads ${IBVERBS_LIBRARY})
-
-    # Backwards-compatible aliases until callers are migrated.
-    add_library(ipc ALIAS sd)
-    add_library(ipc-common ALIAS sd-common)
 endif()
 
 # ---------------------------------------------------------------------------

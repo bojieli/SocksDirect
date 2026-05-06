@@ -42,6 +42,20 @@ require_libsd() {
 
 require_two_hosts() {
     if [[ "${REPRO_TIER}" -lt 3 ]]; then
+        if [[ "${REPRO_DRY_RUN:-0}" == "1" ]]; then
+            # Dry-run mode: emit a sentinel CSV that validates the
+            # figure script is wired correctly, without trying to
+            # actually run anything. Used by CI to catch script
+            # bit-rot when no hardware is available.
+            : "${REPRO_RESULTS_DIR:?}"
+            mkdir -p "$REPRO_RESULTS_DIR"
+            cat > "$REPRO_RESULTS_DIR/result.csv" <<EOF_CSV
+iter,bench,submode,mode,msg_size,throughput_mps,p50_ns
+DRYRUN,$(basename "$(dirname "${BASH_SOURCE[1]}")"),dry-run,annotation,,,
+EOF_CSV
+            echo "DRYRUN: $(basename "$(dirname "${BASH_SOURCE[1]}")") would run on Tier 3 hardware"
+            exit 0
+        fi
         skip_figure "inter-host figure requires Tier 3 (real RDMA on two hosts)"
     fi
 }

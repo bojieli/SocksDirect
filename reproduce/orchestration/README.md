@@ -24,10 +24,10 @@ via SSH.
 
 ## What this exists to fix
 
-The legacy `data/*/test_*.sh` scripts hardcoded `ssh user@10.1.2.34 ...`
-all over the place. Each environment had to fork the scripts. The
-playbook keeps the inventory in one file and the SSH plumbing in
-Ansible.
+The legacy `data/*/test_*.sh` scripts hardcoded SSH targets and
+private-network IPs in every script body. Each environment had to
+fork the scripts. The playbook keeps the inventory in one file and
+the SSH plumbing in Ansible.
 
 ## When you don't need this
 

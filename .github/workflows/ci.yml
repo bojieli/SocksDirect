@@ -150,6 +150,51 @@ jobs:
         run: python3 tools/check_kernel_abi.py
 
   # -------------------------------------------------------------------
+  # Repro dry-run: every figure script either runs end-to-end at Tier 1
+  # or emits a sentinel artifact. Catches bit-rot in run.sh files.
+  # -------------------------------------------------------------------
+  repro-dry-run:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install build deps
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake build-essential python3 nginx
+      - name: Build
+        run: |
+          cmake -S . -B build -DSOCKSDIRECT_WITH_RDMA=OFF
+          cmake --build build -j -- bench_queue_v3 bench_fd_remap bench_metrics bench_config linux_tcp_pingpong
+      - name: Dry-run sweep
+        run: ./tools/repro_dry_run.sh
+
+  # -------------------------------------------------------------------
+  # Packer manifest validation. No KVM required, just `packer validate`.
+  # -------------------------------------------------------------------
+  packer-validate:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install packer
+        run: |
+          wget -O- https://apt.releases.hashicorp.com/gpg \
+              | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+          echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" \
+              | sudo tee /etc/apt/sources.list.d/hashicorp.list
+          sudo apt-get update
+          sudo apt-get install -y packer
+          packer version
+      - name: packer init + validate (tier1)
+        run: |
+          cd reproduce/vm-images
+          packer init . || true
+          packer validate -syntax-only tier1.pkr.hcl
+      - name: packer init + validate (tier2)
+        run: |
+          cd reproduce/vm-images
+          packer validate -syntax-only tier2.pkr.hcl
+
+  # -------------------------------------------------------------------
   # Reproduction harness CLI tests — verify the user-facing tool works.
   # -------------------------------------------------------------------
   repro-cli:
