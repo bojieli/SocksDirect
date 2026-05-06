@@ -48,6 +48,11 @@ source "qemu" "tier1" {
   cpus             = 2
   accelerator      = "kvm"
   headless         = true
+  # The ssh_username/password match the cloud-init autoinstall config
+  # under http/user-data and are used only during the packer build
+  # handshake itself. The image is intended for *local reproduction*,
+  # not direct internet exposure; if you publish a built qcow2, lock
+  # or rotate the credentials first. See README.md "Hardening".
   ssh_username     = "ubuntu"
   ssh_password     = "ubuntu"
   ssh_timeout      = "30m"

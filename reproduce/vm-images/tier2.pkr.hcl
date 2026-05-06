@@ -26,6 +26,7 @@ source "qemu" "tier2" {
   cpus             = 8
   accelerator      = "kvm"
   headless         = true
+  # See tier1.pkr.hcl for the security note on these defaults.
   ssh_username     = "ubuntu"
   ssh_password     = "ubuntu"
   ssh_timeout      = "30m"

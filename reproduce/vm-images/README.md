@@ -40,6 +40,28 @@ cd /opt/socksdirect
 ./reproduce/repro all
 ```
 
+## Hardening before redistribution
+
+Both manifests provision the build VM with cloud-init credentials
+(`ubuntu` / `ubuntu`) so packer can SSH in during the install. The
+resulting qcow2 inherits those credentials. **If you redistribute the
+image**, before publishing:
+
+```bash
+# Boot the image, then inside it:
+sudo passwd -l ubuntu                # lock password login
+sudo userdel -r ubuntu || true       # or remove the user entirely
+sudo rm /etc/sudoers.d/ubuntu        # drop the NOPASSWD line
+sudo cloud-init clean --logs --seed  # wipe instance state
+sudo shutdown -h now
+```
+
+Then `qemu-img convert` the result to a fresh qcow2 to drop sectors
+that the package manager left behind.
+
+For Tier-1 images shared internally for reproduction, the defaults
+are fine.
+
 ## Validate manifest syntax (no build)
 
 ```bash

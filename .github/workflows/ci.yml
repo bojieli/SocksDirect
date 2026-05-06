@@ -80,7 +80,11 @@ jobs:
           # (CHANGELOG documents history; conftest.py keeps a fallback for
           # build trees produced before the rename; this CI file *is* the
           # gate). Add new exceptions sparingly.
-          EXCEPT=':!CHANGELOG.md :!.github/workflows/ci.yml'
+          # Files exempt because they document history (not code):
+          #   CHANGELOG.md  — past renames are a feature of the changelog
+          #   docs/MIGRATION.md — by definition lists the old strings
+          #   .github/workflows/ci.yml — this file IS the gate
+          EXCEPT=':!CHANGELOG.md :!docs/MIGRATION.md :!.github/workflows/ci.yml'
           if git grep -nE "$BAD" -- \
                 src/ include/ tests/ tools/ bench/ reproduce/ \
                 packaging/ docs/ apps/ .github/ \

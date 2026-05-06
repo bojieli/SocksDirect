@@ -1,23 +1,23 @@
 # Shared pytest fixtures for integration tests.
 #
+# Each test file that needs a monitor or libsd typically defines its
+# own local fixture (see test_monitor_daemon.py / test_libsd_preload.py)
+# so per-test concerns (control-socket path, log level, lifecycle
+# semantics) are explicit. The module-scope fixtures below are
+# convenience wrappers used by a few smaller tests.
+#
 # Conventions:
-#   - Tests assume the monitor and libsd have been built and that paths
-#     are passed via SOCKSDIRECT_LIB and SOCKSDIRECT_MONITOR env vars
-#     (set by the CMake test target).
-#   - Each test function gets a fresh monitor process via the `monitor`
-#     fixture. The monitor is killed after the test.
-#   - Helper utilities for spawning preloaded child processes are in
-#     tests/integration/_harness.py.
+#   - Build artifacts are discovered via env vars (set by CMake) or via
+#     a glob over `build*/`.
+#   - The `monitor` fixture below is intentionally NOT used by
+#     test_monitor_daemon.py — that file owns its own monitor
+#     lifecycle so parallel ctest runs don't trip over a global pkill.
 
 from __future__ import annotations
 
 import os
-import shutil
 import socket
-import subprocess
-import time
 from pathlib import Path
-from typing import Iterator
 
 import pytest
 
@@ -63,66 +63,14 @@ def libsd_path() -> Path:
 def monitor_path() -> Path:
     p = _resolve_artifact(
         MONITOR_PATH_ENV,
-        ["build/socksdirect-monitor", "build*/socksdirect-monitor", "build*/monitor"],
+        ["build/socksdirect-monitor", "build*/socksdirect-monitor"],
     )
     if p is None:
         pytest.skip(
-            f"socksdirect-monitor not found; set {MONITOR_PATH_ENV} or build "
-            f"with -DSOCKSDIRECT_WITH_RDMA=ON"
+            f"socksdirect-monitor not found; set {MONITOR_PATH_ENV} or "
+            f"run cmake --build build -- socksdirect-monitor"
         )
     return p
-
-
-# ---------------------------------------------------------------------------
-# Monitor lifecycle
-# ---------------------------------------------------------------------------
-
-MONITOR_SOCKET = Path("/tmp/ipcd.sock")
-
-
-@pytest.fixture
-def monitor(monitor_path: Path) -> Iterator[subprocess.Popen]:
-    """Boot a fresh monitor; tear it down after the test."""
-    # Make sure no stale socket from a prior run lingers.
-    MONITOR_SOCKET.unlink(missing_ok=True)
-
-    # Make sure no stale monitor is still running.
-    subprocess.run(["pkill", "-f", "socksdirect-monitor"], check=False)
-    subprocess.run(["pkill", "-f", "/monitor"], check=False)
-    time.sleep(0.05)
-
-    proc = subprocess.Popen(
-        [str(monitor_path)],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
-        cwd="/tmp",
-    )
-
-    # Wait up to 3 s for the monitor to create its accept socket.
-    deadline = time.time() + 3.0
-    while time.time() < deadline:
-        if MONITOR_SOCKET.exists():
-            break
-        if proc.poll() is not None:
-            stdout = proc.stdout.read().decode(errors="replace")  # type: ignore[union-attr]
-            stderr = proc.stderr.read().decode(errors="replace")  # type: ignore[union-attr]
-            pytest.fail(
-                f"monitor exited prematurely (rc={proc.returncode})\n"
-                f"stdout:\n{stdout}\nstderr:\n{stderr}"
-            )
-        time.sleep(0.05)
-    else:
-        proc.terminate()
-        pytest.fail("monitor did not create its accept socket within 3 s")
-
-    yield proc
-
-    proc.terminate()
-    try:
-        proc.wait(timeout=2.0)
-    except subprocess.TimeoutExpired:
-        proc.kill()
-        proc.wait()
 
 
 # ---------------------------------------------------------------------------

@@ -29,6 +29,7 @@
 #include "socksdirect/monitor_ipc.hpp"
 
 #include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -102,6 +103,11 @@ int run_request(const std::string& sock_path,
 }  // namespace
 
 int main(int argc, char** argv) {
+    // Ignore SIGPIPE so write() to a peer that closed early returns
+    // EPIPE instead of killing us. The daemon may have closed the
+    // connection (e.g. drain mode) before our write reached it.
+    std::signal(SIGPIPE, SIG_IGN);
+
     std::string sock_path =
         std::getenv("SOCKSDIRECT_CTL_SOCKET")
             ? std::getenv("SOCKSDIRECT_CTL_SOCKET")

@@ -183,10 +183,22 @@ def test_drain_blocks_subsequent_clients(ctl_path, monitor):
     r = _ctl(ctl_path, sock, "drain")
     assert r.returncode == 0, r.stderr
     assert b"draining" in r.stdout
-    # New ctl call should be rejected with ok=false (error="draining").
-    r2 = _ctl(ctl_path, sock, "status")
-    assert r2.returncode == 1
-    assert b"draining" in r2.stderr
+    # New ctl calls are rejected. The server writes the rejection
+    # response and then closes; depending on which side wins the race
+    # the client sees:
+    #   rc=1 — got the rejection cleanly (ok=false, error="draining")
+    #   rc=4 — read got EOF before a full response arrived
+    # Either is correct behavior; we only insist that the call doesn't
+    # *succeed* (rc=0). Retry once if we hit the EOF race so the
+    # assertion message includes the rejection text on success.
+    seen_drain = False
+    for _ in range(3):
+        r2 = _ctl(ctl_path, sock, "status")
+        assert r2.returncode != 0, r2.stdout
+        if b"draining" in r2.stderr:
+            seen_drain = True
+            break
+    assert seen_drain, "rejection message never made it back"
 
 
 def test_sighup_triggers_reload(ctl_path, monitor):
