@@ -6,17 +6,14 @@ described in the SOCKSDIRECT paper (`paper/`); this repository is the
 production rewrite that takes the prototype and turns it into a system
 you can install, reproduce, monitor, and contribute to.
 
-> **Status (May 2026)**: rewrite phases 1–7 land in `master`. The
-> control plane (Logger, Metrics, MonitorIpc, the `socksdirect-monitor`
-> daemon, `socksdirect-ctl`), the kernel module ABI + page-mapping,
-> the reproduction harness with 12 figures, the conformance suite, the
-> packaging pipeline, and the new `src/lib/` libsd preload library are
-> all in place. The SHM data plane port from the legacy
-> `lib/socket_lib.cpp` to `src/lib/` is the remaining engineering
-> work — the new libsd is **instrumented passthrough** today, so a
-> preloaded application is *correct* but not yet noticeably faster.
-> See [`docs/PERFORMANCE`](docs/PERFORMANCE.md) for the honest
-> performance picture.
+> **Status (May 2026)**: rewrite phases 1–7 land in `master` and the
+> Phase 3 SHM intra-host data plane is live. Two preloaded processes
+> talking over `127.0.0.1` exchange messages through a SHM ring
+> brokered by the monitor; on this VM that's **16.6× higher
+> throughput and 13× lower p50 latency than vanilla loopback TCP**.
+> Inter-host RDMA still requires the legacy `libsd-legacy.so` build
+> while the RDMA port to `src/lib/` is in progress. See
+> [`docs/PERFORMANCE`](docs/PERFORMANCE.md) for the full numbers.
 
 ## Documentation map
 

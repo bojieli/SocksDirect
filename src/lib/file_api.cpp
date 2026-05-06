@@ -8,6 +8,7 @@
 // the underlying refcount hits 0.
 
 #include "src/lib/intercept.hpp"
+#include "src/lib/shm_conn.hpp"
 #include "src/lib/state.hpp"
 #include "socksdirect/log.hpp"
 
@@ -44,6 +45,11 @@ int close(int fd) {
         // Other vfds still ref this real_fd; don't close.
         return 0;
     }
+    // Drop any SHM connection tied to this fd. The ShmConn destructor
+    // closes the segment, which marks the outbound ring closed and
+    // decrements the segment refcount.
+    auto shm = sdp::conn_registry().remove(fd);
+    (void)shm;  // RAII: shared_ptr drop closes the segment.
     return REAL(close)(fd);
 }
 

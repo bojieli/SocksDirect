@@ -1,0 +1,95 @@
+// SPDX-License-Identifier: Apache-2.0
+//
+// Per-connection SHM state for libsd's accelerated path.
+//
+// One ShmConn corresponds to one accelerated TCP connection. It holds:
+//   - the ShmSegment (mmap'd backing memory shared with the peer)
+//   - the role (creator/joiner) that determined ring direction
+//   - blocking-mode flag inherited from the underlying fd
+//   - the libsd-tracked vfd (so close() can find us)
+//
+// The ConnRegistry below maps real-fd -> ShmConn so the libsd hook
+// layer can find us in O(1) on send/recv. We use unordered_map under
+// a single mutex; the hot path (send/recv) doesn't take the mutex
+// once the entry is found because the ShmConn struct itself is
+// stable for the connection's lifetime.
+
+#ifndef SOCKSDIRECT_LIB_SHM_CONN_HPP_
+#define SOCKSDIRECT_LIB_SHM_CONN_HPP_
+
+#include "socksdirect/shm_segment.hpp"
+
+#include <atomic>
+#include <memory>
+#include <mutex>
+#include <string>
+#include <sys/socket.h>
+#include <unordered_map>
+
+namespace socksdirect {
+namespace preload {
+
+struct ShmConn {
+    ShmSegment segment;
+    std::uint64_t key = 0;
+    bool nonblocking = false;
+    int  real_fd = -1;
+    // Set when our side has done shutdown(SHUT_WR) or close().
+    std::atomic<bool> sent_eof{false};
+};
+
+class ConnRegistry {
+public:
+    void install(int fd, std::shared_ptr<ShmConn> c) {
+        std::lock_guard<std::mutex> g(mu_);
+        by_fd_[fd] = std::move(c);
+    }
+
+    std::shared_ptr<ShmConn> lookup(int fd) {
+        std::lock_guard<std::mutex> g(mu_);
+        auto it = by_fd_.find(fd);
+        if (it == by_fd_.end()) return nullptr;
+        return it->second;
+    }
+
+    std::shared_ptr<ShmConn> remove(int fd) {
+        std::lock_guard<std::mutex> g(mu_);
+        auto it = by_fd_.find(fd);
+        if (it == by_fd_.end()) return nullptr;
+        auto out = std::move(it->second);
+        by_fd_.erase(it);
+        return out;
+    }
+
+    std::size_t size() const {
+        std::lock_guard<std::mutex> g(mu_);
+        return by_fd_.size();
+    }
+
+private:
+    mutable std::mutex mu_;
+    std::unordered_map<int, std::shared_ptr<ShmConn>> by_fd_;
+};
+
+// Free helpers in src/lib/shm_conn.cpp.
+//
+// `try_attach` does the monitor handshake for the (local, peer) pair
+// and (on success) opens the SHM segment. Returns nullptr if the pair
+// shouldn't be accelerated (e.g. monitor unreachable, peer not
+// preloaded). On nullptr, the caller falls back to plain TCP.
+//
+// `format_endpoint` builds the canonical "ip:port" string used as the
+// handshake key. We use IPv4 only for now.
+
+std::string format_endpoint(const struct ::sockaddr* sa);
+
+std::shared_ptr<ShmConn> try_attach(const std::string& local_ep,
+                                    const std::string& peer_ep,
+                                    int real_fd);
+
+ConnRegistry& conn_registry();
+
+}  // namespace preload
+}  // namespace socksdirect
+
+#endif  // SOCKSDIRECT_LIB_SHM_CONN_HPP_

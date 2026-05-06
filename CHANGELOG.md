@@ -6,7 +6,50 @@ follows semantic versioning once it reaches v1.0.
 
 ## [Unreleased]
 
-### Added
+### Added — Phase 3 keystone: SHM intra-host data plane is live
+- **`include/socksdirect/shm_ring.hpp`** — process-shared SPSC
+  byte-stream ring. Cache-line padded head/tail, power-of-two
+  buffer, blocking + non-blocking send/recv, peer-closed flag.
+  10 unit tests including a 1 MB-through-4 KiB SPSC stress run.
+- **`include/socksdirect/shm_segment.hpp`** — `shm_open` /
+  `ftruncate` / `mmap` lifecycle. Lays out a 64-byte header + two
+  ring buffers. Refcount in the header so the last side to close
+  unlinks. 7 unit tests including refcount transitions and
+  stale-segment recovery.
+- **`src/lib/shm_conn.{hpp,cpp}`** — per-connection state and the
+  monitor handshake during accept/connect. `try_attach` is a
+  no-op for non-loopback peers so RDMA-bound traffic still hits
+  the legacy library.
+- **`src/lib/socket_api.cpp` rewrite** — `accept`/`accept4`/
+  `connect` call `maybe_upgrade_to_shm`. `send` / `recv` /
+  `write` / `read` route through the ring when the fd is
+  upgraded; fall back to glibc otherwise.
+- **`SOCKSDIRECT_HOOK` macro** now carries
+  `__attribute__((visibility("default")))`. Without it,
+  `-fvisibility=hidden` was hiding hooks from the dynamic symbol
+  table — LD_PRELOAD interception only fired on libsd's
+  *internal* calls. (Spotted via "why isn't the SHM upgrade
+  firing?" debugging.)
+- **5 new integration tests** in
+  `tests/integration/test_shm_data_plane.py`. 20/20 stress runs
+  clean.
+- **Joiner-shm_open retry**: the monitor can answer "you're the
+  joiner" before the creator's `shm_open(O_CREAT)` has happened.
+  The joiner now retries on `ENOENT` for up to 5 seconds.
+
+### Headline performance (this VM, 2 vCPUs, no RDMA)
+64-byte ping-pong via `apps/rpclib-demo`, 200 000 round-trips:
+
+| Path | Throughput | p50 / p99 / p99.9 latency |
+|---|---|---|
+| Vanilla TCP loopback     |   118 K msg/s | 6.4 µs / 13.2 µs / 26.6 µs |
+| **libsd preloaded (SHM)** | **1.97 M msg/s** | **488 ns / 621 ns / 3.4 µs** |
+| Speedup                  | **16.6×** | **13× / 21× / 7.8×** |
+
+Squarely in the paper's claimed 7-20× throughput / 17-35× latency
+range.
+
+### Added — pre-release
 - **`LICENSE`** — Apache License, Version 2.0. Hard prerequisite
   for any public release; copied from OpenClickNP and retagged
   "Copyright 2026 The SocksDirect Authors".

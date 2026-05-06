@@ -8,14 +8,19 @@
 // recognise it.
 
 #include "src/lib/intercept.hpp"
+#include "src/lib/shm_conn.hpp"
 #include "src/lib/state.hpp"
 #include "socksdirect/log.hpp"
+#include "socksdirect/metrics.hpp"
 
 #include <cerrno>
+#include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <netinet/in.h>
 #include <sys/socket.h>
 #include <sys/types.h>
+#include <thread>
 #include <unistd.h>
 
 namespace sd  = socksdirect;
@@ -84,39 +89,192 @@ int listen(int fd, int backlog) {
     return REAL(listen)(fd, backlog);
 }
 
+namespace {
+
+// On accept/connect of a TCP socket we may want to upgrade it to the
+// SHM fast path. This helper does the work; it's a no-op if the
+// runtime isn't active, the fd isn't AF_INET/SOCK_STREAM, or the
+// monitor handshake fails.
+void maybe_upgrade_to_shm(int fd) {
+    if (!sdp::g_active.load(std::memory_order_acquire) || sdp::g_in_hook)
+        return;
+    sdp::ScopedReentrancyGuard g;
+    // Track the new fd in the remap table.
+    sdp::state().fd_table.alloc(sd::kSocket, fd);
+
+    // Pull both endpoints. AF_INET only; otherwise we just tracked the
+    // fd and we're done.
+    sockaddr_in local{}, peer{};
+    socklen_t llen = sizeof(local), plen = sizeof(peer);
+    if (REAL(getsockname)(fd, reinterpret_cast<sockaddr*>(&local), &llen) < 0
+     || REAL(getpeername)(fd, reinterpret_cast<sockaddr*>(&peer), &plen) < 0)
+        return;
+    if (local.sin_family != AF_INET || peer.sin_family != AF_INET) return;
+
+    auto local_ep = sdp::format_endpoint(reinterpret_cast<const sockaddr*>(&local));
+    auto peer_ep  = sdp::format_endpoint(reinterpret_cast<const sockaddr*>(&peer));
+    if (local_ep.empty() || peer_ep.empty()) return;
+
+    auto conn = sdp::try_attach(local_ep, peer_ep, fd);
+    if (conn) {
+        // Record the blocking flag from O_NONBLOCK.
+        int flags = ::fcntl(fd, F_GETFL, 0);
+        if (flags >= 0) conn->nonblocking = (flags & O_NONBLOCK) != 0;
+        sdp::conn_registry().install(fd, conn);
+        // Cheap counter for tests / metrics.
+        sd::MetricsRegistry::instance()
+            .counter("socksdirect_lib_shm_conns_total",
+                     "TCP fds upgraded to the SHM fast path")
+            .inc();
+    }
+}
+
+}  // namespace
+
 SOCKSDIRECT_HOOK
 int accept(int fd, struct sockaddr* a, socklen_t* l) {
     int c = REAL(accept)(fd, a, l);
-    if (c >= 0 && sdp::g_active.load(std::memory_order_acquire) && !sdp::g_in_hook) {
-        sdp::ScopedReentrancyGuard g;
-        sdp::state().fd_table.alloc(sd::kSocket, c);
-    }
+    if (c >= 0) maybe_upgrade_to_shm(c);
     return c;
 }
 
 SOCKSDIRECT_HOOK
 int accept4(int fd, struct sockaddr* a, socklen_t* l, int flags) {
     int c = REAL(accept4)(fd, a, l, flags);
-    if (c >= 0 && sdp::g_active.load(std::memory_order_acquire) && !sdp::g_in_hook) {
-        sdp::ScopedReentrancyGuard g;
-        sdp::state().fd_table.alloc(sd::kSocket, c);
-    }
+    if (c >= 0) maybe_upgrade_to_shm(c);
     return c;
 }
 
 SOCKSDIRECT_HOOK
 int connect(int fd, const struct sockaddr* a, socklen_t l) {
-    return REAL(connect)(fd, a, l);
+    int rc = REAL(connect)(fd, a, l);
+    if (rc == 0) maybe_upgrade_to_shm(fd);
+    return rc;
 }
+
+namespace {
+
+// Block-aware send via SHM. Returns bytes written, or -1 with errno
+// for a hard failure. EAGAIN if non-blocking and the ring is full.
+ssize_t shm_send(sdp::ShmConn& c, const void* buf, std::size_t n, int flags) {
+    if (n == 0) return 0;
+    auto* ring = c.segment.ring_outbound();
+    std::size_t total = 0;
+    const char* p = static_cast<const char*>(buf);
+    bool nonblock = c.nonblocking || (flags & MSG_DONTWAIT);
+    // Sleep schedule for blocking sends: yield + escalate to short
+    // nanosleeps. Mirrors what the prototype's lib does.
+    int spin = 0;
+    while (total < n) {
+        std::size_t did = ring->send_some(p + total, n - total);
+        if (did > 0) {
+            total += did;
+            spin = 0;
+            continue;
+        }
+        if (nonblock) {
+            if (total > 0) return static_cast<ssize_t>(total);
+            errno = EAGAIN;
+            return -1;
+        }
+        // Blocking: yield then sleep.
+        if (spin < 100) {
+            std::this_thread::yield();
+            ++spin;
+        } else {
+            struct timespec ts{0, 1000};  // 1 µs
+            ::nanosleep(&ts, nullptr);
+        }
+    }
+    return static_cast<ssize_t>(total);
+}
+
+ssize_t shm_recv(sdp::ShmConn& c, void* buf, std::size_t n, int flags) {
+    if (n == 0) return 0;
+    if (flags & MSG_PEEK) {
+        // We don't implement peek on the SHM path. The caller can
+        // either drop MSG_PEEK or take the TCP fallback by closing+
+        // reopening — either is fine. Surface a documented errno.
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+    auto* ring = c.segment.ring_inbound();
+    bool nonblock = c.nonblocking || (flags & MSG_DONTWAIT);
+    int spin = 0;
+    for (;;) {
+        std::size_t did = ring->recv_some(buf, n);
+        if (did > 0) return static_cast<ssize_t>(did);
+        // No data right now.
+        if (ring->peer_closed() && ring->readable() == 0) {
+            return 0;  // EOF
+        }
+        if (nonblock) {
+            errno = EAGAIN;
+            return -1;
+        }
+        if (spin < 100) {
+            std::this_thread::yield();
+            ++spin;
+        } else {
+            struct timespec ts{0, 1000};
+            ::nanosleep(&ts, nullptr);
+        }
+    }
+}
+
+}  // namespace
 
 SOCKSDIRECT_HOOK
 ssize_t send(int fd, const void* buf, size_t n, int flags) {
+    if (sdp::g_active.load(std::memory_order_acquire) && !sdp::g_in_hook) {
+        sdp::ScopedReentrancyGuard g;
+        auto c = sdp::conn_registry().lookup(fd);
+        if (c && c->segment.is_open()) {
+            return shm_send(*c, buf, n, flags);
+        }
+    }
     return REAL(send)(fd, buf, n, flags);
 }
 
 SOCKSDIRECT_HOOK
 ssize_t recv(int fd, void* buf, size_t n, int flags) {
+    if (sdp::g_active.load(std::memory_order_acquire) && !sdp::g_in_hook) {
+        sdp::ScopedReentrancyGuard g;
+        auto c = sdp::conn_registry().lookup(fd);
+        if (c && c->segment.is_open()) {
+            return shm_recv(*c, buf, n, flags);
+        }
+    }
     return REAL(recv)(fd, buf, n, flags);
+}
+
+// write()/read() on sockets — many BSD apps (nginx, redis) use these
+// instead of send()/recv(). Forward to the same SHM path.
+DECLARE_REAL(ssize_t, write, int, const void*, size_t)
+DECLARE_REAL(ssize_t, read,  int, void*,       size_t)
+
+SOCKSDIRECT_HOOK
+ssize_t write(int fd, const void* buf, size_t n) {
+    if (sdp::g_active.load(std::memory_order_acquire) && !sdp::g_in_hook) {
+        sdp::ScopedReentrancyGuard g;
+        auto c = sdp::conn_registry().lookup(fd);
+        if (c && c->segment.is_open()) {
+            return shm_send(*c, buf, n, 0);
+        }
+    }
+    return REAL(write)(fd, buf, n);
+}
+
+SOCKSDIRECT_HOOK
+ssize_t read(int fd, void* buf, size_t n) {
+    if (sdp::g_active.load(std::memory_order_acquire) && !sdp::g_in_hook) {
+        sdp::ScopedReentrancyGuard g;
+        auto c = sdp::conn_registry().lookup(fd);
+        if (c && c->segment.is_open()) {
+            return shm_recv(*c, buf, n, 0);
+        }
+    }
+    return REAL(read)(fd, buf, n);
 }
 
 SOCKSDIRECT_HOOK

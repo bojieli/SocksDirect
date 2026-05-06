@@ -140,28 +140,32 @@ For each gap we list:
   userspace `ZeroCopyClient::open()` does this implicitly.
 - **Tracker**: closed; landing-and-soak in Phase 5 §6.
 
-### SHM intra-host data plane (Phase 3 keystone)
+### ~~SHM intra-host data plane (Phase 3 keystone)~~ — landed
 
-- **Symptom**: the new `src/lib/libsd.so` is instrumented
-  passthrough — every libc call is observed and forwarded to glibc
-  unchanged. The paper's intra-host throughput claims aren't yet
-  reproducible against this library; only `libsd-legacy.so` (the
-  RDMA + HERD opt-in build) hits them.
-- **Status**: scaffold landed. `include/socksdirect/shm_handshake.hpp`
-  provides the handshake registry; the monitor exposes
-  `shm-register` / `shm-unregister` ops; integration test verifies
-  two preloaded peers converge on the same SHM key.
-- **Disposition**: REWRITE. Remaining work:
-  1. Allocate the SHM segment from a hugepage pool when the
-     monitor brokers a key.
-  2. `mmap()` it on both sides into the libsd-side connection
-     state, replacing send/recv/sendmsg/recvmsg's data path with
-     ring writes/reads.
-  3. Notification: signalfd or futex-on-ring so a recv blocks
-     when the ring is empty.
-  4. Fall back to TCP cleanly when the SHM ring goes away (peer
-     died, monitor restarted, etc.).
-- **Tracker**: REWRITE_PLAN.md Phase 3 §6.
+- **Was**: the new `src/lib/libsd.so` was instrumented passthrough.
+- **Now**: implemented. `include/socksdirect/shm_ring.hpp` provides
+  the SPSC byte-stream ring; `include/socksdirect/shm_segment.hpp`
+  wraps `shm_open` + `mmap` and lays out the header + two rings;
+  `src/lib/shm_conn.cpp` performs the monitor handshake during
+  accept/connect; `src/lib/socket_api.cpp` routes
+  `send`/`recv`/`write`/`read` through the ring when the fd is
+  upgraded; `close` drops the segment cleanly. End-to-end
+  measurements on a 2-vCPU VM: **16.6× throughput, 13× p50
+  latency improvement** vs. vanilla loopback TCP. See
+  `docs/PERFORMANCE.md`.
+- **Tracker**: closed for intra-host. RDMA port to `src/lib/`
+  remains; `libsd-legacy.so` still owns inter-host today.
+
+### Notification primitive (futex on ring)
+
+- **Symptom**: blocking `recv` on the SHM ring spin-yields then
+  nanosleeps. Low-latency on the busy path; under many idle
+  connections it burns CPU.
+- **Disposition**: REWRITE. Replace the spin-yield with a
+  futex-on-ring-head wake protocol. The producer wakes the
+  consumer after publishing if the ring transitioned from empty
+  to non-empty.
+- **Tracker**: Phase 3 follow-up.
 
 ## Items we believe are absent for good reasons (not gaps)
 

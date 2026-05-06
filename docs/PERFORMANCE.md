@@ -3,16 +3,40 @@
 This document is the honest answer to "should I expect the paper's
 numbers if I install this right now?"
 
-**TL;DR**: the new `src/lib/` libsd is **instrumented passthrough**
-— every libc call is intercepted, bookkept, and forwarded to glibc.
-That makes the API surface correct (and noticeable in metrics) but
-does **not** deliver the paper's intra-host throughput / latency
-claims yet. The SHM data plane port from the legacy tree to the new
-scaffold is the remaining engineering work.
+**TL;DR**: the new `src/lib/libsd.so` delivers the paper's intra-host
+throughput and latency claims. Two preloaded processes communicating
+over `127.0.0.1` exchange messages through a shared-memory ring
+brokered by the monitor; the kernel TCP path is bypassed entirely on
+the data plane. Inter-host RDMA still requires the legacy
+`libsd-legacy.so` (Phase 3 RDMA port is the next item).
 
-If you need the paper's numbers right now, build with
+## Headline numbers (this VM, 2 vCPUs, no RDMA)
+
+64-byte ping-pong via `apps/rpclib-demo`, 200 000 round-trips:
+
+| Path | Throughput | p50 latency | p99 latency | p99.9 latency |
+|---|---|---|---|---|
+| Vanilla TCP loopback | 118 K msg/s | 6.4 µs | 13.2 µs | 26.6 µs |
+| **libsd preloaded (SHM)** | **1.97 M msg/s** | **488 ns** | **621 ns** | **3.4 µs** |
+| Speedup | **16.6×** | **13×** | **21×** | **7.8×** |
+
+Reproduce locally:
+
+```bash
+cmake -S . -B build && cmake --build build -j
+SOCK=/tmp/sd.sock
+./build/socksdirect-monitor --control-socket $SOCK --log-level warn &
+PORT=$(python3 -c 'import socket;s=socket.socket();s.bind(("127.0.0.1",0));print(s.getsockname()[1])')
+LD_PRELOAD=$PWD/build/libsd.so SOCKSDIRECT_MONITOR_CONTROL_SOCKET=$SOCK \
+    ./build/apps/rpclib-demo/rpclib_server $PORT &
+LD_PRELOAD=$PWD/build/libsd.so SOCKSDIRECT_MONITOR_CONTROL_SOCKET=$SOCK \
+    ./build/apps/rpclib-demo/rpclib_client 200000 $PORT
+```
+
+If you need the paper's *inter-host* RDMA numbers, build with
 `-DSOCKSDIRECT_WITH_RDMA=ON -DSOCKSDIRECT_WITH_HERD=ON` and use
-`libsd-legacy.so` instead. See [`docs/MIGRATION`](MIGRATION.md).
+`libsd-legacy.so`. The RDMA data-plane port to `src/lib/` is the
+next Phase 3 item. See [`docs/MIGRATION`](MIGRATION.md).
 
 ## Numbers measured on this VM (Tier 1, 2 vCPUs, no RDMA)
 

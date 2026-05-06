@@ -75,7 +75,15 @@ inline void* resolve_symbol(const char* name) {
 #define REAL(name) real_##name()
 
 // All public hooks must be extern "C" so the dynamic linker can match
-// them. SOCKSDIRECT_HOOK is a small wrapper to prevent name-mangling.
-#define SOCKSDIRECT_HOOK extern "C"
+// them — AND they must have default visibility so they end up in the
+// .so's dynamic symbol table. The build uses -fvisibility=hidden to
+// keep internal helpers private; without an explicit "default"
+// attribute the hooks would be hidden too and LD_PRELOAD interception
+// would silently fail for application calls (libsd's own internal
+// calls would still bind locally — that was the cause of an
+// embarrassing 30-minute debug session in May 2026; keep the
+// attribute on).
+#define SOCKSDIRECT_HOOK \
+    extern "C" __attribute__((visibility("default")))
 
 #endif  // SOCKSDIRECT_LIB_INTERCEPT_HPP_

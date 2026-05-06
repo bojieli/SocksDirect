@@ -77,23 +77,26 @@ endif()
 #
 # Built unconditionally. No RDMA / HERD dependency. Provides correct
 # semantics for every libc function in tests/conformance/coverage.toml,
-# using the new public APIs under include/socksdirect/. The SHM data
-# plane lives in src/lib/ and is "instrumented passthrough" today —
-# every call is observed, bookkept via FdRemapTable, and forwarded to
-# glibc. The data-plane fast paths (SHM rings, page-remap zero-copy)
-# land on top of this scaffold in follow-up Phase 3 PRs.
+# using the new public APIs under include/socksdirect/. The intra-host
+# SHM data plane is wired through src/lib/shm_conn.cpp and the
+# Phase-3 ring + segment helpers under include/socksdirect/. Inter-
+# host RDMA still requires the legacy `sd-legacy.so` build until the
+# data plane port for RDMA lands.
 # ---------------------------------------------------------------------------
 add_library(sd SHARED
     src/lib/preload.cpp
     src/lib/socket_api.cpp
     src/lib/file_api.cpp
     src/lib/poll_api.cpp
-    src/lib/process_api.cpp)
+    src/lib/process_api.cpp
+    src/lib/shm_conn.cpp)
 set_target_properties(sd PROPERTIES OUTPUT_NAME "sd")
 target_include_directories(sd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${CMAKE_CURRENT_SOURCE_DIR}/include)
-target_link_libraries(sd PRIVATE Threads::Threads dl)
+# librt (shm_open) on glibc < 2.34. Modern glibc folds shm_open into
+# libc but linking -lrt is harmless and keeps us portable.
+target_link_libraries(sd PRIVATE Threads::Threads dl rt)
 # -fvisibility=hidden so only the SOCKSDIRECT_HOOK extern "C" symbols
 # escape; all internal symbols stay private.
 target_compile_options(sd PRIVATE -fvisibility=hidden -fPIC)

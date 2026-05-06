@@ -50,6 +50,19 @@ if(TARGET socksdirect-ctl)
             "SOCKSDIRECT_CTL=${_ctl_path};PYTHONDONTWRITEBYTECODE=1")
 endif()
 
+# --- SHM intra-host data plane (the Phase 3 keystone) -----------------------
+if(TARGET sd AND TARGET socksdirect-monitor AND TARGET socksdirect-ctl
+   AND TARGET rpclib_server AND TARGET rpclib_client)
+    add_test(
+        NAME integration-shm-data-plane
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_shm_data_plane.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-shm-data-plane PROPERTIES
+        TIMEOUT 180
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+endif()
+
 # --- monitor daemon end-to-end suite ----------------------------------------
 if(TARGET socksdirect-monitor AND TARGET socksdirect-ctl)
     add_test(
