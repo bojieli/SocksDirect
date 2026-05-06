@@ -166,31 +166,51 @@ def test_shm_attaches_logged_on_both_sides(workspace):
 
 
 def test_shm_segment_appears_on_disk_then_unlinks(workspace):
+    """Verify the *specific* segment created by this test is unlinked
+    after both peers exit. Other concurrent tests may have their own
+    segments live; we only check the one we own (identified by
+    parsing the shm-attached log line for our key)."""
     sock, work = workspace
-    # Before: no segments.
-    assert not glob.glob("/dev/shm/sd-*"), glob.glob("/dev/shm/sd-*")
-    # Arrange: longer client run so we can race a glob() during it.
     env = os.environ.copy()
     env["LD_PRELOAD"] = str(LIB)
     env["SOCKSDIRECT_MONITOR_CONTROL_SOCKET"] = str(sock)
     env["SOCKSDIRECT_LOG"] = "info"
     port = _free_port()
+    srv_log = open(work / "seg-srv.log", "wb")
     srv = subprocess.Popen([str(SERVER), str(port)], env=env,
-                           stdout=subprocess.DEVNULL,
-                           stderr=subprocess.DEVNULL)
+                           stdout=subprocess.DEVNULL, stderr=srv_log)
     time.sleep(0.3)
     cli = subprocess.Popen([str(CLIENT), "200000", str(port)], env=env,
                            stdout=subprocess.DEVNULL,
                            stderr=subprocess.DEVNULL)
-    # Snapshot mid-run.
+    # Snapshot the live segment list mid-run; our key must be there.
     time.sleep(0.05)
-    mid = glob.glob("/dev/shm/sd-*")
+    mid_segs = set(glob.glob("/dev/shm/sd-*"))
     cli.wait(timeout=10)
-    srv.terminate(); srv.wait(timeout=2)
-    # After: segment cleaned up.
-    end = glob.glob("/dev/shm/sd-*")
-    assert mid, "expected at least one /dev/shm/sd-* during the run"
-    assert not end, f"segments leaked: {end}"
+    srv.terminate(); srv.wait(timeout=5)
+    srv_log.close()
+
+    # Pull our key from the server log.
+    log_text = (work / "seg-srv.log").read_text()
+    m = re.search(r"key=([0-9a-f]+) ", log_text)
+    assert m, f"no shm-attached log found:\n{log_text}"
+    our_path = f"/dev/shm/sd-{m.group(1)}"
+    assert our_path in mid_segs, (
+        f"our segment {our_path} not present mid-run; live: {mid_segs}")
+
+    # Both sides do close() on their connected fd which triggers
+    # ShmSegment::close -> refcount-- -> shm_unlink. Server's close
+    # happens after recv detects EOF + drains the buffered data —
+    # under heavy load that can lag a few ms behind the client exit.
+    # Wait up to 2 s for the unlink to land.
+    deadline = time.time() + 2.0
+    while time.time() < deadline:
+        if our_path not in glob.glob("/dev/shm/sd-*"):
+            break
+        time.sleep(0.05)
+    end_segs = set(glob.glob("/dev/shm/sd-*"))
+    assert our_path not in end_segs, (
+        f"our segment {our_path} leaked after 2 s: {end_segs}")
 
 
 def test_shm_throughput_beats_vanilla_loopback(workspace):

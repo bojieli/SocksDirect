@@ -17,8 +17,11 @@
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <linux/futex.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <thread>
 #include <unistd.h>
@@ -154,61 +157,50 @@ int connect(int fd, const struct sockaddr* a, socklen_t l) {
 
 namespace {
 
-// Block-aware send via SHM. Returns bytes written, or -1 with errno
-// for a hard failure. EAGAIN if non-blocking and the ring is full.
+// Wrappers around the futex(2) syscall — glibc doesn't expose it.
+// Note: we use the *non-private* variants because the address lives
+// in shared memory mapped into two separate processes. _PRIVATE is
+// faster but only works within one address space.
+inline long futex_wait(std::atomic<std::uint32_t>* uaddr, std::uint32_t val,
+                       const struct timespec* timeout) {
+    return ::syscall(SYS_futex, uaddr, FUTEX_WAIT, val, timeout,
+                     nullptr, 0);
+}
+inline long futex_wake(std::atomic<std::uint32_t>* uaddr, int n) {
+    return ::syscall(SYS_futex, uaddr, FUTEX_WAKE, n, nullptr,
+                     nullptr, 0);
+}
+
+// Block-aware send via SHM. Holds c.send_mu so multiple threads in
+// the application can call send(fd) concurrently without corrupting
+// the SPSC ring.
 ssize_t shm_send(sdp::ShmConn& c, const void* buf, std::size_t n, int flags) {
     if (n == 0) return 0;
+    std::lock_guard<std::mutex> lk(c.send_mu);
     auto* ring = c.segment.ring_outbound();
     std::size_t total = 0;
     const char* p = static_cast<const char*>(buf);
     bool nonblock = c.nonblocking || (flags & MSG_DONTWAIT);
-    // Sleep schedule for blocking sends: yield + escalate to short
-    // nanosleeps. Mirrors what the prototype's lib does.
     int spin = 0;
     while (total < n) {
         std::size_t did = ring->send_some(p + total, n - total);
         if (did > 0) {
+            // After publishing, wake any consumer FUTEX_WAITing.
+            // Bump the wake counter (so a parallel WAIT detects the
+            // value change) and call FUTEX_WAKE.
+            auto* w = c.segment.wake_outbound();
+            w->fetch_add(1, std::memory_order_release);
+            futex_wake(w, 1);
             total += did;
             spin = 0;
             continue;
         }
+        c.ring_full_blocks.fetch_add(1, std::memory_order_relaxed);
         if (nonblock) {
-            if (total > 0) return static_cast<ssize_t>(total);
-            errno = EAGAIN;
-            return -1;
-        }
-        // Blocking: yield then sleep.
-        if (spin < 100) {
-            std::this_thread::yield();
-            ++spin;
-        } else {
-            struct timespec ts{0, 1000};  // 1 µs
-            ::nanosleep(&ts, nullptr);
-        }
-    }
-    return static_cast<ssize_t>(total);
-}
-
-ssize_t shm_recv(sdp::ShmConn& c, void* buf, std::size_t n, int flags) {
-    if (n == 0) return 0;
-    if (flags & MSG_PEEK) {
-        // We don't implement peek on the SHM path. The caller can
-        // either drop MSG_PEEK or take the TCP fallback by closing+
-        // reopening — either is fine. Surface a documented errno.
-        errno = EOPNOTSUPP;
-        return -1;
-    }
-    auto* ring = c.segment.ring_inbound();
-    bool nonblock = c.nonblocking || (flags & MSG_DONTWAIT);
-    int spin = 0;
-    for (;;) {
-        std::size_t did = ring->recv_some(buf, n);
-        if (did > 0) return static_cast<ssize_t>(did);
-        // No data right now.
-        if (ring->peer_closed() && ring->readable() == 0) {
-            return 0;  // EOF
-        }
-        if (nonblock) {
+            if (total > 0) {
+                c.bytes_sent.fetch_add(total, std::memory_order_relaxed);
+                return static_cast<ssize_t>(total);
+            }
             errno = EAGAIN;
             return -1;
         }
@@ -219,6 +211,75 @@ ssize_t shm_recv(sdp::ShmConn& c, void* buf, std::size_t n, int flags) {
             struct timespec ts{0, 1000};
             ::nanosleep(&ts, nullptr);
         }
+    }
+    c.bytes_sent.fetch_add(total, std::memory_order_relaxed);
+    return static_cast<ssize_t>(total);
+}
+
+// Returns true if the underlying kernel TCP fd is hung up (POLLHUP /
+// POLLERR / POLLNVAL). We check this when futex_wait times out so we
+// detect a peer that crashed without running its libsd close hook
+// (SIGKILL, segfault, etc.). Without this, the surviving side spins
+// forever on recv.
+namespace {
+bool kernel_fd_hung_up(int fd) {
+    struct pollfd pfd{ fd, POLLIN | POLLHUP | POLLERR | POLLNVAL, 0 };
+    if (::poll(&pfd, 1, 0) <= 0) return false;
+    return (pfd.revents & (POLLHUP | POLLERR | POLLNVAL)) != 0;
+}
+}  // namespace
+
+ssize_t shm_recv(sdp::ShmConn& c, void* buf, std::size_t n, int flags) {
+    if (n == 0) return 0;
+    if (flags & MSG_PEEK) {
+        errno = EOPNOTSUPP;
+        return -1;
+    }
+    std::lock_guard<std::mutex> lk(c.recv_mu);
+    auto* ring = c.segment.ring_inbound();
+    bool nonblock = c.nonblocking || (flags & MSG_DONTWAIT);
+    int spin = 0;
+    auto* w = c.segment.wake_inbound();
+    for (;;) {
+        std::size_t did = ring->recv_some(buf, n);
+        if (did > 0) {
+            c.bytes_recv.fetch_add(did, std::memory_order_relaxed);
+            return static_cast<ssize_t>(did);
+        }
+        if (ring->peer_closed() && ring->readable() == 0) {
+            return 0;  // EOF
+        }
+        c.ring_empty_blocks.fetch_add(1, std::memory_order_relaxed);
+        if (nonblock) {
+            errno = EAGAIN;
+            return -1;
+        }
+        // Detect a peer that crashed without running its close hook.
+        // The kernel TCP fd will reflect POLLHUP once the peer's
+        // socket is torn down; we treat that as ring closed.
+        if (kernel_fd_hung_up(c.real_fd)) {
+            ring->mark_closed();
+            // Loop back to the top — recv_some may still return
+            // the bytes that were already in the ring before the peer
+            // crashed, then EOF on the next iteration.
+            continue;
+        }
+        // First spin a little (sub-µs latency on the busy path).
+        if (spin < 100) {
+            std::this_thread::yield();
+            ++spin;
+            continue;
+        }
+        // Then go quiescent on the futex. We sample the wake counter
+        // *before* re-checking the ring; if the producer publishes
+        // between our re-check and the FUTEX_WAIT the wake counter
+        // has changed and FUTEX_WAIT returns EAGAIN immediately.
+        std::uint32_t w_val = w->load(std::memory_order_acquire);
+        if (ring->readable() > 0) { spin = 0; continue; }
+        if (ring->peer_closed())  { spin = 0; continue; }
+        struct timespec ts{0, 100 * 1000 * 1000};   // 100 ms timeout
+        futex_wait(w, w_val, &ts);
+        spin = 0;
     }
 }
 
@@ -291,13 +352,55 @@ ssize_t recvfrom(int fd, void* buf, size_t n, int flags,
 
 SOCKSDIRECT_HOOK
 ssize_t sendmsg(int fd, const struct msghdr* msg, int flags) {
-    // PARTIAL per docs/API.md: ancillary data passes through;
-    // payload uses fast path. Today both go to glibc.
+    if (sdp::g_active.load(std::memory_order_acquire) && !sdp::g_in_hook && msg) {
+        sdp::ScopedReentrancyGuard g;
+        auto c = sdp::conn_registry().lookup(fd);
+        if (c && c->segment.is_open()) {
+            // Ancillary data on a SHM socket is meaningless: the
+            // kernel socket isn't carrying the data, so there's
+            // nowhere to attach it. Refuse cleanly.
+            if (msg->msg_controllen > 0) {
+                errno = EOPNOTSUPP;
+                return -1;
+            }
+            ssize_t total = 0;
+            for (int i = 0; i < msg->msg_iovlen; ++i) {
+                const struct iovec& iov = msg->msg_iov[i];
+                if (iov.iov_len == 0) continue;
+                ssize_t r = shm_send(*c, iov.iov_base, iov.iov_len, flags);
+                if (r < 0) return total > 0 ? total : -1;
+                total += r;
+                if (static_cast<std::size_t>(r) < iov.iov_len) {
+                    return total;  // partial under non-blocking
+                }
+            }
+            return total;
+        }
+    }
     return REAL(sendmsg)(fd, msg, flags);
 }
 
 SOCKSDIRECT_HOOK
 ssize_t recvmsg(int fd, struct msghdr* msg, int flags) {
+    if (sdp::g_active.load(std::memory_order_acquire) && !sdp::g_in_hook && msg) {
+        sdp::ScopedReentrancyGuard g;
+        auto c = sdp::conn_registry().lookup(fd);
+        if (c && c->segment.is_open()) {
+            if (msg->msg_controllen > 0) msg->msg_controllen = 0;
+            ssize_t total = 0;
+            for (int i = 0; i < msg->msg_iovlen; ++i) {
+                struct iovec& iov = msg->msg_iov[i];
+                if (iov.iov_len == 0) continue;
+                ssize_t r = shm_recv(*c, iov.iov_base, iov.iov_len, flags);
+                if (r < 0) return total > 0 ? total : -1;
+                if (r == 0) return total;  // EOF
+                total += r;
+                if (static_cast<std::size_t>(r) < iov.iov_len) break;
+            }
+            msg->msg_flags = 0;
+            return total;
+        }
+    }
     return REAL(recvmsg)(fd, msg, flags);
 }
 

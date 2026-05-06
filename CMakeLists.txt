@@ -89,7 +89,8 @@ add_library(sd SHARED
     src/lib/file_api.cpp
     src/lib/poll_api.cpp
     src/lib/process_api.cpp
-    src/lib/shm_conn.cpp)
+    src/lib/shm_conn.cpp
+    src/lib/rdma/conn.cpp)
 set_target_properties(sd PROPERTIES OUTPUT_NAME "sd")
 target_include_directories(sd PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
@@ -97,6 +98,12 @@ target_include_directories(sd PRIVATE
 # librt (shm_open) on glibc < 2.34. Modern glibc folds shm_open into
 # libc but linking -lrt is harmless and keeps us portable.
 target_link_libraries(sd PRIVATE Threads::Threads dl rt)
+# RDMA data-plane is a build-time opt-in. Without -DSOCKSDIRECT_WITH_RDMA=ON,
+# rdma/conn.cpp compiles to the no-op stub.
+if(SOCKSDIRECT_WITH_RDMA)
+    target_compile_definitions(sd PRIVATE SOCKSDIRECT_WITH_RDMA=1)
+    target_link_libraries(sd PRIVATE ${IBVERBS_LIBRARY})
+endif()
 # -fvisibility=hidden so only the SOCKSDIRECT_HOOK extern "C" symbols
 # escape; all internal symbols stay private.
 target_compile_options(sd PRIVATE -fvisibility=hidden -fPIC)

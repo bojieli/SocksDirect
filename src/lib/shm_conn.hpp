@@ -36,6 +36,29 @@ struct ShmConn {
     int  real_fd = -1;
     // Set when our side has done shutdown(SHUT_WR) or close().
     std::atomic<bool> sent_eof{false};
+
+    // Per-conn metric counters (libsd-process-local; aggregated by
+    // the dump-state ctl op when the lib pings the monitor).
+    std::atomic<std::uint64_t> bytes_sent{0};
+    std::atomic<std::uint64_t> bytes_recv{0};
+    std::atomic<std::uint64_t> ring_full_blocks{0};   // send blocked
+    std::atomic<std::uint64_t> ring_empty_blocks{0};  // recv blocked
+
+    // Producer / consumer mutexes. The underlying ShmRing is SPSC —
+    // two threads in the same process calling send() on the same fd
+    // concurrently would corrupt the producer side. Per-direction
+    // mutexes serialize the local end; the peer process holds its
+    // own pair independently. Mutex acquisition is fast (memcpy +
+    // atomic store inside) and contention matters only when an
+    // application fans send()s across threads on the same fd.
+    std::mutex send_mu;
+    std::mutex recv_mu;
+
+    // eventfd written by the consumer ring side ("we drained data") and
+    // by the producer side ("we published data"). Used by epoll_ctl
+    // to deliver readability events without polling. -1 if epoll
+    // hasn't been requested for this fd.
+    int notify_fd = -1;
 };
 
 class ConnRegistry {

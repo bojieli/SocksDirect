@@ -50,13 +50,16 @@
 
 #include <atomic>
 #include <cerrno>
+#include <climits>
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
 #include <fcntl.h>
+#include <linux/futex.h>
 #include <string>
 #include <sys/mman.h>
 #include <sys/stat.h>
+#include <sys/syscall.h>
 #include <sys/types.h>
 #include <unistd.h>
 
@@ -73,7 +76,15 @@ struct sd_shm_header {
     std::int32_t               creator_pid;
     std::int32_t               joiner_pid;
     std::uint32_t              ring_size;
-    std::uint8_t               _pad[40];   // round to 64 bytes
+    // Futex wake counters. wake_c2j is bumped by the creator-side
+    // producer when it publishes data to the creator->joiner ring;
+    // the joiner FUTEX_WAITs on this address. wake_j2c is the
+    // mirror for the other direction. Bumping the counter is a
+    // *value change* so FUTEX_WAIT can detect a missed wake (the
+    // standard Linux futex idiom).
+    std::atomic<std::uint32_t> wake_c2j;
+    std::atomic<std::uint32_t> wake_j2c;
+    std::uint8_t               _pad[32];   // round to 64 bytes
 };
 static_assert(sizeof(sd_shm_header) == 64, "header must be one cache line");
 
@@ -195,6 +206,39 @@ public:
         return 0;
     }
 
+    // Wait for the peer to set its pid in the header (up to
+    // `timeout_ms`). Without this barrier, the creator could call
+    // close() + unlink the segment before the joiner ever shm_open's
+    // it; the joiner then falls back to TCP while the creator is
+    // already on SHM, and bytes go to the wrong transport.
+    bool wait_for_peer(int timeout_ms = 200) {
+        if (!base_) return false;
+        sd_shm_header* h = header();
+        // Bump *our* wake counter so a peer that's already waiting
+        // gets unblocked.
+        auto* my_wake = wake_outbound();
+        my_wake->fetch_add(1, std::memory_order_release);
+        ::syscall(SYS_futex, my_wake, FUTEX_WAKE, INT_MAX, nullptr, nullptr, 0);
+        auto* peer_wake = wake_inbound();
+        int remaining = timeout_ms;
+        while (remaining > 0) {
+            std::int32_t pid = (role_ == kRoleCreator)
+                ? h->joiner_pid : h->creator_pid;
+            if (pid != 0) return true;
+            std::uint32_t w = peer_wake->load(std::memory_order_acquire);
+            // Recheck after sampling so we don't miss a wake.
+            pid = (role_ == kRoleCreator) ? h->joiner_pid : h->creator_pid;
+            if (pid != 0) return true;
+            int slice = remaining > 50 ? 50 : remaining;
+            struct timespec ts{0, slice * 1000L * 1000L};
+            ::syscall(SYS_futex, peer_wake, FUTEX_WAIT, w, &ts, nullptr, 0);
+            remaining -= slice;
+        }
+        std::int32_t pid = (role_ == kRoleCreator)
+            ? h->joiner_pid : h->creator_pid;
+        return pid != 0;
+    }
+
     void close() {
         if (!base_) return;
         sd_shm_header* h = header();
@@ -202,6 +246,16 @@ public:
         // returns 0.
         if (role_ == kRoleCreator) ring_creator_to_joiner()->mark_closed();
         else                       ring_joiner_to_creator()->mark_closed();
+        // Wake the peer's futex_wait if it's parked there; otherwise
+        // the peer waits up to 100 ms (one full futex timeout) before
+        // noticing the EOF, which makes both sides' close path slow
+        // enough to keep the segment alive past the test deadline.
+        // We bump *our outbound* wake counter (the one the peer
+        // consumer waits on) and FUTEX_WAKE it.
+        auto* w = wake_outbound();
+        w->fetch_add(1, std::memory_order_release);
+        ::syscall(SYS_futex, w, FUTEX_WAKE, INT_MAX, nullptr, nullptr, 0);
+
         std::int32_t prev = h->refcount.fetch_sub(1, std::memory_order_acq_rel);
         bool last = (prev == 1);
         ::munmap(base_, size_);
@@ -230,6 +284,18 @@ public:
     ShmSegmentRing* ring_inbound() {
         return role_ == kRoleCreator ? ring_joiner_to_creator()
                                      : ring_creator_to_joiner();
+    }
+
+    // Futex wake counter associated with the outbound ring (the one
+    // *we* publish to; we bump this to wake the peer).
+    std::atomic<std::uint32_t>* wake_outbound() {
+        return role_ == kRoleCreator ? &header()->wake_c2j
+                                     : &header()->wake_j2c;
+    }
+    // Inbound: the counter the peer bumps when they publish to us.
+    std::atomic<std::uint32_t>* wake_inbound() {
+        return role_ == kRoleCreator ? &header()->wake_j2c
+                                     : &header()->wake_c2j;
     }
 
     bool is_open() const { return base_ != nullptr; }

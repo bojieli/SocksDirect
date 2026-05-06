@@ -49,7 +49,10 @@ int close(int fd) {
     // closes the segment, which marks the outbound ring closed and
     // decrements the segment refcount.
     auto shm = sdp::conn_registry().remove(fd);
-    (void)shm;  // RAII: shared_ptr drop closes the segment.
+    if (shm) {
+        LOG_DEBUG("close(%d): dropping SHM key=%016llx",
+                  fd, static_cast<unsigned long long>(shm->key));
+    }
     return REAL(close)(fd);
 }
 

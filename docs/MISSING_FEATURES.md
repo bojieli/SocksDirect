@@ -156,16 +156,41 @@ For each gap we list:
 - **Tracker**: closed for intra-host. RDMA port to `src/lib/`
   remains; `libsd-legacy.so` still owns inter-host today.
 
-### Notification primitive (futex on ring)
+### ~~Notification primitive (futex on ring)~~ — landed
 
-- **Symptom**: blocking `recv` on the SHM ring spin-yields then
-  nanosleeps. Low-latency on the busy path; under many idle
-  connections it burns CPU.
-- **Disposition**: REWRITE. Replace the spin-yield with a
-  futex-on-ring-head wake protocol. The producer wakes the
-  consumer after publishing if the ring transitioned from empty
-  to non-empty.
+- **Was**: blocking `recv` spin-yielded indefinitely.
+- **Now**: `FUTEX_WAIT` on a 32-bit wake counter in the SHM
+  segment header. Producer bumps + `FUTEX_WAKE`s after publishing;
+  consumer wakes in µs. **0 ms of CPU per 600 ms idle window**
+  measured by `integration-shm-futex`.
+
+### Peer-crash detection latency
+
+- **Symptom**: when a peer SIGKILLs, the surviving side's recv
+  can take 100 ms or more to detect EOF. The kernel TCP fd's
+  POLLHUP *should* surface within milliseconds but on noisy VMs
+  detection latency is variable.
+  `integration-shm-peer-died::test_crashed_peer_leaves_server_clean`
+  is `xfail`.
+- **Disposition**: REWRITE. Options:
+  1. Watchdog: a libsd background poller checks `kill(peer_pid,
+     0)`; on ESRCH, mark the local rings closed.
+  2. Replace POLLHUP polling with a kernel notification (e.g.
+     SIGRTMIN+1 from a watchdog thread).
 - **Tracker**: Phase 3 follow-up.
+
+### RDMA inter-host data plane (kernel work + Mellanox time)
+
+- **Symptom**: `src/lib/rdma/conn.cpp` has QP setup (INIT/RTR/RTS),
+  MR registration, and the `QpInfo` wire codec, but
+  `send_some`/`recv_some` are stubs. Inter-host RDMA is still owned
+  by `libsd-legacy.so` (the HERD-based build).
+- **Disposition**: REWRITE on bare-metal Mellanox. Remaining
+  pieces: ring-over-RDMA-WRITE-with-immediate, post-receive ring
+  cycling, monitor `rdma-register` op (mirror of `shm-register`).
+  The on-wire `QpInfo` type + codec already exist.
+- **Tracker**: Phase 3 follow-up; legacy library remains the
+  paper-perf reproduction route until this lands.
 
 ## Items we believe are absent for good reasons (not gaps)
 

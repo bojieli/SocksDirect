@@ -6,6 +6,58 @@ follows semantic versioning once it reaches v1.0.
 
 ## [Unreleased]
 
+### Added — Phase 3 follow-ups: epoll, futex, sendmsg, RDMA scaffold
+- **Per-conn send/recv mutexes** in `ShmConn` so multi-threaded
+  applications can safely call `send()` from N threads on the same
+  fd without corrupting the SPSC ring. 8-thread × 50 K-iter
+  concurrent-send integration test (`integration-shm-concurrent-send`)
+  validates byte accounting per-thread.
+- **epoll integration with SHM rings** — `epoll_ctl(EPOLL_CTL_ADD)`
+  on a libsd-tracked fd now creates an `eventfd` per connection,
+  registers it with the kernel epoll set, and a per-process
+  `ShmPoller` thread writes to it whenever the inbound ring has
+  data or `peer_closed`. `epoll_wait` substitutes the application's
+  fd via `data.fd` so callers see the fd they registered. Tested
+  end-to-end (`integration-shm-epoll`).
+- **`sendmsg` / `recvmsg`** route through SHM when the fd is
+  upgraded; iovec entries are walked in order. Ancillary data
+  (`msg_controllen > 0`) returns `EOPNOTSUPP` cleanly so callers
+  fall back to TCP for SCM_RIGHTS-style use.
+- **Futex-on-ring notification** (replaces spin-yield in `recv`):
+  producer bumps + `FUTEX_WAKE`s a 32-bit counter in the SHM
+  segment header after publishing; consumer `FUTEX_WAIT`s on the
+  same address with a 100 ms ceiling. Idle servers consume **0 ms
+  of CPU per 600 ms idle window** in the test (previously burned
+  ~100% of one core). `integration-shm-futex` asserts the budget.
+- **`ShmSegment::wait_for_peer` barrier** — both sides must have
+  set their pid in the segment header before either side returns
+  from `try_attach`. Without this, an early-closing creator could
+  unlink the segment before the joiner ever opens it, leaving the
+  joiner asymmetrically on TCP while the creator was on SHM.
+- **`mark_closed` now wakes the futex** so the consumer detects
+  EOF in microseconds, not at the next 100 ms timeout. Closes the
+  segment-leak-on-rapid-close race.
+- **Peer-died detection** in `shm_recv` — when a futex_wait
+  doesn't make progress, poll the underlying TCP fd for POLLHUP /
+  POLLERR / POLLNVAL. If hung up, mark the ring closed locally so
+  recv returns EOF instead of hanging forever. (Detection latency
+  on this VM is variable; the dedicated SIGKILL test is xfail
+  pending a more robust signal — tracked in MISSING_FEATURES.)
+- **RDMA inter-host data plane scaffold** at
+  `include/socksdirect/rdma/{qp_info,conn}.hpp` +
+  `src/lib/rdma/conn.cpp`. QpInfo wire codec (64 B packed, hex-
+  encoded for the NDJSON ctl protocol; 5 unit tests). Verbs +
+  Conn wrap libibverbs QP setup (INIT/RTR/RTS); compiles with
+  `-DSOCKSDIRECT_WITH_RDMA=ON`, falls back to a no-op stub
+  otherwise. Send/recv ring data path is sketched but full ring-
+  over-RDMA implementation needs Mellanox hardware to verify.
+  Tracked in MISSING_FEATURES.
+- **Stale-segment robustness** — leftover `/dev/shm/sd-*` from a
+  crashed prior run doesn't block fresh connections; `try_attach`
+  generates a random per-connection key, so collisions are
+  vanishingly unlikely. New `integration-shm-peer-died` test
+  validates the behavior.
+
 ### Added — Phase 3 keystone: SHM intra-host data plane is live
 - **`include/socksdirect/shm_ring.hpp`** — process-shared SPSC
   byte-stream ring. Cache-line padded head/tail, power-of-two

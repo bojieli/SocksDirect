@@ -123,6 +123,18 @@ std::shared_ptr<ShmConn> try_attach(const std::string& local_ep,
                   static_cast<unsigned long long>(key), std::strerror(errno));
         return nullptr;
     }
+    // Both sides must have mmap'd the segment before either side
+    // proceeds. Otherwise an early-closing creator can unlink the
+    // segment before the joiner shm_open's it (asymmetric upgrade
+    // bug seen in epoll tests). We wait up to 200 ms; on timeout we
+    // tear down our side of the SHM and fall back to TCP — the peer
+    // (presumably also gave up) does the same independently.
+    if (!conn->segment.wait_for_peer(200)) {
+        LOG_DEBUG("peer never attached for key=%016llx; falling back to TCP",
+                  static_cast<unsigned long long>(key));
+        // segment.close() unlinks if we were the only attacher.
+        return nullptr;
+    }
     LOG_INFO("shm-attached: fd=%d local=%s peer=%s key=%016llx role=%s",
              real_fd, local_ep.c_str(), peer_ep.c_str(),
              static_cast<unsigned long long>(key),

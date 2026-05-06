@@ -61,6 +61,42 @@ if(TARGET sd AND TARGET socksdirect-monitor AND TARGET socksdirect-ctl
     set_tests_properties(integration-shm-data-plane PROPERTIES
         TIMEOUT 180
         ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+    add_test(
+        NAME integration-shm-epoll
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_shm_epoll.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-shm-epoll PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+    add_test(
+        NAME integration-shm-concurrent-send
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_shm_concurrent_send.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-shm-concurrent-send PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+    add_test(
+        NAME integration-shm-futex
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_shm_futex.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-shm-futex PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+    add_test(
+        NAME integration-shm-peer-died
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_shm_peer_died.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-shm-peer-died PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 endif()
 
 # --- monitor daemon end-to-end suite ----------------------------------------
