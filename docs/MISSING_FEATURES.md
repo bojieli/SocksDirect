@@ -164,20 +164,18 @@ For each gap we list:
   consumer wakes in µs. **0 ms of CPU per 600 ms idle window**
   measured by `integration-shm-futex`.
 
-### Peer-crash detection latency
+### ~~Peer-crash detection latency~~ — landed
 
-- **Symptom**: when a peer SIGKILLs, the surviving side's recv
-  can take 100 ms or more to detect EOF. The kernel TCP fd's
-  POLLHUP *should* surface within milliseconds but on noisy VMs
-  detection latency is variable.
-  `integration-shm-peer-died::test_crashed_peer_leaves_server_clean`
-  is `xfail`.
-- **Disposition**: REWRITE. Options:
-  1. Watchdog: a libsd background poller checks `kill(peer_pid,
-     0)`; on ESRCH, mark the local rings closed.
-  2. Replace POLLHUP polling with a kernel notification (e.g.
-     SIGRTMIN+1 from a watchdog thread).
-- **Tracker**: Phase 3 follow-up.
+- **Was**: SIGKILL on a peer left the surviving side spinning in
+  recv until POLLHUP surfaced (variable latency on noisy VMs).
+  The dedicated test was `xfail`.
+- **Now**: a per-process watchdog thread (in
+  `src/lib/shm_conn.cpp`) scans the ConnRegistry every 50 ms and
+  calls `kill(peer_pid, 0)` on each conn's stored peer pid. On
+  `ESRCH`, it marks the local inbound ring closed, futex-wakes
+  the waiter, and `shm_unlink`s the segment (the dead peer never
+  decremented its refcount). `integration-shm-peer-died` is no
+  longer xfail and passes 5/5 standalone runs.
 
 ### RDMA inter-host data plane (kernel work + Mellanox time)
 

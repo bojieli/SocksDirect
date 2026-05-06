@@ -8,6 +8,7 @@
 // the underlying refcount hits 0.
 
 #include "src/lib/intercept.hpp"
+#include "src/lib/metrics_dump.hpp"
 #include "src/lib/shm_conn.hpp"
 #include "src/lib/state.hpp"
 #include "socksdirect/log.hpp"
@@ -47,11 +48,31 @@ int close(int fd) {
     }
     // Drop any SHM connection tied to this fd. The ShmConn destructor
     // closes the segment, which marks the outbound ring closed and
-    // decrements the segment refcount.
+    // decrements the segment refcount. Fold the per-conn counters
+    // into process-cumulative state so the metrics dump preserves
+    // them across the connection's death.
     auto shm = sdp::conn_registry().remove(fd);
     if (shm) {
+        auto& s = sdp::state();
+        s.shm_bytes_sent_closed.fetch_add(
+            shm->bytes_sent.load(std::memory_order_relaxed),
+            std::memory_order_relaxed);
+        s.shm_bytes_recv_closed.fetch_add(
+            shm->bytes_recv.load(std::memory_order_relaxed),
+            std::memory_order_relaxed);
+        s.shm_ring_full_closed.fetch_add(
+            shm->ring_full_blocks.load(std::memory_order_relaxed),
+            std::memory_order_relaxed);
+        s.shm_ring_empty_closed.fetch_add(
+            shm->ring_empty_blocks.load(std::memory_order_relaxed),
+            std::memory_order_relaxed);
+        s.shm_conn_closed_total.fetch_add(1, std::memory_order_relaxed);
         LOG_DEBUG("close(%d): dropping SHM key=%016llx",
                   fd, static_cast<unsigned long long>(shm->key));
+        // Snapshot the metrics now that the closed-conn totals are
+        // folded into State. The periodic dumper would catch this
+        // within 1 s, but a fast process may exit sooner.
+        sdp::dump_lib_metrics_once();
     }
     return REAL(close)(fd);
 }

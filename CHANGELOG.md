@@ -6,6 +6,46 @@ follows semantic versioning once it reaches v1.0.
 
 ## [Unreleased]
 
+### Added — Phase 3 robustness + observability
+- **Watchdog peer-crash detection** (`src/lib/shm_conn.cpp`):
+  per-process background thread scans the ConnRegistry every 50 ms
+  and calls `kill(peer_pid, 0)` on each conn's stored peer pid. On
+  `ESRCH`, marks the local inbound ring closed, futex-wakes any
+  parked recv, and `shm_unlink`s the segment (the dead peer never
+  decremented its refcount). The previous xfail on
+  `integration-shm-peer-died::test_crashed_peer_leaves_server_clean`
+  is removed; the test passes 5/5 stress runs.
+- **Per-pid SHM data-path metrics**
+  (`src/lib/metrics_dump.{cpp,hpp}`): every libsd process writes a
+  Prometheus-text snapshot to `$SOCKSDIRECT_LIB_METRICS_DIR/<pid>.prom`
+  once per second (background thread) and synchronously after every
+  `close()` that drops a SHM connection. Exported counters:
+  `socksdirect_lib_shm_bytes_sent_total`,
+  `socksdirect_lib_shm_bytes_recv_total`,
+  `socksdirect_lib_shm_ring_full_blocks_total`,
+  `socksdirect_lib_shm_ring_empty_blocks_total`,
+  `socksdirect_lib_shm_conns_total`,
+  `socksdirect_lib_shm_conn_closed_total`,
+  `socksdirect_lib_shm_conns_live` — each labeled by pid.
+- **`lib-metrics` ctl op** on the monitor: aggregates all per-pid
+  `.prom` files in the configured directory. Stale files (whose
+  pid is no longer alive) are read-then-unlinked, so a scraper
+  running just after a process exits still sees that process's
+  last-known counters.
+- **`integration-lib-metrics`** (3 cases): real-workload
+  round-trip via the ctl op asserting ≥ 1.2 MB sent across both
+  peers; stale-file scrub; missing-directory handling.
+
+### Fixed — `maybe_upgrade_to_shm` double-counted refs
+On the connect path, `socket()` already registered the fd in the
+FdRemapTable; the subsequent `maybe_upgrade_to_shm` was alloc-ing
+a second time, double-bumping the per-(type, fd) refcount. The
+close hook then decremented from 2 to 1 and never reached the
+SHM-drop branch — the conn registry kept stale entries until
+process exit, and metrics dumps under-counted. Now we check the
+table before re-allocating. Discovered while writing the metrics
+test (one peer's bytes_sent showed zero).
+
 ### Added — Phase 3 follow-ups: epoll, futex, sendmsg, RDMA scaffold
 - **Per-conn send/recv mutexes** in `ShmConn` so multi-threaded
   applications can safely call `send()` from N threads on the same

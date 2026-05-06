@@ -10,14 +10,95 @@
 #include "socksdirect/monitor_ipc.hpp"
 
 #include <arpa/inet.h>
+#include <atomic>
+#include <cerrno>
+#include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <linux/futex.h>
+#include <mutex>
 #include <netinet/in.h>
+#include <pthread.h>
 #include <string>
+#include <sys/syscall.h>
+#include <thread>
 #include <unistd.h>
 
 namespace socksdirect {
 namespace preload {
+
+// Per-process watchdog: scans the conn registry every ~50 ms and
+// checks each conn's peer_pid via kill(pid, 0). If the peer is gone
+// (kill returns ESRCH or EPERM), we mark our inbound ring closed and
+// FUTEX_WAKE so a parked recv returns EOF in tens of milliseconds
+// rather than waiting for the kernel TCP stack to surface POLLHUP
+// (which can take many seconds on a quiet loopback).
+namespace {
+
+class Watchdog {
+public:
+    static Watchdog& instance() {
+        static Watchdog w;
+        return w;
+    }
+
+    // Idempotent. Calls only the first one start the thread.
+    void ensure_started() {
+        if (started_.exchange(true, std::memory_order_acq_rel)) return;
+        std::thread([this]() { this->run(); }).detach();
+    }
+
+private:
+    void run() {
+        ::pthread_setname_np(::pthread_self(), "sd-watchdog");
+        for (;;) {
+            sweep_once();
+            struct timespec ts{0, 50 * 1000 * 1000};   // 50 ms
+            ::nanosleep(&ts, nullptr);
+        }
+    }
+
+    void sweep_once() {
+        auto& reg = conn_registry();
+        // Snapshot the registry under its lock, then operate on the
+        // shared_ptrs outside it so we don't hold the registry mutex
+        // while doing kill() syscalls.
+        std::vector<std::shared_ptr<ShmConn>> snap = reg.snapshot();
+        for (auto& c : snap) {
+            if (!c || !c->segment.is_open()) continue;
+            std::int32_t pid = c->segment.peer_pid();
+            if (pid <= 0) continue;
+            // kill(pid, 0): returns 0 if process exists. ESRCH if not,
+            // EPERM if we lack permission (treated as alive — the
+            // process exists, just not signalable).
+            if (::kill(pid, 0) == 0) continue;
+            if (errno == EPERM) continue;
+            // Peer is gone. Mark our inbound ring closed, wake any
+            // parked recv, and shm_unlink the segment ourselves —
+            // the dead peer's libsd never decremented its refcount,
+            // so without unlinking here the segment would persist
+            // until reboot.
+            auto* ring = c->segment.ring_inbound();
+            ring->mark_closed();
+            auto* w = c->segment.wake_inbound();
+            w->fetch_add(1, std::memory_order_release);
+            ::syscall(SYS_futex, w, FUTEX_WAKE, INT_MAX, nullptr,
+                      nullptr, 0);
+            // Best-effort unlink. ENOENT is fine (race with peer
+            // who managed to unlink before crashing, or another
+            // watchdog).
+            ShmSegment::unlink_by_key(c->key);
+            LOG_DEBUG("watchdog: peer pid=%d gone; marked ring closed "
+                      "+ unlinked (real_fd=%d key=%016llx)",
+                      pid, c->real_fd,
+                      static_cast<unsigned long long>(c->key));
+        }
+    }
+
+    std::atomic<bool> started_{false};
+};
+
+}  // namespace
 
 ConnRegistry& conn_registry() {
     static ConnRegistry reg;
@@ -139,6 +220,11 @@ std::shared_ptr<ShmConn> try_attach(const std::string& local_ep,
              real_fd, local_ep.c_str(), peer_ep.c_str(),
              static_cast<unsigned long long>(key),
              is_creator ? "creator" : "joiner");
+    state().shm_conns_total.fetch_add(1, std::memory_order_relaxed);
+    // Start the watchdog (idempotent). Without this, a peer that
+    // SIGKILLs leaves the surviving side spinning until POLLHUP
+    // surfaces — which on quiet loopback can take seconds.
+    Watchdog::instance().ensure_started();
     return conn;
 }
 

@@ -21,6 +21,7 @@
 // double-initializing.
 
 #include "src/lib/intercept.hpp"
+#include "src/lib/metrics_dump.hpp"
 #include "src/lib/state.hpp"
 #include "socksdirect/config.hpp"
 #include "socksdirect/fd_remap.hpp"
@@ -109,10 +110,33 @@ static void preload_init() {
                  sock.c_str(), std::strerror(errno));
     }
 
+    // Metrics export: SOCKSDIRECT_LIB_METRICS_DIR overrides the
+    // config; default is /run/socksdirect/lib-metrics/. Empty path
+    // disables export.
+    const char* mdir_env = std::getenv("SOCKSDIRECT_LIB_METRICS_DIR");
+    sdp::state().metrics_dir = mdir_env
+        ? std::string(mdir_env)
+        : sdp::state().config.get_string(
+              "monitor", "lib_metrics_dir",
+              "/run/socksdirect/lib-metrics");
+    sdp::ensure_metrics_dumper_started();
+
     sdp::g_active.store(true, std::memory_order_release);
 }
 
 static void preload_fini() {
+    // We don't dump-on-exit here: the static-destructor order for
+    // the function-static ConnRegistry vs. the State is not guaranteed
+    // relative to this destructor, and dereferencing either after its
+    // destruction would crash. Instead, the close() hook calls
+    // dump_lib_metrics_once() right after folding the conn's counters
+    // into State, so the on-disk snapshot reflects the latest state
+    // for every closed connection. The periodic dumper (1 s interval)
+    // covers the remaining live counters.
+    //
+    // Per-pid file is left in place for the monitor's lib-metrics op
+    // to scrub on its next scan (it detects the dead pid via
+    // kill(pid, 0)).
     sdp::g_active.store(false, std::memory_order_release);
     LOG_TRACE("libsd unloading; %zu live fds in remap table",
               sdp::state().fd_table.live_count());

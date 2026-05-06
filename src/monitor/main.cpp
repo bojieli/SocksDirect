@@ -36,6 +36,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <dirent.h>
 #include <fcntl.h>
 #include <map>
 #include <memory>
@@ -320,6 +321,52 @@ sd::CtlResponse op_shm_unregister(Daemon& d, const sd::CtlRequest& req) {
     return r;
 }
 
+// lib-metrics: aggregate per-pid Prometheus-text snapshots written
+// by libsd-preloaded processes into the configured lib_metrics_dir.
+// Stale files (pid no longer alive) are scrubbed during the scan.
+sd::CtlResponse op_lib_metrics(Daemon& d, const sd::CtlRequest&) {
+    sd::CtlResponse r;
+    std::string dir = d.config.get_string(
+        "monitor", "lib_metrics_dir",
+        "/run/socksdirect/lib-metrics");
+    DIR* dp = ::opendir(dir.c_str());
+    if (!dp) {
+        r.ok = true;
+        r.lines.push_back("# no lib-metrics directory: " + dir);
+        return r;
+    }
+    struct dirent* de;
+    while ((de = ::readdir(dp)) != nullptr) {
+        std::string name = de->d_name;
+        if (name.size() < 6 || name.substr(name.size() - 5) != ".prom") continue;
+        std::string pid_str = name.substr(0, name.size() - 5);
+        char* end = nullptr;
+        long pid = std::strtol(pid_str.c_str(), &end, 10);
+        std::string path = dir + "/" + name;
+        // Always emit the file's contents (the dead-pid snapshot
+        // is still useful — it's the final state of that process).
+        // Then, if the pid is no longer alive, unlink so the dir
+        // doesn't accumulate stale snapshots indefinitely.
+        FILE* f = std::fopen(path.c_str(), "r");
+        if (f) {
+            char buf[1024];
+            while (std::fgets(buf, sizeof(buf), f)) {
+                std::string line(buf);
+                if (!line.empty() && line.back() == '\n') line.pop_back();
+                r.lines.push_back(line);
+            }
+            std::fclose(f);
+        }
+        if (pid > 0 && end && *end == '\0'
+            && ::kill(static_cast<pid_t>(pid), 0) < 0 && errno == ESRCH) {
+            ::unlink(path.c_str());
+        }
+    }
+    ::closedir(dp);
+    r.ok = true;
+    return r;
+}
+
 sd::CtlResponse dispatch(Daemon& d, const sd::CtlRequest& req) {
     d.m_ctl_requests->inc();
     if (req.op == "status")      return op_status(d, req);
@@ -333,6 +380,7 @@ sd::CtlResponse dispatch(Daemon& d, const sd::CtlRequest& req) {
     if (req.op == "help")           return op_help(d, req);
     if (req.op == "shm-register")   return op_shm_register(d, req);
     if (req.op == "shm-unregister") return op_shm_unregister(d, req);
+    if (req.op == "lib-metrics")    return op_lib_metrics(d, req);
     sd::CtlResponse r;
     r.ok = false;
     r.error = std::string("unknown op: ") + req.op + " (try 'help')";

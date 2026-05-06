@@ -102,8 +102,18 @@ void maybe_upgrade_to_shm(int fd) {
     if (!sdp::g_active.load(std::memory_order_acquire) || sdp::g_in_hook)
         return;
     sdp::ScopedReentrancyGuard g;
-    // Track the new fd in the remap table.
-    sdp::state().fd_table.alloc(sd::kSocket, fd);
+    // Track the new fd in the remap table — but only if socket() hasn't
+    // already registered it. Calling alloc twice for the same (type,
+    // fd) double-bumps the per-(type,fd) refcount, which means close()
+    // decrements to 1 instead of 0 and never drops the SHM conn.
+    // socket() registers fds it created; accept() returns a brand-new
+    // fd that no socket() hook fired for, so we always have to alloc
+    // there.
+    auto& tbl = sdp::state().fd_table;
+    if (tbl.reverse_lookup(sd::kSocket, fd) < 0
+        && tbl.reverse_lookup(sd::kSystem, fd) < 0) {
+        tbl.alloc(sd::kSocket, fd);
+    }
 
     // Pull both endpoints. AF_INET only; otherwise we just tracked the
     // fd and we're done.

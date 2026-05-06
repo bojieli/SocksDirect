@@ -90,6 +90,7 @@ add_library(sd SHARED
     src/lib/poll_api.cpp
     src/lib/process_api.cpp
     src/lib/shm_conn.cpp
+    src/lib/metrics_dump.cpp
     src/lib/rdma/conn.cpp)
 set_target_properties(sd PROPERTIES OUTPUT_NAME "sd")
 target_include_directories(sd PRIVATE

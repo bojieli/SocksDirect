@@ -97,6 +97,15 @@ if(TARGET sd AND TARGET socksdirect-monitor AND TARGET socksdirect-ctl
     set_tests_properties(integration-shm-peer-died PROPERTIES
         TIMEOUT 60
         ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
+    add_test(
+        NAME integration-lib-metrics
+        COMMAND ${Python3_EXECUTABLE} -m pytest
+                ${CMAKE_CURRENT_SOURCE_DIR}/test_lib_metrics.py
+                -v --tb=short --color=yes)
+    set_tests_properties(integration-lib-metrics PROPERTIES
+        TIMEOUT 60
+        ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 endif()
 
 # --- monitor daemon end-to-end suite ----------------------------------------

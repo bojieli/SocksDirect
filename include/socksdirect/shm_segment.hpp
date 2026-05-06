@@ -275,6 +275,14 @@ public:
         return reinterpret_cast<sd_shm_header*>(base_);
     }
 
+    // Pid of the peer process. Used by the libsd watchdog to detect
+    // peer crashes via kill(pid, 0).
+    std::int32_t peer_pid() const {
+        if (!base_) return 0;
+        const auto* h = reinterpret_cast<const sd_shm_header*>(base_);
+        return role_ == kRoleCreator ? h->joiner_pid : h->creator_pid;
+    }
+
     // Outbound ring for *this* role (i.e. the one we send through).
     ShmSegmentRing* ring_outbound() {
         return role_ == kRoleCreator ? ring_creator_to_joiner()

@@ -25,6 +25,7 @@
 #include <string>
 #include <sys/socket.h>
 #include <unordered_map>
+#include <vector>
 
 namespace socksdirect {
 namespace preload {
@@ -73,6 +74,17 @@ public:
         auto it = by_fd_.find(fd);
         if (it == by_fd_.end()) return nullptr;
         return it->second;
+    }
+
+    // Copy the registry's current ShmConn pointers under the mutex.
+    // Used by the watchdog (which doesn't want to hold the mutex
+    // while doing kill() syscalls) and by the metrics dumper.
+    std::vector<std::shared_ptr<ShmConn>> snapshot() const {
+        std::lock_guard<std::mutex> g(mu_);
+        std::vector<std::shared_ptr<ShmConn>> out;
+        out.reserve(by_fd_.size());
+        for (const auto& kv : by_fd_) out.push_back(kv.second);
+        return out;
     }
 
     std::shared_ptr<ShmConn> remove(int fd) {
