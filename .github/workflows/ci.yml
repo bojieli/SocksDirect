@@ -106,10 +106,13 @@ jobs:
       - name: Verify referenced docs exist
         run: |
           missing=0
-          for f in docs/ARCHITECTURE.md docs/API.md docs/CONFIGURATION.md \
-                   docs/REPRODUCIBILITY.md docs/TROUBLESHOOTING.md \
-                   docs/KERNEL_MODULE.md docs/MISSING_FEATURES.md \
-                   docs/THIRD_PARTY.md CONTRIBUTING.md CHANGELOG.md; do
+          for f in docs/README.md docs/ARCHITECTURE.md docs/API.md \
+                   docs/CONFIGURATION.md docs/REPRODUCIBILITY.md \
+                   docs/TROUBLESHOOTING.md docs/KERNEL_MODULE.md \
+                   docs/MISSING_FEATURES.md docs/THIRD_PARTY.md \
+                   docs/OPERATIONS.md docs/SECURITY.md docs/MIGRATION.md \
+                   docs/PERFORMANCE.md docs/FAQ.md \
+                   CONTRIBUTING.md CHANGELOG.md; do
             if [ ! -f "$f" ]; then
               echo "::error file=$f::referenced doc missing"
               missing=1

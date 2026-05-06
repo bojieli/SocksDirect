@@ -1,39 +1,93 @@
 # SocksDirect
 
 User-space, drop-in BSD socket replacement that bypasses the kernel for
-intra-host TCP and uses RDMA for inter-host. The original research
-prototype is described in the SOCKSDIRECT paper (`paper/`); this tree
-is the in-progress rewrite that turns the prototype into a system you
-can install, reproduce, and contribute to. See `REWRITE_PLAN.md` for
-the multi-phase plan and `CHANGELOG.md` for what has landed so far.
+intra-host TCP and uses RDMA for inter-host. The research prototype is
+described in the SOCKSDIRECT paper (`paper/`); this repository is the
+production rewrite that takes the prototype and turns it into a system
+you can install, reproduce, monitor, and contribute to.
 
-> Status: rewrite in progress. The user-facing tooling (`socksdirect-ctl`,
-> `reproduce/repro`, microbenchmarks, kernel-module skeleton) and tests
-> are in place. The fast-path library and monitor daemon still build
-> from the legacy `lib/`/`monitor/` trees and are being migrated under
-> `src/lib/`+`src/monitor/` per Phase 1–3 of the plan.
+> **Status (May 2026)**: rewrite phases 1–7 land in `master`. The
+> control plane (Logger, Metrics, MonitorIpc, the `socksdirect-monitor`
+> daemon, `socksdirect-ctl`), the kernel module ABI + page-mapping,
+> the reproduction harness with 12 figures, the conformance suite, the
+> packaging pipeline, and the new `src/lib/` libsd preload library are
+> all in place. The SHM data plane port from the legacy
+> `lib/socket_lib.cpp` to `src/lib/` is the remaining engineering
+> work — the new libsd is **instrumented passthrough** today, so a
+> preloaded application is *correct* but not yet noticeably faster.
+> See [`docs/PERFORMANCE`](docs/PERFORMANCE.md) for the honest
+> performance picture.
 
-## Quick start (no RDMA, ~5 minutes on stock Ubuntu)
+## Documentation map
+
+Start at [`docs/README`](docs/README.md). It points you at the right
+document for what you're trying to do (try it / reproduce / deploy /
+embed / understand what's missing).
+
+## 5-minute quick start (no RDMA needed)
+
+On a fresh Ubuntu 22.04 / 24.04 box:
 
 ```bash
-sudo apt-get install -y cmake build-essential libgtest-dev googletest python3-pytest
-git clone <this repo> socksdirect && cd socksdirect
+# Install build deps.
+sudo apt-get install -y cmake build-essential libgtest-dev \
+                        googletest python3-pytest python3-yaml
 
+# Clone + build.
+git clone https://github.com/bojieli/SocksDirect.git
+cd SocksDirect
 cmake -S . -B build -DSOCKSDIRECT_WITH_RDMA=OFF
 cmake --build build -j
+
+# Run the full test matrix.
 ctest --test-dir build --output-on-failure
 ```
 
-You should see 16/16 tests pass: unit tests for every header in
-`include/socksdirect/`, plus integration tests for `socksdirect-ctl`,
-the `reproduce/repro` harness, the `perf_regression.py` script, the
-microbench JSON contract, and the kernel/userspace ABI consistency
-check.
+Expected output:
 
-## Quick start (RDMA, full library)
+```
+100% tests passed, 0 tests failed out of 23
+```
 
-You need a Mellanox ConnectX-4 or newer, libibverbs, and Mellanox OFED
-for the HERD helper. See `docs/TROUBLESHOOTING.md` for the build flags.
+Twenty-three tests: gtest unit tests for every header in
+`include/socksdirect/`, plus integration suites for
+`socksdirect-monitor`, `socksdirect-ctl`, the `reproduce/repro`
+harness, the LTP conformance gate, the microbenchmark JSON schema,
+the kernel/userspace ABI gate, and the libsd preload scaffold.
+
+## 5-minute hello world: monitor + ctl + libsd preload
+
+```bash
+# Boot the daemon on a temp socket so we don't need root.
+./build/socksdirect-monitor --control-socket /tmp/sd.sock --log-level warn &
+MON=$!
+sleep 0.5
+
+# Talk to it.
+SOCKSDIRECT_CTL_SOCKET=/tmp/sd.sock ./build/socksdirect-ctl status
+# pid 12345
+# uptime_sec 0
+# control_socket /tmp/sd.sock
+# draining false
+
+SOCKSDIRECT_CTL_SOCKET=/tmp/sd.sock ./build/socksdirect-ctl metrics \
+    | grep socksdirect_ctl_requests_total
+# socksdirect_ctl_requests_total 2
+
+# Run any program with libsd preloaded; it pings the monitor on startup.
+LD_PRELOAD=$(pwd)/build/libsd.so SOCKSDIRECT_LOG=info /bin/echo hello
+# hello
+SOCKSDIRECT_CTL_SOCKET=/tmp/sd.sock ./build/socksdirect-ctl metrics \
+    | grep socksdirect_ctl_requests_total
+# socksdirect_ctl_requests_total 4    # the lib's ping is in there
+
+kill -TERM $MON; wait $MON 2>/dev/null
+```
+
+## RDMA build (data plane fast path)
+
+To build the legacy data-plane library (`libsd-legacy.so`) for
+inter-host RDMA + paper reproduction:
 
 ```bash
 sudo apt-get install -y libibverbs-dev rdma-core libmemcached-dev libnuma-dev
@@ -41,11 +95,10 @@ cmake -S . -B build -DSOCKSDIRECT_WITH_RDMA=ON -DSOCKSDIRECT_WITH_HERD=ON
 cmake --build build -j
 ```
 
-This builds `libsd.so` (the preload library) and `socksdirect-monitor`
-(the per-host daemon). With `LD_PRELOAD=/path/to/libsd.so` your TCP
-application will route intra-host traffic over shared memory and
-inter-host traffic over RDMA. The supported API surface is documented
-in `docs/API.md`.
+The HERD helper requires Mellanox OFED's experimental verbs; if you
+don't have OFED, drop `-DSOCKSDIRECT_WITH_HERD=ON` and the legacy
+library is skipped (the new instrumented-passthrough `libsd.so`
+still builds).
 
 ## Reproducing the paper
 
@@ -53,81 +106,85 @@ in `docs/API.md`.
 cp reproduce/inventory.example.yml reproduce/inventory.yml
 $EDITOR reproduce/inventory.yml         # set hostnames / NICs / IPs
 ./reproduce/repro check                 # auto-detect tier
-./reproduce/repro all                   # run every figure for that tier
+./reproduce/repro all                   # run every figure
 ./reproduce/repro report                # produce results/summary.md
 ```
 
-Three reproduction tiers, auto-detected from the inventory + your
-hardware:
+Three reproduction tiers, auto-detected:
 
-- **Tier 1** — any Linux box. SoftRoCE for inter-host transport;
-  inter-host *perf* numbers are explicitly excluded from the report.
-  Intra-host numbers are functional only.
-- **Tier 2** — one Linux box with KVM, hugepages, ≥8 cores. Reproduces
-  every intra-host figure within ~10 % of the paper.
-- **Tier 3** — two bare-metal hosts with Mellanox ConnectX-4 (or newer)
-  and a 100 GbE switch. Reproduces every figure.
+- **Tier 1** — any Linux box. Functional figures only.
+  Inter-host *perf* numbers are excluded from comparison (SoftRoCE
+  isn't representative).
+- **Tier 2** — one Linux box with KVM, hugepages, ≥8 cores.
+  Reproduces every intra-host figure.
+- **Tier 3** — two bare-metal hosts with Mellanox ConnectX-4 (or
+  newer) and a 100 GbE switch. Reproduces every figure.
 
-See `docs/REPRODUCIBILITY.md` for which figures land at which tier and
-what to check if your numbers diverge.
+See [`docs/REPRODUCIBILITY`](docs/REPRODUCIBILITY.md) for what each
+tier can and cannot prove.
 
-## Operating the monitor
+## Production install
 
 ```bash
-sudo cp packaging/systemd/socksdirect-monitor.service /etc/systemd/system/
-sudo systemctl enable --now socksdirect-monitor
+# Debian / Ubuntu
+sudo apt install ./socksdirect-monitor_*.deb \
+                 ./socksdirect_*.deb \
+                 ./socksdirect-tools_*.deb
 
-# Check status / connections / config from any user with access to the
-# control socket:
-socksdirect-ctl status
-socksdirect-ctl connections
-socksdirect-ctl reload
+# RHEL / Rocky / Fedora
+sudo dnf install ./socksdirect-monitor-*.rpm \
+                 ./socksdirect-*.rpm \
+                 ./socksdirect-tools-*.rpm
+
+# Optional zero-copy LKM
+sudo apt install ./socksdirect-dkms_*.deb
+sudo modprobe socksdirect
 ```
 
-`socksdirect-ctl` is a thin wrapper around the newline-delimited JSON
-protocol in `include/socksdirect/monitor_ipc.hpp`. Its op surface is
-extensible without bumping the binary.
+The `postinst` creates the `socksdirect` user/group and starts the
+systemd unit. Verify:
+
+```bash
+systemctl status socksdirect-monitor
+socksdirect-ctl status
+```
+
+Full deploy guide: [`docs/OPERATIONS`](docs/OPERATIONS.md).
 
 ## Layout
 
 ```
-include/socksdirect/    Public, header-only stop-gap APIs (config, log,
-                        metrics, monitor_ipc, fd_remap, zerocopy).
-src/kernel/             Out-of-tree LKM exposing /dev/socksdirect.
-tools/                  socksdirect-ctl + Python tooling
-                        (perf_regression.py, check_kernel_abi.py).
-bench/microbench/       Standalone microbenchmarks. JSON output;
-                        consumed by tools/perf_regression.py.
-tests/unit/             gtest-based unit tests for every header.
-tests/integration/      pytest-based integration suites
-                        (ctl, repro CLI, perf gate, ABI drift, bench
-                        smoke).
-reproduce/              Reproduction harness + per-figure scripts.
-packaging/              Debian rules, DKMS metadata, systemd unit,
-                        example config.
-docs/                   ARCHITECTURE / API / CONFIGURATION /
-                        REPRODUCIBILITY / TROUBLESHOOTING /
-                        KERNEL_MODULE.
-common/, lib/, monitor/ Legacy trees from the research prototype.
-                        Phase 1–3 of the rewrite migrates these into
-                        src/. Don't add new code here.
+include/socksdirect/    Public, header-only stop-gap APIs
+                        (config, log, metrics, monitor_ipc,
+                        fd_remap, zerocopy{,_client}).
+src/lib/                libsd preload library.
+src/monitor/            socksdirect-monitor daemon.
+src/kernel/             /dev/socksdirect LKM + ABI mirror.
+tools/                  socksdirect-ctl source +
+                        Python helpers (perf_regression,
+                        check_kernel_abi, render_api_doc,
+                        scan_error_handling, repro_dry_run).
+bench/microbench/       Standalone microbenchmarks (JSON output).
+bench/baselines/        Linux reference benchmarks.
+tests/unit/             gtest unit tests.
+tests/integration/      pytest integration scenarios.
+tests/conformance/      libc-API conformance suite +
+                        case files + LTP runner.
+reproduce/              Paper-figure reproduction harness.
+reproduce/figures/      Per-figure run.sh + README.
+reproduce/orchestration/ Ansible playbook for two-host runs.
+reproduce/vm-images/    Packer manifests + Vagrantfile.
+apps/                   Demo / reproduction binaries.
+packaging/              .deb, .rpm, DKMS, systemd, docker.
+docs/                   Architecture / API / Configuration /
+                        Reproducibility / Operations / Security /
+                        Migration / Performance / FAQ /
+                        Troubleshooting / Kernel module / etc.
+
+common/, lib/, monitor/ Legacy research-prototype trees. Phase 1+
+                        of the rewrite migrates these into src/.
+                        Don't add new code here.
 ```
-
-## Documentation
-
-| Document | Purpose |
-|---|---|
-| [`REWRITE_PLAN.md`](REWRITE_PLAN.md) | The multi-phase plan and exit criteria for each phase. |
-| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Paper sections → code modules. |
-| [`docs/API.md`](docs/API.md) | Which libc functions are accelerated, passthrough, or unsupported. |
-| [`docs/CONFIGURATION.md`](docs/CONFIGURATION.md) | Every config knob, env-var override, and default. |
-| [`docs/REPRODUCIBILITY.md`](docs/REPRODUCIBILITY.md) | Reproduction tiers, per-figure expectations. |
-| [`docs/KERNEL_MODULE.md`](docs/KERNEL_MODULE.md) | LKM build, load, and security model. |
-| [`docs/TROUBLESHOOTING.md`](docs/TROUBLESHOOTING.md) | Build/runtime diagnostics. |
-| [`docs/MISSING_FEATURES.md`](docs/MISSING_FEATURES.md) | What the paper describes that this tree doesn't yet implement. |
-| [`docs/THIRD_PARTY.md`](docs/THIRD_PARTY.md) | Vendored / fetched dependencies and their licenses. |
-| [`CONTRIBUTING.md`](CONTRIBUTING.md) | What we accept; how to run the test matrix. |
-| [`CHANGELOG.md`](CHANGELOG.md) | User-facing changes. |
 
 ## License
 

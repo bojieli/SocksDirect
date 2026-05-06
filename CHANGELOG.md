@@ -7,6 +7,30 @@ follows semantic versioning once it reaches v1.0.
 ## [Unreleased]
 
 ### Added
+- **Documentation expansion**:
+  - `docs/README.md` — entry-point doc index. Tells newcomers
+    which file to open based on their goal (try / reproduce /
+    deploy / embed / debug).
+  - `docs/OPERATIONS.md` — production deploy guide: install,
+    systemd, metrics scraping, oncall checklist, capacity,
+    restart safety, upgrade procedure, known caveats.
+  - `docs/SECURITY.md` — explicit trust + threat model.
+  - `docs/MIGRATION.md` — what's different between the prototype
+    and the post-rewrite tree.
+  - `docs/PERFORMANCE.md` — honest answer to "is it fast yet?"
+    including microbench numbers and the
+    libsd vs libsd-legacy split.
+  - `docs/FAQ.md` — consolidated recurring questions.
+  - `docs/ARCHITECTURE.md` extended with prose on the libsd
+    interception model (dlsym caching, bootstrap short-circuit,
+    re-entrancy guard) and the monitor lifecycle (poll loop,
+    SIGHUP/SIGTERM handling, op dispatch).
+  - README rewritten with a working hello-world recipe.
+  - `integration-docs-links` CI gate validates every internal
+    markdown link in docs/, README, CHANGELOG, and CONTRIBUTING.
+    Plus docs/README.md is required to mention every doc under
+    docs/.
+  - Docs-lint job extended to require all 14 reference docs.
 - **Phase 3 keystone — new src/lib/ libsd preload library**:
   - `src/lib/preload.cpp` — constructor (logger init, config load,
     FdRemapTable allocation, optional monitor handshake), destructor,

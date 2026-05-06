@@ -122,6 +122,16 @@ set_tests_properties(integration-api-doc-drift PROPERTIES
     TIMEOUT 30
     ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
 
+# --- docs internal-links + index ---------------------------------------------
+add_test(
+    NAME integration-docs-links
+    COMMAND ${Python3_EXECUTABLE} -m pytest
+            ${CMAKE_CURRENT_SOURCE_DIR}/test_docs_links.py
+            -v --tb=short --color=yes)
+set_tests_properties(integration-docs-links PROPERTIES
+    TIMEOUT 30
+    ENVIRONMENT "PYTHONDONTWRITEBYTECODE=1")
+
 # --- LTP socket conformance --------------------------------------------------
 add_test(
     NAME integration-ltp
